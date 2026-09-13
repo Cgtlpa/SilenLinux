@@ -1,0 +1,27 @@
+#!/bin/sh
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export TERM="${TERM:-linux}"
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+
+mkdir -p /dev/pts /dev/shm /proc /sys /tmp /run /mnt
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+
+echo "Welcome to Silen Linux"
+
+if [ -f /etc/modules ]; then
+	echo "Loading kernel modules..."
+	while read -r mod; do
+		[ -n "$mod" ] && modprobe -q "$mod"
+	done < /etc/modules
+fi
+
+echo
+echo "Silen Linux live shell (type exit to power off)"
+echo
+exec /bin/sh
