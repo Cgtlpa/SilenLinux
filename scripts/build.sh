@@ -3,6 +3,8 @@
 # and yes this is written by ai ( some stuff and making it better )
 
 set -e
+
+trap 'echo; echo "!! Build stopped with an error. See the message above."; echo "   Remove build/ if needed: rm -rf build" >&2' ERR
 KERNEL_VERSION="7.2.0-gentoo-gentoo-dist-bin"
 KERNEL_SOURCE="boot/vmlinuz"
 MODULES_SOURCE="rootfs/lib/modules/$KERNEL_VERSION"
@@ -61,11 +63,24 @@ echo
 
 echo "[1/7] Cleaning old build (removing build/)..."
 
-rm -rf build 2>/dev/null || true
+if [ -d build ]; then
+	rm -rf build 2>/dev/null || true
+fi
 
 if [ -d build ]; then
-	echo "  old build files are root-owned, cleaning with sudo..."
-	sudo rm -rf build
+	echo "  build/ is root-owned, using sudo..."
+	if ! sudo -n rm -rf build 2>/dev/null; then
+		echo "  ERROR: cannot remove build/ without typing a sudo password."
+		echo "  Fix it yourself once, then rerun this script:"
+		echo "      sudo rm -rf /home/vgz/SilenLinux/build"
+		exit 1
+	fi
+fi
+
+FREE_KB=$(df -Pk . | awk 'NR==2 {print $4}')
+if [ "$FREE_KB" -lt 500000 ]; then
+	echo "  ERROR: only $((FREE_KB / 1024))MB free on disk - need at least 500MB to build."
+	exit 1
 fi
 
 echo "[2/7] Building module list..."
@@ -186,12 +201,47 @@ for applet in $(busybox --list); do
 	ln -sf busybox "$RAMROOT/bin/$applet"
 done
 
-# whiptail + its runtime libraries (needed by the installer menus)
-mkdir -p "$RAMROOT/usr/bin"
-cp /usr/bin/whiptail "$RAMROOT/usr/bin/whiptail"
-cp --dereference /usr/lib64/libnewt.so.0.52 "$RAMROOT/usr/lib64/libnewt.so.0.52"
-cp --dereference /usr/lib64/libslang.so.2  "$RAMROOT/usr/lib64/libslang.so.2"
-cp --dereference /usr/lib64/libpopt.so.0   "$RAMROOT/usr/lib64/libpopt.so.0"
+# copy an app + all the shared libraries it needs (recursive ldd closure)
+copy_app() {
+	local dest="$1"
+	local src="$2"
+	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/lib64"
+	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
+	while IFS= read -r lib; do
+		[ -n "$lib" ] && cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null
+	done < <(ldd "$src" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p')
+}
+
+# whiptail + nmtui, with all their runtime libraries (installer + network menus)
+copy_app whiptail /usr/bin/whiptail
+copy_app nmtui /usr/bin/nmtui
+
+# network stack: NetworkManager daemon, its D-Bus, and wpa_supplicant (Wi-Fi)
+copy_app NetworkManager /usr/sbin/NetworkManager
+copy_app dbus-daemon  /usr/bin/dbus-daemon
+copy_app wpa_supplicant /usr/sbin/wpa_supplicant
+mkdir -p "$RAMROOT/usr/sbin"
+ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
+
+# D-Bus machine-id (live system - a static id is fine)
+mkdir -p "$RAMROOT/var/lib/dbus"
+printf 'deadbeef000000000000000000000001\n' > "$RAMROOT/etc/machine-id"
+cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
+
+# system bus config: run as root (no messagebus user), no fork (init backgrounds it)
+mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
+cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
+mkdir -p "$RAMROOT/etc/dbus-1/system.d"
+[ -f /etc/dbus-1/system.d/wpa_supplicant.conf ] && cp /etc/dbus-1/system.d/wpa_supplicant.conf "$RAMROOT/etc/dbus-1/system.d/"
+sed -e '/<user>messagebus<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
+
+# NetworkManager config (internal DHCP - no external helper needed)
+mkdir -p "$RAMROOT/etc/NetworkManager"
+cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
+[main]
+plugins=keyfile
+dhcp=internal
+EOF
 
 # terminfo entries whiptail/newt need to draw its menus
 mkdir -p "$RAMROOT/usr/share/terminfo/l"

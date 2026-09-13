@@ -21,6 +21,13 @@ if [ -f /etc/modules ]; then
 	done < /etc/modules
 fi
 
+mkdir -p /run/dbus /run/NetworkManager
+echo "Starting D-Bus..."
+dbus-daemon --system --nofork >/dev/null 2>&1 &
+sleep 1
+echo "Starting NetworkManager..."
+NetworkManager --no-daemon >/dev/null 2>&1 &
+
 echo
 echo "Silen Linux live shell (type exit to power off)"
 echo

@@ -4,22 +4,20 @@ set -e
 echo "Installer started"
 title="Silen installer"
 
-whiptail --msgbox  --title "$title" "Silen linux installer (this script is still in early development errors may accur " 10 40
+whiptail --msgbox --title "$title" "Silen linux installer (this script is still in early development errors may accur)" 10 40
 
-internet=$(whiptail --yesno --title "$title" "would you like to connect to the internet?" 8 40 3>&2 1>&2 2>&3)
-main_installer() {
-	echo "worked"
-	partition=$(whiptail --title "$title" --menu 10 49 \
-		"1" "Install Silen" \
-		"2" "Shell"\
-		"3" "Reboot" \
-		3>&1 1>&2 2>&3)
+main_screen() {
+    echo "worked"
+    partition=$(whiptail --title "$title" --menu "Choose an option:" 10 49 3 \
+        "1" "Install Silen" \
+        "2" "Shell" \
+        "3" "Reboot" \
+        3>&1 1>&2 2>&3)
 }
 
-if [ "$internet" = "yes" ]; then
-echo "idk but it worked"
-
+if whiptail --yesno --title "$title" "Would you like to connect to the internet?" 8 40; then
+    nmtui
+    main_screen
 else 
-	main_installer
-
+    main_screen
 fi

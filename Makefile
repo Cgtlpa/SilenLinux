@@ -5,7 +5,7 @@
 #   make clean   remove the build/ folder
 
 iso:
-	./scripts/build.sh
+	sudo ./scripts/build.sh
 
 qemu:
 	qemu-system-x86_64 -m 2G -cpu max -bios /usr/share/edk2-ovmf/OVMF_CODE.fd -cdrom build/silen-linux.iso -boot d
