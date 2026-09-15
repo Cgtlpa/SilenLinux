@@ -5,20 +5,24 @@
 set -e
 
 trap 'echo; echo "!! Build stopped with an error. See the message above."; echo "   Remove build/ if needed: rm -rf build" >&2' ERR
-KERNEL_VERSION="7.2.0-gentoo-gentoo-dist-bin"
-KERNEL_SOURCE="boot/vmlinuz"
-MODULES_SOURCE="rootfs/lib/modules/$KERNEL_VERSION"
-FIRMWARE_SOURCE="/lib/firmware"
-BUSYBOX_SOURCE="rootfs/bin/busybox"
-INIT_SOURCE="rootfs/init"
+DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
+KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.0-gentoo-gentoo-dist-bin}}"
+KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
+MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
+FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-/lib/firmware}"
+BUSYBOX_SOURCE="${BUSYBOX_SOURCE:-rootfs/bin/busybox}"
+INIT_SOURCE="${INIT_SOURCE:-rootfs/init}"
 
 RAMROOT="build/initramfs-root"
 ISO_DIR="build/iso"
 RESULT="build/silen-linux.iso"
 
 COMPRESS="${COMPRESS:-zstd}"   
-AUTO_HOST="${AUTO_HOST:-1}"    
+AUTO_HOST="${AUTO_HOST:-0}"    
 FULL="${FULL:-0}"             
+FORCE="${FORCE:-0}"            
+MIN_RAM_MB="${MIN_RAM_MB:-2048}"
+MIN_DISK_MB="${MIN_DISK_MB:-500}"             
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod nvme nvme_core nvme_auth nvme_common
@@ -58,6 +62,54 @@ echo
 
 
 # ----------------------------------------------------------------------
+# Step 0: sanity checks (fail fast, loose nothing on the host)
+# ----------------------------------------------------------------------
+
+modules_ok() {
+	[ -d "$1" ] && find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) 2>/dev/null | grep -q .
+}
+
+if ! modules_ok "$MODULES_SOURCE"; then
+	echo "  kernel module tree not found: $MODULES_SOURCE"
+	echo "  (auto-detecting host kernel instead...)"
+	HOST_VER="$(uname -r 2>/dev/null)"
+	HOST_MODS="/usr/lib/modules/$HOST_VER"
+	if [ -n "$HOST_VER" ] && modules_ok "$HOST_MODS"; then
+		echo "  -> using host kernel: $HOST_VER"
+		echo "     modules from $HOST_MODS"
+		KERNEL_VERSION="$HOST_VER"
+		MODULES_SOURCE="$HOST_MODS"
+		[ -f "$HOST_MODS/vmlinuz" ] && KERNEL_SOURCE="$HOST_MODS/vmlinuz"
+	else
+		echo
+		echo "  No usable module tree found anywhere. You must provide one, e.g.:"
+		echo "      for a specific kernel: KERNEL_VERSION=... make iso"
+		echo "      with the host kernel:  (the script auto-detects it)"
+		echo
+		echo "  ENV overrides: KERNEL_VERSION=foo KERNEL_SOURCE=/path/vmlinuz \\"
+		echo "                 MODULES_SOURCE=/path/modules make iso"
+		exit 1
+	fi
+fi
+
+echo "  kernel:    $KERNEL_SOURCE"
+echo "  modules:   $MODULES_SOURCE"
+
+if ! command -v grub-mkrescue >/dev/null 2>&1; then
+	echo "  ERROR: grub-mkrescue not found."
+	echo "  Install it first, e.g. on Arch: sudo pacman -S grub xorriso mtools dosfstools"
+	exit 1
+fi
+
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)"
+if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
+	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB)."
+	echo "  Close heavy apps first, or rerun with FORCE=1 to try anyway."
+	exit 1
+fi
+
+
+# ----------------------------------------------------------------------
 # Step 1: clean old build (remove the whole build/ folder)
 # ----------------------------------------------------------------------
 
@@ -78,21 +130,27 @@ if [ -d build ]; then
 fi
 
 FREE_KB=$(df -Pk . | awk 'NR==2 {print $4}')
-if [ "$FREE_KB" -lt 500000 ]; then
-	echo "  ERROR: only $((FREE_KB / 1024))MB free on disk - need at least 500MB to build."
+if [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ]; then
+	echo "  ERROR: only $((FREE_KB / 1024))MB free on disk - need at least ${MIN_DISK_MB}MB to build."
 	exit 1
 fi
 
 echo "[2/7] Building module list..."
 
+mod_name_from_path() {
+	local n
+	n="${1##*/}"
+	n="${n%.ko.zst}"
+	printf '%s\n' "${n%.ko}"
+}
+
 declare -A module_file_by_name
 while IFS= read -r path; do
-	name="${path##*/}"
-	name="${name%.ko}"
+	name="$(mod_name_from_path "$path")"
 	if [ -z "${module_file_by_name[$name]:-}" ]; then
 		module_file_by_name[$name]="$path"
 	fi
-done < <(find "$MODULES_SOURCE" -name '*.ko')
+done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 
 
 module_file() {
@@ -117,10 +175,8 @@ is_blacklisted() {
 if [ "$FULL" = "1" ]; then
 	queue=()
 	while IFS= read -r path; do
-		name="${path##*/}"
-		name="${name%.ko}"
-		queue+=("$name")
-	done < <(find "$MODULES_SOURCE" -name '*.ko')
+		queue+=("$(mod_name_from_path "$path")")
+	done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 else
 	queue=($ALLOW)
 	if [ "$AUTO_HOST" = "1" ]; then
@@ -197,24 +253,67 @@ EOF
 
 touch "$RAMROOT/etc/fstab"
 
-for applet in $(busybox --list); do
+for applet in $("$BUSYBOX_SOURCE" --list); do
 	ln -sf busybox "$RAMROOT/bin/$applet"
 done
 
-# copy an app + all the shared libraries it needs (recursive ldd closure)
+# copy the full (transitive) closure of shared libraries a binary needs
+libs_seen=" "
+copy_libs() {
+	local bin="$1" lib
+	[ -f "$bin" ] || return 0
+	mkdir -p "$RAMROOT/usr/lib64"
+	while IFS= read -r lib; do
+		[ -n "$lib" ] || continue
+		case " $libs_seen " in
+			*" $lib "*) continue ;;
+		esac
+		libs_seen="$libs_seen $lib "
+		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null
+		copy_libs "$lib"
+	done < <(ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p')
+}
+
+# copy an app + all the shared libraries it needs (full ldd closure)
 copy_app() {
 	local dest="$1"
 	local src="$2"
-	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/lib64"
+	mkdir -p "$RAMROOT/usr/bin"
 	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
-	while IFS= read -r lib; do
-		[ -n "$lib" ] && cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null
-	done < <(ldd "$src" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p')
+	copy_libs "$src"
 }
 
 # whiptail + nmtui, with all their runtime libraries (installer + network menus)
 copy_app whiptail /usr/bin/whiptail
 copy_app nmtui /usr/bin/nmtui
+
+# tools the installer needs to format disk + write fstab
+copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
+copy_app mkfs.vfat /usr/sbin/mkfs.vfat
+copy_app blkid   /usr/sbin/blkid
+copy_app tar     /usr/bin/tar
+ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
+
+# git + curl, with every library they need (clone/fetch/upload in the live env)
+copy_app git  /usr/bin/git
+copy_app curl /usr/bin/curl
+
+# git's helper programs in /usr/lib/git-core - clone/pull/push over http(s)
+# uses git-remote-http, git-http-fetch, git-http-push, git-imap-send, ...
+mkdir -p "$RAMROOT/usr/lib/git-core"
+cp -a /usr/lib/git-core/. "$RAMROOT/usr/lib/git-core/"
+for helper in git-remote-http git-http-fetch git-http-push git-http-backend git-imap-send git-daemon; do
+	copy_libs "/usr/lib/git-core/$helper"
+done
+
+# `git init` needs the default templates
+mkdir -p "$RAMROOT/usr/share/git-core"
+cp -a /usr/share/git-core/templates "$RAMROOT/usr/share/git-core/"
+
+# CA certificates so git/curl can verify https sites
+mkdir -p "$RAMROOT/etc/ssl/certs"
+cp /etc/ca-certificates/extracted/tls-ca-bundle.pem "$RAMROOT/etc/ssl/certs/ca-certificates.crt"
+cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf"
 
 # network stack: NetworkManager daemon, its D-Bus, and wpa_supplicant (Wi-Fi)
 copy_app NetworkManager /usr/sbin/NetworkManager
@@ -228,12 +327,12 @@ mkdir -p "$RAMROOT/var/lib/dbus"
 printf 'deadbeef000000000000000000000001\n' > "$RAMROOT/etc/machine-id"
 cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
 
-# system bus config: run as root (no messagebus user), no fork (init backgrounds it)
+# system bus config: run as root (no dbus/messagebus user), no fork (init backgrounds it)
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
 cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
 mkdir -p "$RAMROOT/etc/dbus-1/system.d"
 [ -f /etc/dbus-1/system.d/wpa_supplicant.conf ] && cp /etc/dbus-1/system.d/wpa_supplicant.conf "$RAMROOT/etc/dbus-1/system.d/"
-sed -e '/<user>messagebus<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
+sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
 
 # NetworkManager config (internal DHCP - no external helper needed)
 mkdir -p "$RAMROOT/etc/NetworkManager"
@@ -254,7 +353,13 @@ cp /usr/share/terminfo/x/xterm-256color "$RAMROOT/usr/share/terminfo/x/xterm-256
 cp /usr/share/terminfo/v/vt100      "$RAMROOT/usr/share/terminfo/v/vt100"
 cp /usr/share/terminfo/s/screen     "$RAMROOT/usr/share/terminfo/s/screen"
 
-# the Silen installer, available at /installer/main.sh in the live environment
+# The Silen installer, available at /installer/main.sh in the live environment
+# This glibc's loader only finds libraries through /etc/ld.so.cache, so
+# generate one for the ramroot (after every app + library is in place) or
+# no dynamic app (git/curl/whiptail/...) would run in the live system.
+printf '/lib64\n/usr/lib64\n' > "$RAMROOT/etc/ld.so.conf"
+ldconfig -r "$RAMROOT" 2>/dev/null || echo "  ! ldconfig failed (dynamic apps may not load)"
+
 mkdir -p "$RAMROOT/installer"
 cp installer/main.sh "$RAMROOT/installer/main.sh"
 chmod 0755 "$RAMROOT/installer/main.sh"
@@ -279,17 +384,31 @@ for name in "${chosen[@]}"; do
 	relative="${path#$MODULES_SOURCE/}"
 	mkdir -p "$MODULES_DIR/$(dirname "$relative")"
 	cp "$path" "$MODULES_DIR/$relative"
+	if [ "${relative##*.}" = "zst" ]; then
+		zstd -d -f -q "$MODULES_DIR/$relative"
+		rm "$MODULES_DIR/$relative"
+	fi
 
 	for firmware in $(modinfo -F firmware "$path" 2>/dev/null); do
+		[ -n "$firmware" ] || continue
+		# host may ship firmware zstd-compressed (*.fw.zst); the kernel's
+		# compressed-firmware loader looks for the .zst variant too
 		if [ -f "$FIRMWARE_SOURCE/$firmware" ]; then
-			mkdir -p "$RAMROOT/lib/firmware/$(dirname "$firmware")"
-			cp "$FIRMWARE_SOURCE/$firmware" "$RAMROOT/lib/firmware/$firmware"
+			src="$FIRMWARE_SOURCE/$firmware"
+		elif [ -f "$FIRMWARE_SOURCE/$firmware.zst" ]; then
+			src="$FIRMWARE_SOURCE/$firmware.zst"
+			firmware="$firmware.zst"
+		else
+			continue
 		fi
+		mkdir -p "$RAMROOT/lib/firmware/$(dirname "$firmware")"
+		cp "$src" "$RAMROOT/lib/firmware/$firmware"
 	done
 done
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
+cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
 
 echo "  modules:   $(du -sh "$MODULES_DIR" | cut -f1)"
 echo "  firmware:  $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
@@ -318,6 +437,20 @@ $DEPMOD -b "$RAMROOT" "$KERNEL_VERSION" || echo "  ! depmod failed (modules.dep 
 
 echo "[6/7] Packing initramfs ($COMPRESS)..."
 
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)"
+if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
+	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB) at compression time."
+	echo "  Rerun with FORCE=1 to try anyway."
+	exit 1
+fi
+
+for cmd in cpio "$COMPRESS"; do
+	if ! command -v "$cmd" >/dev/null 2>&1; then
+		echo "  ERROR: '$cmd' not found - install it (e.g. sudo pacman -S $cmd)"
+		exit 1
+	fi
+done
+
 CPIO_FILE="build/initramfs.cpio"
 
 (
@@ -342,6 +475,22 @@ echo "[7/7] Assembling ISO..."
 
 mkdir -p "$ISO_DIR/boot/grub"
 
+# full module tree for the installed system (lean live initramfs)
+if modules_ok "$MODULES_SOURCE"; then
+	echo "  adding full module tree to ISO at modules/$KERNEL_VERSION"
+	mkdir -p "$ISO_DIR/modules"
+	cp -a "$MODULES_SOURCE" "$ISO_DIR/modules/$KERNEL_VERSION"
+else
+	echo "  no module tree found to add to ISO (installed system gets the initramfs set)"
+fi
+
+# drop the Gentoo stage3 tarball onto the ISO so it can be used from live env
+STAGE3_TARBALL="$(ls stage3-*.tar.* 2>/dev/null | head -n1)"
+if [ -n "$STAGE3_TARBALL" ]; then
+	echo "  copying stage3 tarball onto the ISO: $STAGE3_TARBALL"
+	cp "$STAGE3_TARBALL" "$ISO_DIR/"
+fi
+
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz"
 cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS"
 
@@ -351,7 +500,7 @@ set timeout=5
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"
-	linux /boot/vmlinuz
+	linux /boot/vmlinuz quiet loglevel=3
 	initrd /boot/$INITRAMFS
 }
 EOF
@@ -366,4 +515,4 @@ echo
 echo "initramfs:  $(du -h "build/$INITRAMFS" | cut -f1)"
 echo "kernel:     $(du -h "$KERNEL_SOURCE" | cut -f1)"
 echo "modules:    $(du -sh "$MODULES_DIR" | cut -f1)"
-echo "firmware:   $(du -sh "$RAMROOT/lib/firmware" | cut -f1)"
+echo "firmware:   $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"

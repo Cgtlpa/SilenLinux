@@ -21,12 +21,34 @@ if [ -f /etc/modules ]; then
 	done < /etc/modules
 fi
 
-mkdir -p /run/dbus /run/NetworkManager
+mkdir -p /run/dbus /run/NetworkManager /var/lib/NetworkManager
 echo "Starting D-Bus..."
 dbus-daemon --system --nofork >/dev/null 2>&1 &
 sleep 1
 echo "Starting NetworkManager..."
 NetworkManager --no-daemon >/dev/null 2>&1 &
+
+echo
+echo "Mounting install medium..."
+for dev in /dev/sr0 /dev/sr1 /dev/sr2 /dev/cdrom; do
+	[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
+done
+if ! mountpoint -q /mnt 2>/dev/null; then
+	for dev in /dev/sda1 /dev/sda2 /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2 /dev/vda1 /dev/vda2; do
+		[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
+	done
+fi
+
+stage3=""
+for f in /mnt/stage3-*.tar.* /mnt/*.tar.xz; do
+	[ -f "$f" ] && stage3="$f" && break
+done
+if [ -n "$stage3" ]; then
+	echo "  install medium mounted at /mnt"
+	echo "  found Gentoo stage3: $stage3"
+else
+	echo "  no stage3 tarball found on the mounted media"
+fi
 
 echo
 echo "Silen Linux live shell (type exit to power off)"

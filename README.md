@@ -23,3 +23,8 @@ make clean
 
 `scripts/build.sh` options: `COMPRESS=gzip`, `AUTO_HOST=0`, `FULL=1` (see the
 top of the script).
+
+The live environment includes `git` and `curl` (with CA certificates for
+https). If a `stage3-*.tar.*` file is present next to the repo, it is burned
+onto the ISO and the live system mounts the disc at `/mnt`, so the stage3
+tarball is reachable at `/mnt/stage3-*.tar.*` for installing Gentoo.
