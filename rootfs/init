@@ -45,9 +45,9 @@ for f in /mnt/stage3-*.tar.* /mnt/*.tar.xz; do
 done
 if [ -n "$stage3" ]; then
 	echo "  install medium mounted at /mnt"
-	echo "  found Gentoo stage3: $stage3"
+	echo "  found Silen tarball: $stage3"
 else
-	echo "  no stage3 tarball found on the mounted media"
+	echo "  no Silen tarball found on the mounted media"
 fi
 
 echo

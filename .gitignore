@@ -1,2 +1,3 @@
 build/
-rootfs/lib/
+spk/target/
+rootfs/lib/stage3-amd64-openrc-20260906T170102Z.tar.xz

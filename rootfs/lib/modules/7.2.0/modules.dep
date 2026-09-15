@@ -1,0 +1,41 @@
+kernel/fs/nls/nls_iso8859-1.ko.zst:
+kernel/fs/nls/nls_utf8.ko.zst:
+kernel/fs/squashfs/squashfs.ko.zst:
+kernel/fs/fat/fat.ko.zst:
+kernel/fs/fat/vfat.ko.zst: kernel/fs/fat/fat.ko.zst
+kernel/fs/isofs/isofs.ko.zst: kernel/drivers/cdrom/cdrom.ko.zst
+kernel/fs/ntfs3/ntfs3.ko.zst:
+kernel/fs/xfs/xfs.ko.zst:
+kernel/drivers/virtio/virtio_input.ko.zst:
+kernel/drivers/scsi/sr_mod.ko.zst: kernel/drivers/cdrom/cdrom.ko.zst
+kernel/drivers/nvme/common/nvme-auth.ko.zst:
+kernel/drivers/nvme/common/nvme-keyring.ko.zst:
+kernel/drivers/nvme/host/nvme-core.ko.zst: kernel/drivers/nvme/common/nvme-keyring.ko.zst kernel/drivers/nvme/common/nvme-auth.ko.zst
+kernel/drivers/nvme/host/nvme.ko.zst: kernel/drivers/nvme/host/nvme-core.ko.zst kernel/drivers/nvme/common/nvme-keyring.ko.zst kernel/drivers/nvme/common/nvme-auth.ko.zst
+kernel/drivers/ata/ata_piix.ko.zst:
+kernel/drivers/net/phy/mdio_bus.ko.zst:
+kernel/drivers/net/phy/libphy.ko.zst: kernel/drivers/net/phy/mdio_bus.ko.zst
+kernel/drivers/net/phy/mdio_devres.ko.zst: kernel/drivers/net/phy/libphy.ko.zst kernel/drivers/net/phy/mdio_bus.ko.zst
+kernel/drivers/net/ethernet/broadcom/tg3.ko.zst: kernel/drivers/ptp/ptp.ko.zst kernel/drivers/pps/pps_core.ko.zst kernel/drivers/net/phy/libphy.ko.zst kernel/drivers/net/phy/mdio_bus.ko.zst
+kernel/drivers/net/ethernet/intel/libie/libie_fwlog.ko.zst:
+kernel/drivers/net/ethernet/intel/e1000/e1000.ko.zst:
+kernel/drivers/net/ethernet/intel/e1000e/e1000e.ko.zst: kernel/drivers/ptp/ptp.ko.zst kernel/drivers/pps/pps_core.ko.zst
+kernel/drivers/net/ethernet/intel/igb/igb.ko.zst: kernel/drivers/i2c/algos/i2c-algo-bit.ko.zst kernel/drivers/dca/dca.ko.zst kernel/drivers/ptp/ptp.ko.zst kernel/drivers/pps/pps_core.ko.zst
+kernel/drivers/net/ethernet/intel/ixgbe/ixgbe.ko.zst: kernel/drivers/net/mdio.ko.zst kernel/drivers/net/phy/mdio_devres.ko.zst kernel/drivers/net/ethernet/intel/libie/libie_fwlog.ko.zst kernel/drivers/dca/dca.ko.zst kernel/drivers/ptp/ptp.ko.zst kernel/drivers/pps/pps_core.ko.zst kernel/drivers/net/phy/libphy.ko.zst kernel/drivers/net/phy/mdio_bus.ko.zst
+kernel/drivers/net/ethernet/realtek/r8169.ko.zst: kernel/drivers/net/phy/mdio_devres.ko.zst kernel/drivers/net/phy/libphy.ko.zst kernel/drivers/net/phy/mdio_bus.ko.zst
+kernel/drivers/net/mii.ko.zst:
+kernel/drivers/net/mdio.ko.zst:
+kernel/drivers/net/virtio_net.ko.zst: kernel/drivers/net/net_failover.ko.zst kernel/net/core/failover.ko.zst
+kernel/drivers/net/usb/r8152.ko.zst: kernel/drivers/net/mii.ko.zst
+kernel/drivers/net/usb/ax88179_178a.ko.zst: kernel/drivers/net/usb/usbnet.ko.zst kernel/drivers/net/mii.ko.zst
+kernel/drivers/net/usb/usbnet.ko.zst: kernel/drivers/net/mii.ko.zst
+kernel/drivers/net/net_failover.ko.zst: kernel/net/core/failover.ko.zst
+kernel/drivers/cdrom/cdrom.ko.zst:
+kernel/drivers/usb/storage/uas.ko.zst: kernel/drivers/usb/storage/usb-storage.ko.zst
+kernel/drivers/usb/storage/usb-storage.ko.zst:
+kernel/drivers/input/mouse/psmouse.ko.zst:
+kernel/drivers/i2c/algos/i2c-algo-bit.ko.zst:
+kernel/drivers/ptp/ptp.ko.zst: kernel/drivers/pps/pps_core.ko.zst
+kernel/drivers/pps/pps_core.ko.zst:
+kernel/drivers/dca/dca.ko.zst:
+kernel/net/core/failover.ko.zst:

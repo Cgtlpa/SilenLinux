@@ -291,6 +291,7 @@ copy_app nmtui /usr/bin/nmtui
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
 copy_app mkfs.vfat /usr/sbin/mkfs.vfat
 copy_app blkid   /usr/sbin/blkid
+copy_app sfdisk  /usr/bin/sfdisk
 copy_app tar     /usr/bin/tar
 ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
 
@@ -484,11 +485,21 @@ else
 	echo "  no module tree found to add to ISO (installed system gets the initramfs set)"
 fi
 
-# drop the Gentoo stage3 tarball onto the ISO so it can be used from live env
+# drop the Silen stage3 tarball onto the ISO so it can be used from live env
 STAGE3_TARBALL="$(ls stage3-*.tar.* 2>/dev/null | head -n1)"
 if [ -n "$STAGE3_TARBALL" ]; then
 	echo "  copying stage3 tarball onto the ISO: $STAGE3_TARBALL"
 	cp "$STAGE3_TARBALL" "$ISO_DIR/"
+fi
+
+# bundled GRUB (x86_64-efi) so the installer can set up the bootloader
+if [ -d grub-bundle/usr/local ]; then
+	echo "  adding bundled grub (EFI) to ISO at grub/"
+	mkdir -p "$ISO_DIR/grub"
+	cp -a grub-bundle/usr "$ISO_DIR/grub/"
+else
+	echo "  ! no grub-bundle/ found - installer won't be able to set up GRUB"
+	echo "    build it once with: scripts/make-grub-bundle.sh"
 fi
 
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz"
