@@ -1,3 +1,4 @@
 build/
 spk/target/
-rootfs/lib/stage3-amd64-openrc-20260906T170102Z.tar.xz
+rootfs/lib/stage3-tarball-silen.tar.xz
+/stage3-tarball-silen.tar.xz
