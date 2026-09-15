@@ -145,7 +145,7 @@ install-base() {
 
     while :; do
         pass=$(whiptail --title "$title" --passwordbox "Set the root password:" 8 40 3>&1 1>&2 2>&3 || true)
-        if [ -n "$pass" ] && echo "root:$pass" | chroot $root /usr/sbin/chpasswd; then
+        if [ -n "$pass" ] && echo "root:$pass" | chroot $root /bin/busybox chpasswd; then
             break
         fi
         whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
