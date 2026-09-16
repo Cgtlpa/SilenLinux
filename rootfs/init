@@ -40,7 +40,7 @@ if ! mountpoint -q /mnt 2>/dev/null; then
 fi
 
 stage3=""
-for f in /mnt/stage3-*.tar.* /mnt/*.tar.xz; do
+for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
 	[ -f "$f" ] && stage3="$f" && break
 done
 if [ -n "$stage3" ]; then

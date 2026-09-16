@@ -43,7 +43,13 @@ fn main() {
     let tmp = format!("/tmp/{}.spk", name);
     let digest = download(&download_url, &tmp);
 
-    let size = fs::metadata(&tmp).unwrap().len();
+    let size = match fs::metadata(&tmp) {
+        Ok(m) => m.len(),
+        Err(err) => {
+            println!("spk: error: cannot open downloaded file {}: {}", tmp, err);
+            process::exit(1);
+        }
+    };
     println!("spk: downloaded {} bytes", size);
 
     if expected.is_empty() {
@@ -70,33 +76,69 @@ fn main() {
 }
 
 fn http_get(url: &str) -> String {
-    let mut resp = ureq::get(url).call().unwrap();
+    let mut resp = match ureq::get(url).call() {
+        Ok(resp) => resp,
+        Err(err) => {
+            println!("spk: error: could not fetch {}: {}", url, err);
+            process::exit(1);
+        }
+    };
     if resp.status().as_u16() != 200 {
         println!("spk: error: could not fetch {}", url);
         process::exit(1);
     }
-    resp.body_mut().read_to_string().unwrap()
+    match resp.body_mut().read_to_string() {
+        Ok(text) => text,
+        Err(err) => {
+            println!("spk: error: could not read {}: {}", url, err);
+            process::exit(1);
+        }
+    }
 }
 
 fn download(url: &str, dst: &str) -> String {
-    let mut resp = ureq::get(url).call().unwrap();
+    let mut resp = match ureq::get(url).call() {
+        Ok(resp) => resp,
+        Err(err) => {
+            println!("spk: error: could not download {}: {}", url, err);
+            process::exit(1);
+        }
+    };
     if resp.status().as_u16() != 200 {
         println!("spk: error: could not download {}", url);
         process::exit(1);
     }
 
-    let mut file = fs::File::create(dst).unwrap();
+    let _ = fs::remove_file(dst);
+    let mut file = match fs::File::create(dst) {
+        Ok(file) => file,
+        Err(err) => {
+            println!("spk: error: cannot write {}: {}", dst, err);
+            process::exit(1);
+        }
+    };
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 4096];
     let mut reader = resp.body_mut().as_reader();
 
     loop {
-        let count = reader.read(&mut buf).unwrap();
+        let count = match reader.read(&mut buf) {
+            Ok(count) => count,
+            Err(err) => {
+                let _ = fs::remove_file(dst);
+                println!("spk: error: download failed: {}", err);
+                process::exit(1);
+            }
+        };
         if count == 0 {
             break;
         }
         hasher.update(&buf[..count]);
-        file.write_all(&buf[..count]).unwrap();
+        if let Err(err) = file.write_all(&buf[..count]) {
+            let _ = fs::remove_file(dst);
+            println!("spk: error: cannot write {}: {}", dst, err);
+            process::exit(1);
+        }
     }
 
     format!("{:x}", hasher.finalize())
@@ -131,7 +173,13 @@ fn read_field(text: &str, key: &str) -> String {
 fn extract(archive: &str, root: &str) -> usize {
     let mut count = 0;
 
-    let file = fs::File::open(archive).unwrap();
+    let file = match fs::File::open(archive) {
+        Ok(file) => file,
+        Err(err) => {
+            println!("spk: error: cannot open {}: {}", archive, err);
+            process::exit(1);
+        }
+    };
     let reader: Box<dyn Read> = if is_gzip(archive) {
         Box::new(flate2::read::GzDecoder::new(file))
     } else {
@@ -140,8 +188,24 @@ fn extract(archive: &str, root: &str) -> usize {
 
     let mut tar = tar::Archive::new(reader);
 
-    for entry in tar.entries().unwrap() {
-        let mut entry = entry.unwrap();
+    let entries = match tar.entries() {
+        Ok(entries) => entries,
+        Err(err) => {
+            let _ = fs::remove_file(archive);
+            println!("spk: error: bad archive {}: {}", archive, err);
+            process::exit(1);
+        }
+    };
+
+    for entry in entries {
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                let _ = fs::remove_file(archive);
+                println!("spk: error: bad archive {}: {}", archive, err);
+                process::exit(1);
+            }
+        };
         let typ = entry.header().entry_type();
 
         if typ.is_pax_global_extensions()
@@ -156,26 +220,56 @@ fn extract(archive: &str, root: &str) -> usize {
         let dest = clean(&name, root);
 
         if typ.is_dir() {
-            fs::create_dir_all(&dest).unwrap();
+            check(fs::create_dir_all(&dest), &format!("cannot create {}", dest));
         } else if typ.is_symlink() {
-            let target = entry.link_name().unwrap().unwrap();
+            let target = match entry.link_name() {
+                Ok(Some(target)) => target,
+                _ => {
+                    let _ = fs::remove_file(archive);
+                    println!("spk: error: symlink without target in {}", name);
+                    process::exit(1);
+                }
+            };
             let target = target.to_string_lossy().to_string();
             let link = resolve(&target, root);
             let _ = fs::remove_file(&dest);
-            std::os::unix::fs::symlink(&link, &dest).unwrap();
+            check(
+                std::os::unix::fs::symlink(&link, &dest),
+                &format!("cannot create link {}", dest),
+            );
         } else {
             let parent = Path::new(&dest).parent().unwrap();
-            fs::create_dir_all(parent).unwrap();
-            let mut out = fs::File::create(&dest).unwrap();
-            std::io::copy(&mut entry, &mut out).unwrap();
+            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            let _ = fs::remove_file(&dest);
+            let mut out = match fs::File::create(&dest) {
+                Ok(file) => file,
+                Err(err) => {
+                    println!("spk: error: cannot create {}: {}", dest, err);
+                    process::exit(1);
+                }
+            };
+            if let Err(err) = std::io::copy(&mut entry, &mut out) {
+                println!("spk: error: cannot write {}: {}", dest, err);
+                process::exit(1);
+            }
             let mode = entry.header().mode().unwrap();
-            fs::set_permissions(&dest, fs::Permissions::from_mode(mode)).unwrap();
+            check(
+                fs::set_permissions(&dest, fs::Permissions::from_mode(mode)),
+                &format!("cannot set mode on {}", dest),
+            );
         }
 
         count = count + 1;
     }
 
     count
+}
+
+fn check(result: std::io::Result<()>, what: &str) {
+    if let Err(err) = result {
+        println!("spk: error: {}: {}", what, err);
+        process::exit(1);
+    }
 }
 
 fn clean(name: &str, root: &str) -> String {

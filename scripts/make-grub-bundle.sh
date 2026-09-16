@@ -37,5 +37,12 @@ if [ ! -f grub-bundle/usr/local/share/grub/unicode.pf2 ]; then
 	fi
 fi
 
+# the grub tools are dynamically linked, and a plain stage3 has no libdevmapper;
+# bundle the libs so grub-install works inside the installed system
+mkdir -p "$OUT/lib"
+for lib in libdevmapper.so.1.02 liblzma.so.5 libudev.so.1 libgcc_s.so.1; do
+	cp -a "/usr/lib64/$lib"* "$OUT/lib/" 2>/dev/null || true
+done
+
 echo "  bundle: $(du -sh grub-bundle | cut -f1)"
 echo "  done - grub-bundle/ is ready; build the ISO with 'make iso'"

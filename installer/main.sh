@@ -22,10 +22,6 @@ trap cleanup EXIT
 
 whiptail --msgbox --title "$title" "Silen linux installer (this script is still in early development errors may occur)" 10 40
 
-if whiptail --yesno --title "$title" "Would you like to connect to the internet? (not needed if you have a ethernet connection" 8 50; then
-    nmtui
-fi
-
 main_screen() {
     men1=$(whiptail --title "$title" --menu "Choose an option:" 10 49 3 \
         "1" "Install Silen" \
@@ -116,7 +112,7 @@ install-base() {
     fi
 
     stage3=""
-    for s in /mnt/stage3-*.tar.*; do
+    for s in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
         [ -f "$s" ] && stage3="$s" && break
     done || true
     if [ -z "$stage3" ]; then
@@ -124,7 +120,11 @@ install-base() {
         cleanup
         return
     fi
-    tar -xpf "$stage3" -C $root --numeric-owner --xattrs-include='*.*'
+    if [ "$(tar -tf "$stage3" | awk -F/ 'NF>1 {print $1}' | sort -u | wc -l)" = "1" ]; then
+        tar -xpf "$stage3" -C $root --strip-components=1 --no-same-owner --numeric-owner --xattrs-include='*.*'
+    else
+        tar -xpf "$stage3" -C $root --no-same-owner --numeric-owner --xattrs-include='*.*'
+    fi
 
     mkdir -p $root/proc $root/sys $root/dev $root/run $root/etc $root/usr/share/zoneinfo
     mount -t proc proc $root/proc
@@ -145,10 +145,14 @@ install-base() {
 
     while :; do
         pass=$(whiptail --title "$title" --passwordbox "Set the root password:" 8 40 3>&1 1>&2 2>&3 || true)
-        if [ -n "$pass" ] && echo "root:$pass" | chroot $root /bin/busybox chpasswd; then
+        if [ -z "$pass" ]; then
+            whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
+            continue
+        fi
+        if echo "root:$pass" | chroot $root /usr/bin/chpasswd; then
             break
         fi
-        whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
+        whiptail --msgbox --title "$title" "couldn't set the root password, try again" 8 40
     done
 
     bootuuid=$(blkid -s UUID -o value "$bootp" || true)
@@ -251,6 +255,10 @@ install-spk() {
         cp /usr/bin/spk $root/usr/bin/spk
         return
     fi
+    if [ -f /mnt/spk ]; then
+        cp /mnt/spk $root/usr/bin/spk
+        return
+    fi
     if [ -d /mnt/spk ]; then
         cp -r /mnt/spk $root/usr/bin/spk
         return
@@ -289,7 +297,7 @@ setup-grub() {
         cp -a /mnt/grub/usr/local/. $root/usr/local/
     fi
 
-    if chroot $root /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" 2>/dev/null; then
+    if chroot $root /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >/tmp/grub-install.log 2>&1; then
         cat > $root/boot/grub/grub.cfg <<EOF
 set default=0
 set timeout=5
@@ -302,7 +310,7 @@ menuentry "Silen Linux" {
 EOF
         whiptail --msgbox --title "$title" "GRUB is installed, the system will boot into Silen after reboot" 8 40
     else
-        whiptail --msgbox --title "$title" "grub-install failed, check the console for errors" 8 40
+        whiptail --msgbox --title "$title" "grub-install failed, see /tmp/grub-install.log for errors" 8 40
     fi
 }
 

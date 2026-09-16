@@ -486,10 +486,28 @@ else
 fi
 
 # drop the Silen stage3 tarball onto the ISO so it can be used from live env
-STAGE3_TARBALL="$(ls stage3-*.tar.* 2>/dev/null | head -n1)"
+STAGE3_TARBALL="$(ls stage3-*.tar.* tarball-*.xz tarball-*.tar.* 2>/dev/null | head -n1)"
 if [ -n "$STAGE3_TARBALL" ]; then
 	echo "  copying stage3 tarball onto the ISO: $STAGE3_TARBALL"
 	cp "$STAGE3_TARBALL" "$ISO_DIR/"
+fi
+
+# compile spk (the package manager, src/get.rs) and ship it on the ISO so the
+# installer can drop the prebuilt binary into the installed system
+if command -v cargo >/dev/null 2>&1; then
+	echo "  building spk (spk/src/get.rs)..."
+	CARGO_ENV=()
+	if [ -n "$SUDO_USER" ]; then
+		CARGO_ENV+=(RUSTUP_HOME=/home/$SUDO_USER/.rustup CARGO_HOME=/home/$SUDO_USER/.cargo)
+	fi
+	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml 2>/dev/null; then
+		echo "  copying spk onto the ISO"
+		cp spk/target/release/spk "$ISO_DIR/spk"
+	else
+		echo "  ! spk build failed - installer will try to fetch it another way"
+	fi
+else
+	echo "  ! cargo not found - skipping spk build (installer will try to fetch it)"
 fi
 
 # bundled GRUB (x86_64-efi) so the installer can set up the bootloader

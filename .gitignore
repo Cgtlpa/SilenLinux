@@ -2,3 +2,4 @@ build/
 spk/target/
 rootfs/lib/stage3-tarball-silen.tar.xz
 /stage3-tarball-silen.tar.xz
+/tarball-silen.xz
