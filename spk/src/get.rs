@@ -36,12 +36,13 @@ fn main() {
     let file_name = read_field(&manifest, "filename");
     let version = read_field(&manifest, "version");
     let expected = read_field(&manifest, "sha256");
+    let parts: u32 = read_field(&manifest, "parts").parse().unwrap_or(1);
 
     let download_url = format!("{}/{}/{}", base, name, file_name);
     println!("spk: downloading {}", file_name);
 
     let tmp = format!("/tmp/{}.spk", name);
-    let digest = download(&download_url, &tmp);
+    let digest = download(&download_url, &tmp, parts);
 
     let size = match fs::metadata(&tmp) {
         Ok(m) => m.len(),
@@ -96,48 +97,63 @@ fn http_get(url: &str) -> String {
     }
 }
 
-fn download(url: &str, dst: &str) -> String {
-    let mut resp = match ureq::get(url).call() {
-        Ok(resp) => resp,
-        Err(err) => {
-            println!("spk: error: could not download {}: {}", url, err);
-            process::exit(1);
-        }
-    };
-    if resp.status().as_u16() != 200 {
-        println!("spk: error: could not download {}", url);
-        process::exit(1);
-    }
-
+fn download(url: &str, dst: &str, parts: u32) -> String {
     let _ = fs::remove_file(dst);
-    let mut file = match fs::File::create(dst) {
-        Ok(file) => file,
-        Err(err) => {
-            println!("spk: error: cannot write {}: {}", dst, err);
-            process::exit(1);
-        }
-    };
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 4096];
-    let mut reader = resp.body_mut().as_reader();
 
-    loop {
-        let count = match reader.read(&mut buf) {
-            Ok(count) => count,
+    for i in 0..parts {
+        let part_url = if parts > 1 {
+            format!("{}.{:03}", url, i)
+        } else {
+            url.to_string()
+        };
+        if parts > 1 {
+            println!("spk: downloading part {} of {}", i + 1, parts);
+        }
+
+        let mut resp = match ureq::get(&part_url).call() {
+            Ok(resp) => resp,
             Err(err) => {
                 let _ = fs::remove_file(dst);
-                println!("spk: error: download failed: {}", err);
+                println!("spk: error: could not download {}: {}", part_url, err);
                 process::exit(1);
             }
         };
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buf[..count]);
-        if let Err(err) = file.write_all(&buf[..count]) {
+        if resp.status().as_u16() != 200 {
             let _ = fs::remove_file(dst);
-            println!("spk: error: cannot write {}: {}", dst, err);
+            println!("spk: error: could not download {}", part_url);
             process::exit(1);
+        }
+
+        let mut out = match fs::OpenOptions::new().append(true).create(true).open(dst) {
+            Ok(file) => file,
+            Err(err) => {
+                let _ = fs::remove_file(dst);
+                println!("spk: error: cannot write {}: {}", dst, err);
+                process::exit(1);
+            }
+        };
+        let mut reader = resp.body_mut().as_reader();
+        let mut buf = [0u8; 4096];
+
+        loop {
+            let count = match reader.read(&mut buf) {
+                Ok(count) => count,
+                Err(err) => {
+                    let _ = fs::remove_file(dst);
+                    println!("spk: error: download failed: {}", err);
+                    process::exit(1);
+                }
+            };
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buf[..count]);
+            if let Err(err) = out.write_all(&buf[..count]) {
+                let _ = fs::remove_file(dst);
+                println!("spk: error: cannot write {}: {}", dst, err);
+                process::exit(1);
+            }
         }
     }
 
