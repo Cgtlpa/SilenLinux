@@ -34,7 +34,7 @@ for dev in /dev/sr0 /dev/sr1 /dev/sr2 /dev/cdrom; do
 	[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
 done
 if ! mountpoint -q /mnt 2>/dev/null; then
-	for dev in /dev/sda1 /dev/sda2 /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2 /dev/vda1 /dev/vda2; do
+	for dev in /dev/sd[a-z][1-9] /dev/nvme0n1p[1-9] /dev/mmcblk0p[1-9] /dev/vd[a-z][1-9]; do
 		[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
 	done
 fi
@@ -48,8 +48,26 @@ if [ -n "$stage3" ]; then
 	echo "  found Silen tarball: $stage3"
 else
 	echo "  no Silen tarball found on the mounted media"
+	# release the disk so the installer can repartition it (the mounted
+	# SSD/USB disk would otherwise be busy and sfdisk would fail instantly)
+	if mountpoint -q /mnt 2>/dev/null; then
+		if umount /mnt 2>/dev/null; then
+			echo "  released the disk from /mnt"
+		fi
+	fi
 fi
 
+echo
+if [ -x /installer/main.sh ]; then
+	echo "Starting the Silen installer..."
+	echo "  (it also lets you open a shell or reboot)"
+	echo
+	/installer/main.sh
+	echo
+	echo "Installer exited, dropping to a shell..."
+else
+	echo "  installer not found, dropping to a shell..."
+fi
 echo
 echo "Silen Linux live shell (type exit to power off)"
 echo

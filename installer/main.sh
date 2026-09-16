@@ -70,15 +70,29 @@ partitioning() {
             return
         fi
     done
+    # the target disk is about to be wiped, so release anything still mounted
+    # on it (the live system auto-mounts the first disk it finds at /mnt and
+    # an in-use disk makes sfdisk fail with "device or resource busy")
+    for part in $(mount 2>/dev/null | awk -v d="$disk" '$1 ~ d "^" {print $1}'); do
+        umount "$part" 2>/dev/null || true
+    done
+    mountpoint -q /mnt && umount /mnt 2>/dev/null || true
     if ! sfdisk "$disk" <<EOF
 label: gpt
 , 512M, U
 , , L
 EOF
     then
-        whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40
+        if mount 2>/dev/null | awk -v d="$disk" '$1 ~ d {f=1} END {exit !f}'; then
+            whiptail --msgbox --title "$title" "couldn't write partition table to $disk: it is still in use (something is mounted on it). Open the shell and check 'mount'." 10 60
+        else
+            whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40
+        fi
         return
     fi
+    # make the kernel pick up the new partitions (devtmpfs creates the nodes)
+    blockdev --rereadpt "$disk" 2>/dev/null || partx -u "$disk" 2>/dev/null || sleep 2
+    sleep 1
     if [ -b "${disk}p1" ]; then
         bootp="${disk}p1"
         rootp="${disk}p2"
@@ -239,6 +253,10 @@ install-modules() {
     kver=$(ls $root/lib/modules 2>/dev/null | head -n1)
     if [ -n "$kver" ] && chroot $root /bin/bash -c "command -v depmod" >/dev/null 2>&1; then
         chroot $root /bin/bash -c "depmod -a $kver" 2>/dev/null || true
+    fi
+    if [ -d /mnt/firmware ] && [ -n "$(ls /mnt/firmware 2>/dev/null)" ]; then
+        mkdir -p $root/lib/firmware
+        cp -a /mnt/firmware/. $root/lib/firmware/ 2>/dev/null || true
     fi
 }
 

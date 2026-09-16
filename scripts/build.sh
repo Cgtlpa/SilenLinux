@@ -9,7 +9,11 @@ DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
 KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.0-gentoo-gentoo-dist-bin}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
 MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
-FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-/lib/firmware}"
+# firmware shipped in the repo (populated by scripts/add-wifi.sh) so the ISO
+# is self-contained and WiFi works from boot without build-time scripts.
+# the host firmware tree is only a fallback for anything not in the repo.
+FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-rootfs/lib/firmware}"
+HOST_FIRMWARE="${HOST_FIRMWARE:-/lib/firmware}"
 BUSYBOX_SOURCE="${BUSYBOX_SOURCE:-rootfs/bin/busybox}"
 INIT_SOURCE="${INIT_SOURCE:-rootfs/init}"
 
@@ -32,6 +36,35 @@ ALLOW="
 	ext4 jbd2 mbcache crc32c_intel vfat fat fuse squashfs ntfs3 btrfs xfs isofs
 	nls_utf8 nls_cp437 nls_iso8859-1 dm_mod md_mod
 	i8042 psmouse
+	exfat cdc_ether rndis_host rndis_wlan alx 8139too via-rhine
+"
+
+ALLOW_WIFI="
+	cfg80211 mac80211
+	iwlwifi iwlmvm iwlmld iwldvm iwlegacy
+	ath9k ath9k_htc ath5k
+	ath10k_core ath10k_pci ath10k_sdio ath10k_usb
+	ath11k ath11k_pci ath12k
+	mt7601u
+	mt7921e mt7921u mt7921s mt7925e mt7925u
+	mt7915e mt7615e mt7663u mt7663s mt7603e mt7996e
+	mt76x0u mt76x2u
+	rtl8xxxu
+	rtw88_pci rtw88_usb rtw88_sdio
+	rtw88_8822be rtw88_8822ce rtw88_8822bu rtw88_8822cu
+	rtw88_8821ce rtw88_8821cu
+	rtw88_8723d rtw88_8723de rtw88_8723ds rtw88_8723du
+	rtw88_8703b rtw88_8812au rtw88_8814ae rtw88_8814au
+	rtw89_pci rtw89_usb
+	rtw89_8851be rtw89_8851bu
+	rtw89_8852ae rtw89_8852au rtw89_8852be rtw89_8852bu rtw89_8852ce rtw89_8852cu
+	rtw89_8922ae rtw89_8922au
+	rtlwifi rtl_pci rtl_usb
+	rtl8192ce rtl8192cu rtl8192de rtl8192se
+	rtl8188ee rtl8723ae rtl8723be rtl8821ae
+	brcmfmac brcmsmac b43 b43legacy bcma ssb
+	rt2400pci rt2500pci rt61pci rt2800pci
+	rt2500usb rt73usb rt2800usb
 "
 
 BLACKLIST="
@@ -178,7 +211,7 @@ if [ "$FULL" = "1" ]; then
 		queue+=("$(mod_name_from_path "$path")")
 	done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 else
-	queue=($ALLOW)
+	queue=($ALLOW $ALLOW_WIFI)
 	if [ "$AUTO_HOST" = "1" ]; then
 		for name in $(ls /sys/module); do
 			queue+=("$name")
@@ -378,6 +411,46 @@ echo "[4/7] Copying modules and firmware..."
 MODULES_DIR="$RAMROOT/lib/modules/$KERNEL_VERSION"
 mkdir -p "$MODULES_DIR"
 
+# copy one firmware request (may be a glob like "ath11k/WCN6855/hw2.1/*");
+# knows about directories and the kernel's *.fw.zst compressed firmware.
+# searches the in-repo firmware tree first, then the host tree.
+copy_firmware() {
+	local fw="$1" src f
+	for src in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
+		[ -n "$src" ] && [ -d "$src" ] || continue
+		local found=0
+		set -- "$src"/$fw
+		for f in "$@"; do
+			[ -e "$f" ] || continue
+			found=1
+			local rel="${f#$src/}"
+			if [ -d "$f" ]; then
+				[ -d "$RAMROOT/lib/firmware/$rel" ] || {
+					mkdir -p "$RAMROOT/lib/firmware/$(dirname "$rel")"
+					cp -a "$f" "$RAMROOT/lib/firmware/$rel"
+				}
+			else
+				local target="$RAMROOT/lib/firmware/$rel"
+				mkdir -p "$(dirname "$target")"
+				[ -f "$target" ] || cp "$f" "$target"
+			fi
+		done
+		if [ "$found" = 0 ] && [ -f "$src/$fw.zst" ]; then
+			local target="$RAMROOT/lib/firmware/$fw.zst"
+			mkdir -p "$(dirname "$target")"
+			[ -f "$target" ] || cp "$src/$fw.zst" "$target"
+		fi
+	done
+}
+
+in_chosen() {
+	local name="$1"
+	for c in "${chosen[@]}"; do
+		[ "$c" = "$name" ] && return 0
+	done
+	return 1
+}
+
 for name in "${chosen[@]}"; do
 	path="$(module_file "$name")"
 	[ -z "$path" ] && continue
@@ -392,20 +465,20 @@ for name in "${chosen[@]}"; do
 
 	for firmware in $(modinfo -F firmware "$path" 2>/dev/null); do
 		[ -n "$firmware" ] || continue
-		# host may ship firmware zstd-compressed (*.fw.zst); the kernel's
-		# compressed-firmware loader looks for the .zst variant too
-		if [ -f "$FIRMWARE_SOURCE/$firmware" ]; then
-			src="$FIRMWARE_SOURCE/$firmware"
-		elif [ -f "$FIRMWARE_SOURCE/$firmware.zst" ]; then
-			src="$FIRMWARE_SOURCE/$firmware.zst"
-			firmware="$firmware.zst"
-		else
-			continue
-		fi
-		mkdir -p "$RAMROOT/lib/firmware/$(dirname "$firmware")"
-		cp "$src" "$RAMROOT/lib/firmware/$firmware"
+		copy_firmware "$firmware"
 	done
 done
+
+# firmware some drivers request at runtime without advertising it in modinfo
+if in_chosen iwlwifi; then
+	copy_firmware "iwlwifi-*.ucode*"
+fi
+if in_chosen rtw88_core; then
+	copy_firmware "rtw88"
+fi
+if in_chosen rtw89_core; then
+	copy_firmware "rtw89"
+fi
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
@@ -483,6 +556,12 @@ if modules_ok "$MODULES_SOURCE"; then
 	cp -a "$MODULES_SOURCE" "$ISO_DIR/modules/$KERNEL_VERSION"
 else
 	echo "  no module tree found to add to ISO (installed system gets the initramfs set)"
+fi
+
+# firmware for the installed system, so modprobe works there too
+if [ -d rootfs/lib/firmware ]; then
+	echo "  adding firmware to ISO at firmware/"
+	cp -a rootfs/lib/firmware "$ISO_DIR/firmware"
 fi
 
 # drop the Silen stage3 tarball onto the ISO so it can be used from live env
