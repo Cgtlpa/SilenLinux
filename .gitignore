@@ -2,3 +2,7 @@ build/
 spk/target/
 .idea/
 *.iml
+
+# Exceed GitHub's 100 MB / 50 MB limits
+tarball-silen.xz
+rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
