@@ -68,7 +68,10 @@ fn main() {
     if expected.is_empty() {
         println!("spk: no sha256 in manifest, skipping check");
     } else if digest != expected {
-        println!("spk: sha256 mismatch for {} expected {} got {}", name, expected, digest);
+        println!(
+            "spk: sha256 mismatch for {} expected {} got {}",
+            name, expected, digest
+        );
         let _ = fs::remove_file(&tmp);
         process::exit(1);
     } else {
@@ -112,19 +115,27 @@ fn http_get(url: &str) -> String {
 fn download(url: &str, dst: &str, parts: u32) -> String {
     let _ = fs::remove_file(dst);
     let mut hasher = Sha256::new();
+    let mut split = parts > 1;
+    let mut i = 0;
 
-    for i in 0..parts {
-        let part_url = if parts > 1 {
+    loop {
+        let part_url = if split {
             format!("{}.{:03}", url, i)
         } else {
             url.to_string()
         };
-        if parts > 1 {
-            println!("spk: downloading part {} of {}", i + 1, parts);
+        if split {
+            println!("spk: downloading part {}", i + 1);
         }
 
         let mut resp = match ureq::get(&part_url).call() {
             Ok(resp) => resp,
+            Err(ureq::Error::StatusCode(404)) if !split && parts <= 1 => {
+                split = true;
+                i = 0;
+                continue;
+            }
+            Err(ureq::Error::StatusCode(404)) if split && parts <= 1 && i > 0 => break,
             Err(err) => {
                 let _ = fs::remove_file(dst);
                 println!("spk: error: could not download {}: {}", part_url, err);
@@ -166,6 +177,11 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
                 println!("spk: error: cannot write {}: {}", dst, err);
                 process::exit(1);
             }
+        }
+
+        i += 1;
+        if !split || (parts > 1 && i == parts) {
+            break;
         }
     }
 
@@ -255,7 +271,10 @@ fn extract(archive: &str, root: &str) -> usize {
         let dest = clean(&name, root);
 
         if typ.is_dir() {
-            check(fs::create_dir_all(&dest), &format!("cannot create {}", dest));
+            check(
+                fs::create_dir_all(&dest),
+                &format!("cannot create {}", dest),
+            );
         } else if typ.is_symlink() {
             let target = match entry.link_name() {
                 Ok(Some(target)) => target,
@@ -268,7 +287,10 @@ fn extract(archive: &str, root: &str) -> usize {
             let target = target.to_string_lossy().to_string();
             let link = resolve(&target, root);
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             check(
                 std::os::unix::fs::symlink(&link, &dest),
@@ -285,7 +307,10 @@ fn extract(archive: &str, root: &str) -> usize {
             };
             let src = clean(&target.to_string_lossy(), root);
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             check(
                 fs::hard_link(&src, &dest),
@@ -293,7 +318,10 @@ fn extract(archive: &str, root: &str) -> usize {
             );
         } else {
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             let mut out = match fs::File::create(&dest) {
                 Ok(file) => file,
