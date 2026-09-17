@@ -95,38 +95,271 @@ NetworkManager --no-daemon >/dev/null 2>&1 &
 echo
 echo "Mounting install medium..."
 
-# a candidate device is only accepted if it actually carries a Silen tarball,
-# so on a multi-disk machine we don't stop at the target's existing partition
-medium_has_tarball() {
-	for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
+# a candidate location is only accepted if it actually carries a Silen
+# tarball, so on a multi-disk machine we don't stop at the target's
+# existing partition
+medium_has_tarball_at() {
+	_dir="$1"
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz; do
 		[ -f "$f" ] && return 0
 	done
 	return 1
 }
+medium_has_tarball() {
+	medium_has_tarball_at /mnt
+}
+find_tarball_at() {
+	_dir="$1"
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz; do
+		[ -f "$f" ] && { echo "$f"; return 0; }
+	done
+	return 1
+}
 
-stage3=""
-for dev in /dev/sr0 /dev/sr1 /dev/sr2 /dev/cdrom \
-           /dev/sd[a-z][1-9] /dev/nvme[0-9]n[0-9]p[1-9] /dev/mmcblk[0-9]p[1-9] /dev/vd[a-z][1-9] \
-           /dev/sd[a-z] /dev/nvme[0-9]n[0-9] /dev/mmcblk[0-9] /dev/vd[a-z]; do
-	[ -b "$dev" ] || continue
-	mount "$dev" /mnt 2>/dev/null || continue
-	if medium_has_tarball; then
-		for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
-			[ -f "$f" ] && stage3="$f" && break
-		done
-		break
-	fi
-	umount /mnt 2>/dev/null
+# Ventoy (and similar tools) boots the ISO via GRUB loopback: the kernel and
+# initramfs run, but the tarball is NOT on a directly-mountable filesystem.
+# It sits as a *.iso FILE on the Ventoy exFAT/NTFS partition, so the medium
+# scan below must find that file and loop-mount it. That needs the loop
+# driver plus /dev/loop* nodes.
+modprobe -q loop 2>/dev/null
+for _i in 0 1 2 3 4 5 6 7; do
+	[ -b "/dev/loop$_i" ] || mknod "/dev/loop$_i" b 7 "$_i" 2>/dev/null
 done
+mkdir -p /mnt /run/ventoy /run/scan /iso /tmp
+
+# a Ventoy/GRUB loopback boot may tell us which ISO file we came from
+# (iso-scan/filename=..., findiso=...). Prefer that file when scanning.
+iso_hint=""
+for _arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$_arg" in
+		iso-scan/filename=*|findiso=*|iso_scan_filename=*|find_iso=*)
+			iso_hint="${_arg#*=}" ;;
+	esac
+done
+iso_hint_base=""
+[ -n "$iso_hint" ] && iso_hint_base="$(basename "$iso_hint" 2>/dev/null)"
+
+# enumerate every block device + partition the kernel knows about, so the
+# medium is found regardless of controller or name (SATA/USB/NVMe/mmc/virtio/
+# optical incl. device-mapper entries Ventoy may create, and partitions with
+# more than one digit like sda10 or nvme0n1p10). Loop/RAM devices are never
+# install media, so skip them (otherwise we would try to mount our own loop).
+enumerate_devices() {
+	candidates=""
+	for blk in /sys/block/*; do
+		[ -d "$blk" ] || continue
+		name="${blk##*/}"
+		case "$name" in
+			loop*|ram*|zram*|fd*) continue ;;
+		esac
+		candidates="$candidates /dev/$name"
+		for part in "$blk/$name"?*; do
+			[ -e "$part" ] || continue
+			_pn="${part##*/}"
+			case "$_pn" in
+				loop*|ram*|zram*) continue ;;
+			esac
+			candidates="$candidates /dev/$_pn"
+		done
+	done
+	# device-mapper nodes sometimes have no /sys/block entry yet
+	for _dm in /dev/mapper/*; do
+		[ -e "$_dm" ] || continue
+		case "$candidates" in
+			*"$_dm"*) ;;
+			*) candidates="$candidates $_dm" ;;
+		esac
+	done
+}
+
+# mount a partition/CD at the given mountpoint. A virtual CD (Ventoy exposes
+# the ISO as one) is read-only and some kernels refuse a plain mount on it,
+# so fall back to ro / explicit fstype mounts. exFAT/NTFS cover Ventoy data
+# partitions, iso9660 covers real/virtual CDs.
+mount_candidate() {
+	_dev="$1"
+	_mp="$2"
+	mount "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t iso9660 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t exfat -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t vfat -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t ntfs3 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t ext4 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	return 1
+}
+
+# loop-mount an ISO file at the given mountpoint (busybox mount autodetects
+# loop, the losetup fallback covers the rest)
+mount_iso() {
+	_iso="$1"
+	_mp="$2"
+	mount -o loop,ro "$_iso" "$_mp" 2>/dev/null && return 0
+	mount -o ro,loop "$_iso" "$_mp" 2>/dev/null && return 0
+	mount -o ro "$_iso" "$_mp" 2>/dev/null && return 0
+	_loopdev="$(losetup -f 2>/dev/null)" || return 1
+	losetup -r "$_loopdev" "$_iso" 2>/dev/null || return 1
+	if mount -o ro "$_loopdev" "$_mp" 2>/dev/null; then
+		return 0
+	fi
+	losetup -d "$_loopdev" 2>/dev/null
+	return 1
+}
+
+# Try ISO files sitting on the partition currently mounted at /run/scan.
+# On success leaves the ISO contents at /mnt and the Ventoy partition at
+# /run/ventoy (the loop needs its backing file), sets stage3, returns 0.
+try_isos_on_scan() {
+	_srcdev="$1"
+	rm -f /tmp/.isolist
+	touch /tmp/.isolist
+	if [ -n "$iso_hint_base" ]; then
+		find /run/scan -maxdepth 4 -iname "$iso_hint_base" 2>/dev/null | head -n 5 >> /tmp/.isolist
+		_hintrel="$(echo "$iso_hint" | sed 's|^/*||')"
+		if [ -n "$_hintrel" ] && [ -f "/run/scan/$_hintrel" ]; then
+			echo "/run/scan/$_hintrel" >> /tmp/.isolist
+		fi
+	fi
+	find /run/scan -maxdepth 4 -iname "*silen*.iso" 2>/dev/null | head -n 20 >> /tmp/.isolist
+	find /run/scan -maxdepth 4 -iname "*.iso" 2>/dev/null | head -n 20 >> /tmp/.isolist
+	_tried=""
+	while IFS= read -r _iso; do
+		[ -n "$_iso" ] || continue
+		[ -f "$_iso" ] || continue
+		case "$_tried" in
+			*"|$_iso|"*) continue ;;
+		esac
+		_tried="$_tried|$_iso|"
+		seen_isos="$seen_isos $(basename "$_iso" 2>/dev/null)"
+		umount /iso 2>/dev/null
+		mount_iso "$_iso" /iso || continue
+		if medium_has_tarball_at /iso; then
+			umount /mnt 2>/dev/null
+			mkdir -p /run/ventoy /mnt
+			if mount --move /run/scan /run/ventoy 2>/dev/null; then
+				:
+			else
+				# no --move support: keep a second mount as backing
+				mount_candidate "$_srcdev" /run/ventoy 2>/dev/null || \
+					mount -o bind /run/scan /run/ventoy 2>/dev/null || true
+			fi
+			if mount --move /iso /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				if ! mount_iso "$_iso" /mnt; then
+					_rel="${_iso#/run/scan/}"
+					if [ "$_rel" != "$_iso" ] && [ -f "/run/ventoy/$_rel" ]; then
+						mount_iso "/run/ventoy/$_rel" /mnt || continue
+					else
+						continue
+					fi
+				fi
+				umount /iso 2>/dev/null
+			fi
+			# /run/scan may still hold the partition if --move was missing
+			if mountpoint -q /run/scan 2>/dev/null && mountpoint -q /run/ventoy 2>/dev/null; then
+				umount /run/scan 2>/dev/null || true
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			[ -n "$stage3" ] || stage3="/mnt/$(basename "$(find_tarball_at /iso 2>/dev/null)" 2>/dev/null)"
+			echo "  install medium is an ISO file on $_srcdev: $_iso"
+			# remember which disk backs /mnt so the installer can refuse to
+			# wipe it (a loop mount shows as /dev/loopN, hiding the disk)
+			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
+			echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true
+			return 0
+		fi
+		umount /iso 2>/dev/null
+	done < /tmp/.isolist
+	rm -f /tmp/.isolist
+	return 1
+}
+
+# on real hardware the medium takes a moment to enumerate (unlike QEMU's
+# instant virtio/IDE drives), so poll for up to 20s instead of scanning once;
+# re-enumerate every pass so a device that appears later is still found
+stage3=""
+seen_devices=""
+mounted_devices=""
+seen_isos=""
+iso_searched=""
+i=0
+while [ $i -lt 20 ]; do
+	enumerate_devices
+	for dev in $candidates; do
+		[ -b "$dev" ] || continue
+		case " $seen_devices " in
+			*" $dev "*) ;;
+			*) seen_devices="$seen_devices $dev" ;;
+		esac
+		umount /run/scan 2>/dev/null
+		mount_candidate "$dev" /run/scan || continue
+		case " $mounted_devices " in
+			*" $dev "*) ;;
+			*) mounted_devices="$mounted_devices $dev" ;;
+		esac
+		if medium_has_tarball_at /run/scan; then
+			umount /mnt 2>/dev/null
+			mkdir -p /mnt
+			if mount --move /run/scan /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				mount_candidate "$dev" /mnt || continue
+				umount /run/scan 2>/dev/null
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			echo "$dev" > /run/silen-medium-dev 2>/dev/null || true
+			break 2
+		fi
+		# Ventoy-style: no tarball directly, but an ISO file may be on here.
+		# Only pay the find()+loop cost once per device per boot.
+		case " $iso_searched " in
+			*" $dev "*) umount /run/scan 2>/dev/null; continue ;;
+		esac
+		if try_isos_on_scan "$dev"; then
+			break 2
+		fi
+		# remember failures too so we don't re-scan the same big partition
+		# 20 times, but forget them after a while in case the user plugs
+		# a USB stick mid-wait (the outer loop re-enumerates anyway)
+		iso_searched="$iso_searched $dev"
+		umount /run/scan 2>/dev/null
+	done
+	[ -n "$stage3" ] && break
+	i=$((i + 1))
+	if [ $i -lt 20 ]; then
+		echo "  install medium not here yet, waiting... ($i)"
+		sleep 1
+	fi
+done
+umount /run/scan 2>/dev/null
+umount /iso 2>/dev/null || true
 
 if [ -n "$stage3" ]; then
 	echo "  install medium mounted at /mnt"
 	echo "  found Silen tarball: $stage3"
 else
 	echo "  no Silen tarball found on any device"
+	# print what the scan saw so a failing boot can be diagnosed
+	echo "  debug: block devices seen:$seen_devices"
+	echo "  debug: devices that mounted:$mounted_devices"
+	echo "  debug: ISO files seen:$seen_isos"
+	if [ -n "$iso_hint" ]; then
+		echo "  debug: iso hint from cmdline: $iso_hint"
+	fi
+	echo "  hint: Ventoy boots the ISO as a FILE - if you used Ventoy,"
+	echo "  hint: this scan loop-mounts silen-*.iso automatically. If it"
+	echo "  hint: still fails, the Ventoy partition may use an unsupported"
+	echo "  hint: filesystem or the ISO name was changed. Most reliable is"
+	echo "  hint: writing the ISO with dd (see installer shell: mount, blkid)."
 	# release the disk so the installer can repartition it (the mounted
-	# SSD/USB disk would otherwise be busy and sfdisk would fail instantly)
-	if mountpoint -q /mnt 2>/dev/null; then
+	# SSD/USB disk would otherwise be busy and sfdisk would fail instantly).
+	# Keep /run/ventoy (ISO backing) and a good /mnt, drop anything else.
+	if medium_has_tarball; then
+		:
+	elif mountpoint -q /mnt 2>/dev/null; then
 		if umount /mnt 2>/dev/null; then
 			echo "  released the disk from /mnt"
 		fi

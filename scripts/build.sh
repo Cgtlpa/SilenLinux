@@ -29,13 +29,13 @@ MIN_RAM_MB="${MIN_RAM_MB:-2048}"
 MIN_DISK_MB="${MIN_DISK_MB:-500}"             
 
 ALLOW="
-	ahci libahci ata_piix sd_mod sr_mod nvme nvme_core nvme_auth nvme_common
+	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common
 	mmc_block sdhci sdhci-pci sdhci-acpi
 	virtio_blk virtio_scsi virtio_pci virtio_console virtio_input
 	xhci-pci ehci-pci ohci-pci uhci-hcd usb-storage uas usbhid hid-generic
 	virtio_net e1000 e1000e r8169 tg3 igb ixgbe r8152 ax88179_178a
 	ext4 jbd2 mbcache crc32c_intel vfat fat fuse squashfs ntfs3 btrfs xfs isofs
-	nls_utf8 nls_cp437 nls_iso8859-1 dm_mod md_mod
+	nls_utf8 nls_cp437 nls_iso8859-1 dm_mod md_mod loop
 	i8042 psmouse
 	exfat cdc_ether rndis_host rndis_wlan alx 8139too via-rhine
 "
@@ -323,9 +323,19 @@ copy_app() {
 	copy_libs "$src"
 }
 
-# whiptail + nmtui, with all their runtime libraries (installer + network menus)
+# whiptail + nmtui/nmcli, with all their runtime libraries (installer +
+# network menus). The nmtui-* names are the same tool under different
+# symlinks on the host, so link them instead of copying the binary 4 times.
 copy_app whiptail /usr/bin/whiptail
 copy_app nmtui /usr/bin/nmtui
+for _nmtui_link in nmtui-connect nmtui-edit nmtui-hostname; do
+	ln -sf nmtui "$RAMROOT/usr/bin/$_nmtui_link"
+done
+copy_app nmcli /usr/bin/nmcli
+copy_app nm-online /usr/bin/nm-online
+# dbus-uuidgen lets the installer generate a unique machine-id for the
+# installed system (the live system uses a static one, see below)
+copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
 
 # tools the installer needs to format disk + write fstab
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
@@ -373,6 +383,28 @@ copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app wpa_supplicant /usr/sbin/wpa_supplicant
 mkdir -p "$RAMROOT/usr/sbin"
 ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
+# wpa_cli is tiny and handy for debugging Wi-Fi associations
+[ -f /usr/bin/wpa_cli ] && copy_app wpa_cli /usr/bin/wpa_cli
+
+# NetworkManager device plugins (wifi needs libnm-device-plugin-wifi.so;
+# without these NM only manages wired links) + the nm-* helper daemons.
+# Their extra libraries (libmm-glib, libjansson, ...) are pulled in by
+# copy_libs automatically.
+if [ -d /usr/lib/NetworkManager ]; then
+	mkdir -p "$RAMROOT/usr/lib/NetworkManager"
+	cp -a /usr/lib/NetworkManager/. "$RAMROOT/usr/lib/NetworkManager/"
+fi
+mkdir -p "$RAMROOT/usr/lib"
+for _nm_helper in /usr/lib/nm-dispatcher /usr/lib/nm-priv-helper \
+		/usr/lib/nm-daemon-helper /usr/lib/nm-dhcp-helper \
+		/usr/lib/nm-libnm-helper; do
+	[ -f "$_nm_helper" ] || continue
+	cp --dereference "$_nm_helper" "$RAMROOT/usr/lib/"
+	copy_libs "$_nm_helper"
+done
+while IFS= read -r _nm_plugin; do
+	copy_libs "$_nm_plugin"
+done < <(find "$RAMROOT/usr/lib/NetworkManager" -name '*.so' 2>/dev/null)
 
 # D-Bus machine-id (live system - a static id is fine)
 mkdir -p "$RAMROOT/var/lib/dbus"
@@ -382,8 +414,23 @@ cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
 # system bus config: run as root (no dbus/messagebus user), no fork (init backgrounds it)
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
 cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
-mkdir -p "$RAMROOT/etc/dbus-1/system.d"
-[ -f /etc/dbus-1/system.d/wpa_supplicant.conf ] && cp /etc/dbus-1/system.d/wpa_supplicant.conf "$RAMROOT/etc/dbus-1/system.d/"
+# wpa_supplicant's D-Bus policy lives under /usr/share/dbus-1 on systemd
+# distros (older /etc/dbus-1/system.d location kept as a fallback); without
+# it NM cannot talk to wpa_supplicant over D-Bus and Wi-Fi stays unmanaged
+for _wpa_conf in /usr/share/dbus-1/system.d/wpa_supplicant.conf \
+		/etc/dbus-1/system.d/wpa_supplicant.conf; do
+	if [ -f "$_wpa_conf" ]; then
+		cp "$_wpa_conf" "$RAMROOT/usr/share/dbus-1/system.d/"
+		break
+	fi
+done
+[ -f /usr/share/dbus-1/system.d/nm-dispatcher.conf ] && \
+	cp /usr/share/dbus-1/system.d/nm-dispatcher.conf "$RAMROOT/usr/share/dbus-1/system.d/"
+if [ -f /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ]; then
+	mkdir -p "$RAMROOT/usr/share/dbus-1/system-services"
+	cp /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service \
+		"$RAMROOT/usr/share/dbus-1/system-services/"
+fi
 sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
 
 # NetworkManager config (internal DHCP - no external helper needed, and the
@@ -638,6 +685,45 @@ if command -v cargo >/dev/null 2>&1; then
 	fi
 else
 	echo "  ! cargo not found - skipping spk build (installer will try to fetch it)"
+fi
+
+# network bundle for the installed system: the same NetworkManager/nmtui
+# stack that runs in the live environment, so the installer can copy it into
+# the target root (the stage3 tarball ships no NetworkManager, dbus or wifi
+# tools). Staged from the ramroot, i.e. exactly what was tested live. The
+# installer extracts it with --skip-old-files, so the stage3's own libraries
+# (glibc, libcrypto, ...) are never overwritten - only files missing there
+# (libnm, libndp, glib, NM plugins, ...) are added.
+echo "  packing network bundle (NetworkManager/nmtui + deps) for the installed system..."
+NETROOT="build/network-root"
+rm -rf "$NETROOT"
+mkdir -p "$NETROOT"
+for _np in \
+	usr/bin/NetworkManager \
+	usr/bin/nmtui usr/bin/nmtui-connect usr/bin/nmtui-edit usr/bin/nmtui-hostname \
+	usr/bin/nmcli usr/bin/nm-online \
+	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
+	usr/bin/wpa_supplicant usr/bin/wpa_cli \
+	usr/sbin/wpa_supplicant \
+	usr/lib/NetworkManager \
+	usr/lib/nm-dispatcher usr/lib/nm-priv-helper \
+	usr/lib/nm-daemon-helper usr/lib/nm-dhcp-helper usr/lib/nm-libnm-helper \
+	usr/lib64 \
+	etc/NetworkManager \
+	usr/share/dbus-1 \
+	usr/share/terminfo \
+	etc/machine-id \
+; do
+	[ -e "$RAMROOT/$_np" ] || [ -L "$RAMROOT/$_np" ] || continue
+	mkdir -p "$NETROOT/$(dirname "$_np")"
+	cp -a "$RAMROOT/$_np" "$NETROOT/$_np"
+done
+if [ -d "$NETROOT/usr/bin" ]; then
+	NETWORK_TAR="$ISO_DIR/network.tar.zst"
+	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" .
+	echo "  network bundle: $(du -h "$NETWORK_TAR" | cut -f1)"
+else
+	echo "  ! network stack missing from ramroot - installed system gets no NetworkManager"
 fi
 
 # bundled GRUB (x86_64-efi) so the installer can set up the bootloader
