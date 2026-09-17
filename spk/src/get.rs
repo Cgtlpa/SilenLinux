@@ -622,7 +622,10 @@ fn extract(archive: &str, root: &str) -> Vec<Installed> {
         let mode = entry.header().mode().unwrap_or(0o644);
 
         if typ.is_dir() {
-            check(fs::create_dir_all(&dest), &format!("cannot create {}", dest));
+            check(
+                fs::create_dir_all(&dest),
+                &format!("cannot create {}", dest),
+            );
         } else if typ.is_symlink() {
             let target = match entry.link_name() {
                 Ok(Some(target)) => target,
@@ -635,7 +638,10 @@ fn extract(archive: &str, root: &str) -> Vec<Installed> {
             let target = target.to_string_lossy().to_string();
             let link = resolve(&target, root);
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             check(
                 std::os::unix::fs::symlink(&link, &dest),
@@ -657,7 +663,10 @@ fn extract(archive: &str, root: &str) -> Vec<Installed> {
             };
             let src = clean(&target.to_string_lossy(), root);
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             check(
                 fs::hard_link(&src, &dest),
@@ -670,7 +679,10 @@ fn extract(archive: &str, root: &str) -> Vec<Installed> {
             });
         } else {
             let parent = Path::new(&dest).parent().unwrap();
-            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            check(
+                fs::create_dir_all(parent),
+                &format!("cannot create {}", parent.display()),
+            );
             let _ = fs::remove_file(&dest);
             let mut out = match fs::File::create(&dest) {
                 Ok(file) => file,
