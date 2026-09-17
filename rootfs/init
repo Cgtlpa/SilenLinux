@@ -1,25 +1,89 @@
 #!/bin/sh
 
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+# /usr/bin and /usr/sbin first: real tools shipped there (blkid, tar, zstd,
+# mkfs.vfat, ...) must win over the busybox applet symlinks in /bin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export TERM="${TERM:-linux}"
 
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 
-mkdir -p /dev/pts /dev/shm /proc /sys /tmp /run /mnt
+mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
 
-echo "Welcome to Silen Linux"
-
+# load the drivers/firmware needed to reach the install medium (or real root)
 if [ -f /etc/modules ]; then
 	echo "Loading kernel modules..."
 	while read -r mod; do
 		[ -n "$mod" ] && modprobe -q "$mod"
 	done < /etc/modules
 fi
+
+# ---------------------------------------------------------------------------
+# Installed system: the kernel was told where the real root is (root=...), so
+# mount it and hand off to its init. The live ISO passes no root= and falls
+# through to the installer below.
+# ---------------------------------------------------------------------------
+rootarg=""
+for arg in $(cat /proc/cmdline); do
+	case "$arg" in
+		root=*) rootarg="${arg#root=}" ;;
+	esac
+done
+
+case "$rootarg" in
+	""|/dev/ram|/dev/ram0|/dev/root|rootfs) rootarg="" ;;
+esac
+
+if [ -n "$rootarg" ]; then
+	# the device may not have shown up yet (slow USB/NVMe controller), so
+	# give it a few seconds to appear and settle before giving up
+	i=0
+	while [ $i -lt 15 ]; do
+		case "$rootarg" in
+			UUID=*|LABEL=*) rootdev="$(findfs "$rootarg" 2>/dev/null)" ;;
+			PARTUUID=*|PARTLABEL=*) rootdev="$(blkid -t "$rootarg" -o device 2>/dev/null | head -n1)" ;;
+			*) rootdev="$rootarg" ;;
+		esac
+		[ -n "$rootdev" ] && [ -b "$rootdev" ] && break
+		i=$((i + 1))
+		sleep 1
+	done
+	if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
+		echo "Silen: mounting root $rootarg ($rootdev)"
+		mkdir -p /newroot
+		if mount -o ro "$rootdev" /newroot 2>/dev/null || mount "$rootdev" /newroot 2>/dev/null; then
+			mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
+			mount --move /proc /newroot/proc 2>/dev/null
+			mount --move /sys /newroot/sys 2>/dev/null
+			mount --move /dev /newroot/dev 2>/dev/null
+			mount --move /run /newroot/run 2>/dev/null
+			echo "Silen: switching to $newroot/sbin/init"
+			exec switch_root /newroot /sbin/init
+			echo "Silen: switch_root failed, falling back to live mode"
+		else
+			echo "Silen: could not mount root $rootdev"
+		fi
+	else
+		echo "Silen: root device $rootarg did not appear"
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+# Live system
+# ---------------------------------------------------------------------------
+# a failed switch_root may have moved the pseudo-filesystems into /newroot;
+# make sure they are back so the live environment (and installer) works
+mountpoint -q /proc || mount -t proc proc /proc 2>/dev/null
+mountpoint -q /sys  || mount -t sysfs sysfs /sys 2>/dev/null
+mountpoint -q /dev  || mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mountpoint -q /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null
+mountpoint -q /run  || mount -t tmpfs tmpfs /run 2>/dev/null
+
+echo "Welcome to Silen Linux"
 
 mkdir -p /run/dbus /run/NetworkManager /var/lib/NetworkManager
 echo "Starting D-Bus..."
@@ -30,24 +94,36 @@ NetworkManager --no-daemon >/dev/null 2>&1 &
 
 echo
 echo "Mounting install medium..."
-for dev in /dev/sr0 /dev/sr1 /dev/sr2 /dev/cdrom; do
-	[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
-done
-if ! mountpoint -q /mnt 2>/dev/null; then
-	for dev in /dev/sd[a-z][1-9] /dev/nvme0n1p[1-9] /dev/mmcblk0p[1-9] /dev/vd[a-z][1-9]; do
-		[ -b "$dev" ] && mount "$dev" /mnt 2>/dev/null && break
+
+# a candidate device is only accepted if it actually carries a Silen tarball,
+# so on a multi-disk machine we don't stop at the target's existing partition
+medium_has_tarball() {
+	for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
+		[ -f "$f" ] && return 0
 	done
-fi
+	return 1
+}
 
 stage3=""
-for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
-	[ -f "$f" ] && stage3="$f" && break
+for dev in /dev/sr0 /dev/sr1 /dev/sr2 /dev/cdrom \
+           /dev/sd[a-z][1-9] /dev/nvme[0-9]n[0-9]p[1-9] /dev/mmcblk[0-9]p[1-9] /dev/vd[a-z][1-9] \
+           /dev/sd[a-z] /dev/nvme[0-9]n[0-9] /dev/mmcblk[0-9] /dev/vd[a-z]; do
+	[ -b "$dev" ] || continue
+	mount "$dev" /mnt 2>/dev/null || continue
+	if medium_has_tarball; then
+		for f in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
+			[ -f "$f" ] && stage3="$f" && break
+		done
+		break
+	fi
+	umount /mnt 2>/dev/null
 done
+
 if [ -n "$stage3" ]; then
 	echo "  install medium mounted at /mnt"
 	echo "  found Silen tarball: $stage3"
 else
-	echo "  no Silen tarball found on the mounted media"
+	echo "  no Silen tarball found on any device"
 	# release the disk so the installer can repartition it (the mounted
 	# SSD/USB disk would otherwise be busy and sfdisk would fail instantly)
 	if mountpoint -q /mnt 2>/dev/null; then

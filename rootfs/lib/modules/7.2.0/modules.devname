@@ -1,2 +1,0 @@
-# Device nodes to trigger on-demand module loading.
-rfkill rfkill c10:242

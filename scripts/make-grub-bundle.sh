@@ -2,7 +2,7 @@
 
 set -e
 
-GRUB_SRC="${GRUB_SRC:-/home/vgz/grub}"
+GRUB_SRC="${GRUB_SRC:-$HOME/grub}"
 OUT="grub-bundle/usr/local"
 
 if [ ! -x "$GRUB_SRC/config.status" ]; then

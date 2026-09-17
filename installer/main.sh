@@ -5,12 +5,13 @@ title="Silen installer"
 root="/silen"
 
 cleanup() {
-    umount $root/proc 2>/dev/null
-    umount $root/sys 2>/dev/null
-    umount $root/dev 2>/dev/null
-    umount $root/run 2>/dev/null
-    umount $root/boot 2>/dev/null
-    umount $root 2>/dev/null
+    # rbind'd /dev and /run carry submounts (/dev/pts, /dev/shm, ...), so a
+    # plain umount fails with EBUSY; try recursive first, then lazy
+    for m in "$root/proc" "$root/sys" "$root/dev" "$root/run" "$root/boot" "$root"; do
+        if mountpoint -q "$m" 2>/dev/null; then
+            umount -R "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || umount "$m" 2>/dev/null || true
+        fi
+    done
 }
 
 trap cleanup EXIT
@@ -45,7 +46,7 @@ main_screen() {
 
 partitioning() {
     disks=""
-    for d in /dev/sd[a-z] /dev/vd[a-z] /dev/nvme0n[0-9] /dev/mmcblk[0-9]; do
+    for d in /dev/sd[a-z] /dev/vd[a-z] /dev/nvme[0-9]n[0-9] /dev/mmcblk[0-9]; do
         if [ -b "$d" ]; then
             disks="$disks $d $d"
         fi
@@ -76,7 +77,12 @@ partitioning() {
     for part in $(mount 2>/dev/null | awk -v d="$disk" '$1 ~ d "^" {print $1}'); do
         umount "$part" 2>/dev/null || true
     done
-    mountpoint -q /mnt && umount /mnt 2>/dev/null || true
+    # only release /mnt if it happens to be on the target disk; when the live
+    # medium is a *different* disk we still need it for the stage3 tarball
+    mntsrc="$(mount 2>/dev/null | awk '$3 == "/mnt" {print $1}')"
+    case "$mntsrc" in
+        "$disk"*) umount /mnt 2>/dev/null || true ;;
+    esac
     if ! sfdisk "$disk" <<EOF
 label: gpt
 , 512M, U
@@ -163,7 +169,12 @@ install-base() {
             whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
             continue
         fi
-        if echo "root:$pass" | chroot $root /usr/bin/chpasswd; then
+        chpasswd_bin=""
+        for c in /usr/bin/chpasswd /usr/sbin/chpasswd /bin/chpasswd /sbin/chpasswd; do
+            [ -x "$root$c" ] && chpasswd_bin="$c" && break
+        done
+        [ -z "$chpasswd_bin" ] && chpasswd_bin="/usr/bin/chpasswd"
+        if echo "root:$pass" | chroot $root "$chpasswd_bin"; then
             break
         fi
         whiptail --msgbox --title "$title" "couldn't set the root password, try again" 8 40
@@ -182,7 +193,12 @@ UUID=$bootuuid /boot vfat defaults 0 2
 EOF
 
     system-settings
-    chroot $root /bin/bash -c "ldconfig"
+    if [ -n "$made_swapfile" ]; then
+        echo "/swapfile none swap sw 0 0" >> $root/etc/fstab
+    fi
+    if ! chroot $root /bin/bash -c "ldconfig" 2>/dev/null; then
+        whiptail --msgbox --title "$title" "couldn't run ldconfig in the new system; shared libraries may not load until it is run" 8 60
+    fi
 
     install-modules
     install-spk
@@ -237,27 +253,48 @@ system-settings() {
     mkdir -p $root/etc/env.d
     echo "LANG=\"$locale\"" > $root/etc/env.d/02locale
 
+    made_swapfile=""
     if whiptail --title "$title" --yesno "Create a 1G swapfile?" 8 40; then
-        chroot $root /bin/bash -c "fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile" 2>/dev/null || \
+        if chroot $root /bin/bash -c "fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile" 2>/dev/null; then
+            made_swapfile="1"
+        else
             whiptail --msgbox --title "$title" "couldn't create the swapfile" 8 40
+        fi
     fi
 }
 
 install-modules() {
-    mkdir -p $root/lib/modules
-    if [ -d /mnt/modules ] && [ -n "$(ls /mnt/modules 2>/dev/null)" ]; then
-        cp -a /mnt/modules/. $root/lib/modules/ 2>/dev/null || true
-    elif [ -d /lib/modules ]; then
-        cp -a /lib/modules/. $root/lib/modules/ 2>/dev/null || true
-    fi
-    kver=$(ls $root/lib/modules 2>/dev/null | head -n1)
-    if [ -n "$kver" ] && chroot $root /bin/bash -c "command -v depmod" >/dev/null 2>&1; then
-        chroot $root /bin/bash -c "depmod -a $kver" 2>/dev/null || true
-    fi
-    if [ -d /mnt/firmware ] && [ -n "$(ls /mnt/firmware 2>/dev/null)" ]; then
-        mkdir -p $root/lib/firmware
-        cp -a /mnt/firmware/. $root/lib/firmware/ 2>/dev/null || true
-    fi
+	mkdir -p $root/lib/modules
+	kernel_tar=""
+	for f in /mnt/kernel-*.tar.*; do
+		[ -f "$f" ] && kernel_tar="$f" && break
+	done || true
+	if [ -n "$kernel_tar" ]; then
+		kname="$(basename "$kernel_tar")"
+		bundle_kver="${kname#kernel-}"
+		bundle_kver="${bundle_kver%%.tar.*}"
+		if ! tar -xpf "$kernel_tar" -C $root --no-same-owner --numeric-owner; then
+			whiptail --msgbox --title "$title" "couldn't unpack the kernel/modules from the install medium. The system may not boot." 10 60
+		fi
+	elif [ -d /mnt/modules ] && [ -n "$(ls /mnt/modules 2>/dev/null)" ]; then
+		cp -a /mnt/modules/. $root/lib/modules/ 2>/dev/null || true
+	elif [ -d /lib/modules ]; then
+		cp -a /lib/modules/. $root/lib/modules/ 2>/dev/null || true
+	fi
+	# prefer the version that came in the bundle; otherwise only use the
+	# newest/only dir if there is exactly one (avoid depmod'ing a mystery tree)
+	if [ -n "${bundle_kver:-}" ] && [ -d "$root/lib/modules/$bundle_kver" ]; then
+		kver="$bundle_kver"
+	else
+		kver="$(ls $root/lib/modules 2>/dev/null | head -n1)"
+	fi
+	if [ -n "$kver" ] && chroot $root /bin/bash -c "command -v depmod" >/dev/null 2>&1; then
+		chroot $root /bin/bash -c "depmod -a $kver" 2>/dev/null || true
+	fi
+	if [ -d /mnt/firmware ] && [ -n "$(ls /mnt/firmware 2>/dev/null)" ]; then
+		mkdir -p $root/lib/firmware
+		cp -a /mnt/firmware/. $root/lib/firmware/ 2>/dev/null || true
+	fi
 }
 
 install-spk() {
@@ -307,6 +344,12 @@ setup-grub() {
     done || true
     if [ -z "$initramfs_name" ]; then
         whiptail --msgbox --title "$title" "no initramfs found on the install medium" 8 40
+        return
+    fi
+
+    # the bundled GRUB is x86_64-efi only, so a legacy/BIOS install can't work
+    if [ ! -d /sys/firmware/efi ]; then
+        whiptail --msgbox --title "$title" "this machine booted in legacy/BIOS mode, but Silen can currently only install an EFI bootloader. Boot the medium in UEFI mode and try again." 10 60
         return
     fi
 

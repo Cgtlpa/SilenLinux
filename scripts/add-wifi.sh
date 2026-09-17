@@ -16,7 +16,11 @@
 set -e
 
 KVER="${KVER:-$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)}"
-KVER="${KVER:-7.2.0}"
+if [ -z "$KVER" ]; then
+    echo "ERROR: no kernel module tree found in rootfs/lib/modules." >&2
+    echo "Set KVER=<version> or copy a module tree into rootfs/lib/modules first." >&2
+    exit 1
+fi
 
 HOST=/usr/lib/modules/$KVER
 DST=rootfs/lib/modules/$KVER

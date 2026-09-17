@@ -1,3 +1,5 @@
+pub mod remove;
+
 use std::fs;
 use std::io::Read;
 use std::io::Write;
@@ -11,8 +13,18 @@ use sha2::Sha256;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 3 || args[1] != "get" {
-        println!("usage: spk get <package> [--root DIR]");
+    if args.len() < 3 {
+        println!("usage: spk <get|remove> <package> [--root DIR]");
+        return;
+    }
+
+    if args[1] == "remove" {
+        remove(&args[2]);
+        return;
+    }
+
+    if args[1] != "get" {
+        println!("usage: spk <get|remove> <package> [--root DIR]");
         return;
     }
 
@@ -232,7 +244,14 @@ fn extract(archive: &str, root: &str) -> usize {
             continue;
         }
 
-        let name = entry.path().unwrap().to_string_lossy().to_string();
+        let name = match entry.path() {
+            Ok(path) => path.to_string_lossy().to_string(),
+            Err(err) => {
+                let _ = fs::remove_file(archive);
+                println!("spk: error: bad path in {}: {}", archive, err);
+                process::exit(1);
+            }
+        };
         let dest = clean(&name, root);
 
         if typ.is_dir() {
@@ -248,10 +267,29 @@ fn extract(archive: &str, root: &str) -> usize {
             };
             let target = target.to_string_lossy().to_string();
             let link = resolve(&target, root);
+            let parent = Path::new(&dest).parent().unwrap();
+            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
             let _ = fs::remove_file(&dest);
             check(
                 std::os::unix::fs::symlink(&link, &dest),
                 &format!("cannot create link {}", dest),
+            );
+        } else if typ.is_hard_link() {
+            let target = match entry.link_name() {
+                Ok(Some(target)) => target,
+                _ => {
+                    let _ = fs::remove_file(archive);
+                    println!("spk: error: hardlink without target in {}", name);
+                    process::exit(1);
+                }
+            };
+            let src = clean(&target.to_string_lossy(), root);
+            let parent = Path::new(&dest).parent().unwrap();
+            check(fs::create_dir_all(parent), &format!("cannot create {}", parent.display()));
+            let _ = fs::remove_file(&dest);
+            check(
+                fs::hard_link(&src, &dest),
+                &format!("cannot create hardlink {}", dest),
             );
         } else {
             let parent = Path::new(&dest).parent().unwrap();
@@ -268,7 +306,7 @@ fn extract(archive: &str, root: &str) -> usize {
                 println!("spk: error: cannot write {}: {}", dest, err);
                 process::exit(1);
             }
-            let mode = entry.header().mode().unwrap();
+            let mode = entry.header().mode().unwrap_or(0o644);
             check(
                 fs::set_permissions(&dest, fs::Permissions::from_mode(mode)),
                 &format!("cannot set mode on {}", dest),
@@ -313,15 +351,38 @@ fn clean(name: &str, root: &str) -> String {
 
 fn resolve(target: &str, root: &str) -> String {
     if target.starts_with('/') {
-        format!("{}{}", root, target)
+        if root == "/" || root.is_empty() {
+            target.to_string()
+        } else {
+            format!("{}{}", root.trim_end_matches('/'), target)
+        }
     } else {
         target.to_string()
     }
 }
 
 fn is_gzip(path: &str) -> bool {
-    let mut file = fs::File::open(path).unwrap();
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
     let mut buf = [0u8; 2];
-    file.read(&mut buf).unwrap();
+    if file.read_exact(&mut buf).is_err() {
+        return false;
+    }
     buf[0] == 0x1f && buf[1] == 0x8b
+}
+
+fn remove(name: &str) {
+    for dir in ["/usr/bin", "/usr/local/bin", "/bin"] {
+        let path = format!("{}/{}", dir, name);
+        if fs::remove_file(&path).is_ok() {
+            println!("spk: removed {}", path);
+            let _ = fs::remove_file(format!("/tmp/{}.spk", name));
+            return;
+        }
+    }
+
+    println!("spk: could not find {}", name);
+    process::exit(1);
 }

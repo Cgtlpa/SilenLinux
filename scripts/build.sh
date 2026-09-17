@@ -6,7 +6,7 @@ set -e
 
 trap 'echo; echo "!! Build stopped with an error. See the message above."; echo "   Remove build/ if needed: rm -rf build" >&2' ERR
 DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
-KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.0-gentoo-gentoo-dist-bin}}"
+KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.4-zen2-1-zen}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
 MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
 # firmware shipped in the repo (populated by scripts/add-wifi.sh) so the ISO
@@ -30,6 +30,7 @@ MIN_DISK_MB="${MIN_DISK_MB:-500}"
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod nvme nvme_core nvme_auth nvme_common
+	mmc_block sdhci sdhci-pci sdhci-acpi
 	virtio_blk virtio_scsi virtio_pci virtio_console virtio_input
 	xhci-pci ehci-pci ohci-pci uhci-hcd usb-storage uas usbhid hid-generic
 	virtio_net e1000 e1000e r8169 tg3 igb ixgbe r8152 ax88179_178a
@@ -125,6 +126,12 @@ if ! modules_ok "$MODULES_SOURCE"; then
 	fi
 fi
 
+if [ ! -f "$KERNEL_SOURCE" ]; then
+	echo "  ERROR: kernel image not found: $KERNEL_SOURCE"
+	echo "  Set KERNEL_SOURCE=/path/to/vmlinuz (or put one at boot/vmlinuz)"
+	exit 1
+fi
+
 echo "  kernel:    $KERNEL_SOURCE"
 echo "  modules:   $MODULES_SOURCE"
 
@@ -157,7 +164,7 @@ if [ -d build ]; then
 	if ! sudo -n rm -rf build 2>/dev/null; then
 		echo "  ERROR: cannot remove build/ without typing a sudo password."
 		echo "  Fix it yourself once, then rerun this script:"
-		echo "      sudo rm -rf /home/vgz/SilenLinux/build"
+		echo "      sudo rm -rf $(pwd)/build"
 		exit 1
 	fi
 fi
@@ -327,6 +334,17 @@ copy_app blkid   /usr/sbin/blkid
 copy_app sfdisk  /usr/bin/sfdisk
 copy_app tar     /usr/bin/tar
 ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
+# busybox also provides applets with these names in /bin, which would shadow
+# (or, for applets that behave differently, silently break) the real tools;
+# point them at the copies in /usr/bin
+ln -sf /usr/bin/blkid    "$RAMROOT/bin/blkid"
+ln -sf /usr/bin/mkfs.vfat "$RAMROOT/bin/mkfs.vfat"
+ln -sf /usr/bin/mkfs.ext4 "$RAMROOT/bin/mkfs.ext4"
+# GNU tar shells out to `zstd` to unpack the kernel bundle on the ISO; the
+# live environment has no zstd otherwise, so ship it (libzstd is pulled by
+# copy_libs automatically).
+copy_app zstd    /usr/bin/zstd
+ln -sf /usr/bin/zstd "$RAMROOT/bin/zstd"
 
 # git + curl, with every library they need (clone/fetch/upload in the live env)
 copy_app git  /usr/bin/git
@@ -368,12 +386,23 @@ mkdir -p "$RAMROOT/etc/dbus-1/system.d"
 [ -f /etc/dbus-1/system.d/wpa_supplicant.conf ] && cp /etc/dbus-1/system.d/wpa_supplicant.conf "$RAMROOT/etc/dbus-1/system.d/"
 sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
 
-# NetworkManager config (internal DHCP - no external helper needed)
+# NetworkManager config (internal DHCP - no external helper needed, and the
+# default dns backend so NM writes /etc/resolv.conf itself instead of expecting
+# systemd-resolved, which is not shipped)
 mkdir -p "$RAMROOT/etc/NetworkManager"
 cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
 [main]
 plugins=keyfile
 dhcp=internal
+dns=default
+EOF
+
+# glibc needs an nsswitch.conf for hostname/DNS lookups (git + curl in the live env)
+cat > "$RAMROOT/etc/nsswitch.conf" <<'EOF'
+passwd: files
+group: files
+shadow: files
+hosts: files dns
 EOF
 
 # terminfo entries whiptail/newt need to draw its menus
@@ -549,11 +578,26 @@ echo "[7/7] Assembling ISO..."
 
 mkdir -p "$ISO_DIR/boot/grub"
 
-# full module tree for the installed system (lean live initramfs)
+# full module tree + kernel for the installed system (the live initramfs only
+# carries the lean selected set, so the installed system gets everything in one
+# tarball that the installer just untars into $root)
 if modules_ok "$MODULES_SOURCE"; then
-	echo "  adding full module tree to ISO at modules/$KERNEL_VERSION"
-	mkdir -p "$ISO_DIR/modules"
-	cp -a "$MODULES_SOURCE" "$ISO_DIR/modules/$KERNEL_VERSION"
+	echo "  packing kernel + module tree for the installed system..."
+	KROOT="build/kernel-root"
+	rm -rf "$KROOT"
+	mkdir -p "$KROOT/boot" "$KROOT/lib/modules"
+	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz"
+	# a module tree sometimes carries a kernel build/source dir and its own
+	# vmlinuz; neither belongs on the installed system, so leave them out
+	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION"
+	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
+	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
+	       "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
+	find "$KROOT/lib/modules" -name '*.ko' -exec strip --strip-debug {} +
+	KERNEL_TAR="$ISO_DIR/kernel-$KERNEL_VERSION.tar.zst"
+	tar -C "$KROOT" --exclude='./lib/modules/*/build' --exclude='./lib/modules/*/source' \
+		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" .
+	echo "  kernel bundle: $(du -h "$KERNEL_TAR" | cut -f1)"
 else
 	echo "  no module tree found to add to ISO (installed system gets the initramfs set)"
 fi
@@ -569,6 +613,13 @@ STAGE3_TARBALL="$(ls stage3-*.tar.* tarball-*.xz tarball-*.tar.* 2>/dev/null | h
 if [ -n "$STAGE3_TARBALL" ]; then
 	echo "  copying stage3 tarball onto the ISO: $STAGE3_TARBALL"
 	cp "$STAGE3_TARBALL" "$ISO_DIR/"
+else
+	echo
+	echo "  !! WARNING: no stage3/tarball found in the repo root."
+	echo "  !! The ISO will boot but the installer will refuse to install"
+	echo "  !! ('no Silen tarball found'). Put tarball-silen.xz (or a"
+	echo "  !! stage3-*.tar.*) next to this repo before building."
+	echo
 fi
 
 # compile spk (the package manager, src/get.rs) and ship it on the ISO so the
@@ -624,3 +675,9 @@ echo "initramfs:  $(du -h "build/$INITRAMFS" | cut -f1)"
 echo "kernel:     $(du -h "$KERNEL_SOURCE" | cut -f1)"
 echo "modules:    $(du -sh "$MODULES_DIR" | cut -f1)"
 echo "firmware:   $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
+
+# build/ is created as root (make iso runs under sudo); hand it back so the
+# normal user can remove it with `make clean` afterwards
+if [ -n "${SUDO_USER:-}" ]; then
+	chown -R "$SUDO_USER" build 2>/dev/null || true
+fi
