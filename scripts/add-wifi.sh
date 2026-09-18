@@ -34,30 +34,49 @@ fi
 
 echo "== Syncing modules from $HOST -> $DST"
 
-# top-level drivers; every dependency is pulled in automatically below
+# top-level drivers; every dependency is pulled in automatically below.
+# Keep this list in sync with ALLOW_WIFI in scripts/build.sh (the live
+# initramfs subset). Covers the user's RTL8822CE (rtw88_8822ce) plus the
+# popular Intel/Qualcomm/MediaTek/Realtek/Broadcom/Marvell families.
 WIFI_MODS="
+	rfkill
 	iwlwifi iwlmvm iwlmld iwldvm iwlegacy
+	ipw2100 ipw2200
 	ath9k ath9k_htc ath5k
 	ath10k_core ath10k_pci ath10k_sdio ath10k_usb
 	ath11k ath11k_pci ath12k
+	ath6kl_usb ath6kl_sdio
+	carl9170
+	ar5523
+	wil6210
+	zd1211rw
 	mt7601u
 	mt7921e mt7921u mt7921s mt7925e mt7925u
 	mt7915e mt7615e mt7663u mt7663s mt7603e mt7996e
-	mt76x0u mt76x2u
+	mt76x0u mt76x0e mt76x2u mt76x2e
 	rtl8xxxu
 	rtw88_pci rtw88_usb rtw88_sdio
 	rtw88_8822be rtw88_8822ce rtw88_8822bu rtw88_8822cu
-	rtw88_8821ce rtw88_8821cu
+	rtw88_8821ce rtw88_8821cu rtw88_8821au
 	rtw88_8723d rtw88_8723de rtw88_8723ds rtw88_8723du
 	rtw88_8703b rtw88_8812au rtw88_8814ae rtw88_8814au
 	rtw89_pci rtw89_usb
 	rtw89_8851be rtw89_8851bu
-	rtw89_8852ae rtw89_8852au rtw89_8852be rtw89_8852bu rtw89_8852ce rtw89_8852cu
+	rtw89_8852ae rtw89_8852au rtw89_8852be rtw89_8852bu rtw89_8852ce rtw89_8852cu rtw89_8852bt
 	rtw89_8922ae rtw89_8922au
 	rtlwifi rtl_pci rtl_usb
 	rtl8192ce rtl8192cu rtl8192de rtl8192se
 	rtl8188ee rtl8723ae rtl8723be rtl8821ae
 	brcmfmac brcmsmac b43 b43legacy bcma ssb
+	wl12xx wl18xx wlcore wl1251 wl1251_sdio wl1251_spi wlcore_sdio
+	mwifiex_pcie mwifiex_usb mwifiex_sdio
+	libertas libertas_tf libertas_sdio usb8xxx
+	mwl8k
+	p54pci p54usb
+	at76c50x-usb adm8211
+	rsi_usb rsi_sdio
+	wfx
+	wilc1000 wilc1000-sdio wilc1000-spi
 	rt2400pci rt2500pci rt61pci rt2800pci
 	rt2500usb rt73usb rt2800usb
 	cfg80211 mac80211
@@ -71,12 +90,34 @@ EXTRA_MODS="
 "
 
 # firmware that drivers request at runtime but don't advertise via modinfo
+# (board files, combo blobs, eeproms). Format: module:fw1,fw2 (globs ok).
 EXTRA_FW="
 	iwlwifi:iwlwifi-*.ucode*
 	rtw88_core:rtw88/*
 	rtw89_core:rtw89/*
 	cfg80211:regulatory.db
 	cfg80211:regulatory.db.p7s
+	ath10k_core:ath10k/*
+	ath11k:ath11k/*
+	ath12k:ath12k/*
+	brcmfmac:brcm/*
+	mt76:mediatek/*
+	mwifiex_pcie:mrvl/*
+	mwifiex_usb:mrvl/*
+	mwifiex_sdio:mrvl/*
+	mwl8k:mwl8k/*
+	libertas:libertas/*
+	libertas_sdio:libertas/*,sd8688.bin,sd8688_helper.bin,sd8686.bin,sd8686_helper.bin
+	usb8xxx:libertas/*,usb8388.bin
+	zd1211rw:zd1211/*
+	carl9170:carl9170-1.fw
+	ath9k_htc:ath9k_htc/*
+	rtl8xxxu:rtlwifi/*
+	rsi_91x:rsi/*
+	wfx:wfx/*
+	wlcore:ti-connectivity/*
+	ar5523:ar5523.bin*
+	wilc1000:atmel/*
 "
 
 # ---------------------------------------------------------------------------
@@ -184,9 +225,16 @@ copy_fw() {
 }
 
 copy_fw_zst() {
-    local fw="$1"
-    [ -f "$FW_SRC/$fw.zst" ] || return 0
-    fw_copy_from_src "$FW_SRC/$fw.zst" "${fw}.zst"
+    local fw="$1" f matched=0
+    # glob-aware: patterns like brcm/brcmfmac*-sdio.*.bin must also match
+    # their zstd-compressed twins (brcmfmac43430-sdio.bin.zst)
+    set -- $FW_SRC/$fw.zst
+    for f in "$@"; do
+        [ -e "$f" ] || continue
+        matched=1
+        fw_copy_from_src "$f" "${f#$FW_SRC/}"
+    done
+    [ "$matched" = 1 ] || return 0
 }
 
 echo "  copying firmware..."
@@ -204,6 +252,10 @@ done < <(find "$DST" \( -name '*.ko' -o -name '*.ko.zst' \))
 
 echo "  copying extra firmware..."
 while IFS=':' read -r mod fwlist; do
+    # strip whitespace: the heredoc lines are tab-indented, and $seen has
+    # bare names, so an unstripped $mod would never match (silently skipping
+    # every extra-firmware line)
+    mod="${mod//[[:space:]]/}"
     [ -n "$mod" ] && [ -n "$fwlist" ] || continue
     case " $seen " in
         *" $mod "*) ;;

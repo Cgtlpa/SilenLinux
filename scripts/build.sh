@@ -41,29 +41,44 @@ ALLOW="
 "
 
 ALLOW_WIFI="
-	cfg80211 mac80211
+	cfg80211 mac80211 rfkill
 	iwlwifi iwlmvm iwlmld iwldvm iwlegacy
+	ipw2100 ipw2200
 	ath9k ath9k_htc ath5k
 	ath10k_core ath10k_pci ath10k_sdio ath10k_usb
 	ath11k ath11k_pci ath12k
+	ath6kl_usb ath6kl_sdio
+	carl9170
+	ar5523
+	wil6210
+	zd1211rw
 	mt7601u
 	mt7921e mt7921u mt7921s mt7925e mt7925u
 	mt7915e mt7615e mt7663u mt7663s mt7603e mt7996e
-	mt76x0u mt76x2u
+	mt76x0u mt76x0e mt76x2u mt76x2e
 	rtl8xxxu
 	rtw88_pci rtw88_usb rtw88_sdio
 	rtw88_8822be rtw88_8822ce rtw88_8822bu rtw88_8822cu
-	rtw88_8821ce rtw88_8821cu
+	rtw88_8821ce rtw88_8821cu rtw88_8821au
 	rtw88_8723d rtw88_8723de rtw88_8723ds rtw88_8723du
 	rtw88_8703b rtw88_8812au rtw88_8814ae rtw88_8814au
 	rtw89_pci rtw89_usb
 	rtw89_8851be rtw89_8851bu
-	rtw89_8852ae rtw89_8852au rtw89_8852be rtw89_8852bu rtw89_8852ce rtw89_8852cu
+	rtw89_8852ae rtw89_8852au rtw89_8852be rtw89_8852bu rtw89_8852ce rtw89_8852cu rtw89_8852bt
 	rtw89_8922ae rtw89_8922au
 	rtlwifi rtl_pci rtl_usb
 	rtl8192ce rtl8192cu rtl8192de rtl8192se
 	rtl8188ee rtl8723ae rtl8723be rtl8821ae
 	brcmfmac brcmsmac b43 b43legacy bcma ssb
+	wl12xx wl18xx wlcore wl1251 wl1251_sdio wl1251_spi wlcore_sdio
+	mwifiex_pcie mwifiex_usb mwifiex_sdio
+	libertas libertas_tf libertas_sdio usb8xxx
+	mwl8k
+	p54pci p54usb
+	at76c50x-usb adm8211
+	rsi_usb rsi_sdio
+	wfx
+	wilc1000 wilc1000-sdio wilc1000-spi
 	rt2400pci rt2500pci rt61pci rt2800pci
 	rt2500usb rt73usb rt2800usb
 "
@@ -385,6 +400,30 @@ mkdir -p "$RAMROOT/usr/sbin"
 ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
 # wpa_cli is tiny and handy for debugging Wi-Fi associations
 [ -f /usr/bin/wpa_cli ] && copy_app wpa_cli /usr/bin/wpa_cli
+# rfkill (unblock radios - a soft-block looks like "no wifi, only lo") and
+# iw (low-level wifi debugging). Both tiny, both needed when NM shows nothing.
+[ -f /usr/bin/rfkill ] && copy_app rfkill /usr/bin/rfkill
+[ -f /usr/bin/iw ] && copy_app iw /usr/bin/iw
+[ -f /usr/sbin/rfkill ] && { copy_app rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
+[ -f /usr/sbin/iw ] && { copy_app iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+# D-Bus activation helper: NetworkManager starts wpa_supplicant over the
+# system bus, and without this setuid helper activation fails - NM then sees
+# the wifi device but can never scan, so nmtui shows no networks. dbus 1.16
+# refuses a helper that is not root-owned and setuid, so fix the mode here
+# (the build runs as root, so ownership is already 0:0 in the image).
+for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
+	[ -f "$_dbus_helper" ] || continue
+	_helper_rel="${_dbus_helper#/}"
+	mkdir -p "$RAMROOT/$(dirname "$_helper_rel")"
+	# the helper is mode 4750 root:dbus (not world-readable), so a
+	# non-root build cannot copy it - warn instead of dying to set -e
+	if cp -a "$_dbus_helper" "$RAMROOT/$_helper_rel" 2>/dev/null; then
+		chmod 4755 "$RAMROOT/$_helper_rel" 2>/dev/null || true
+		copy_libs "$_dbus_helper"
+	else
+		echo "  ! cannot copy $_dbus_helper (build as root so live wifi works)"
+	fi
+done
 
 # NetworkManager device plugins (wifi needs libnm-device-plugin-wifi.so;
 # without these NM only manages wired links) + the nm-* helper daemons.
@@ -442,6 +481,13 @@ cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
 plugins=keyfile
 dhcp=internal
 dns=default
+
+[device]
+# without this some cards stay unmanaged / invisible in nmtui (only lo)
+wifi.scan-rand-mac-address=no
+
+[connection]
+wifi.powersave=2
 EOF
 
 # glibc needs an nsswitch.conf for hostname/DNS lookups (git + curl in the live env)
@@ -473,6 +519,13 @@ ldconfig -r "$RAMROOT" 2>/dev/null || echo "  ! ldconfig failed (dynamic apps ma
 mkdir -p "$RAMROOT/installer"
 cp installer/main.sh "$RAMROOT/installer/main.sh"
 chmod 0755 "$RAMROOT/installer/main.sh"
+
+# wifi diagnostic, available as silen-wifi-check in the live shell and the
+# installer menu (the installer also drops it into the target system)
+if [ -f scripts/wifi-check.sh ]; then
+	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check"
+	chmod 0755 "$RAMROOT/usr/bin/silen-wifi-check"
+fi
 
 # the kernel entry point
 cp "$INIT_SOURCE" "$RAMROOT/init"
@@ -511,6 +564,20 @@ copy_firmware() {
 				[ -f "$target" ] || cp "$f" "$target"
 			fi
 		done
+		# host trees (and this repo) often carry firmware zstd-compressed
+		# (*.bin.zst): a pattern like brcm/brcmfmac*-sdio.*.bin matches no
+		# literal file then, so retry the same pattern with .zst appended
+		if [ "$found" = 0 ]; then
+			set -- "$src/$fw.zst"
+			for f in "$@"; do
+				[ -e "$f" ] || continue
+				found=1
+				local rel="${f#$src/}"
+				local target="$RAMROOT/lib/firmware/$rel"
+				mkdir -p "$(dirname "$target")"
+				[ -f "$target" ] || cp "$f" "$target"
+			done
+		fi
 		if [ "$found" = 0 ] && [ -f "$src/$fw.zst" ]; then
 			local target="$RAMROOT/lib/firmware/$fw.zst"
 			mkdir -p "$(dirname "$target")"
@@ -554,6 +621,71 @@ if in_chosen rtw88_core; then
 fi
 if in_chosen rtw89_core; then
 	copy_firmware "rtw89"
+fi
+if in_chosen ath10k_core; then
+	copy_firmware "ath10k"
+fi
+if in_chosen ath11k; then
+	copy_firmware "ath11k"
+fi
+if in_chosen ath12k; then
+	copy_firmware "ath12k"
+fi
+if in_chosen ath9k_htc; then
+	copy_firmware "ath9k_htc"
+fi
+if in_chosen brcmfmac; then
+	copy_firmware "brcm"
+fi
+# any mt76-family driver pulls the shared mt76 core, which is the stable
+# trigger for the whole mediatek firmware dir (eeproms, board files)
+if in_chosen mt76; then
+	copy_firmware "mediatek"
+fi
+if in_chosen mwifiex_pcie || in_chosen mwifiex_usb || in_chosen mwifiex_sdio; then
+	copy_firmware "mrvl"
+fi
+if in_chosen mwl8k; then
+	copy_firmware "mwl8k"
+fi
+if in_chosen libertas || in_chosen libertas_sdio || in_chosen usb8xxx; then
+	copy_firmware "libertas"
+	copy_firmware "sd8688.bin*"
+	copy_firmware "sd8688_helper.bin*"
+	copy_firmware "sd8686.bin*"
+	copy_firmware "sd8686_helper.bin*"
+	copy_firmware "usb8388.bin*"
+fi
+if in_chosen zd1211rw; then
+	copy_firmware "zd1211"
+fi
+if in_chosen carl9170; then
+	copy_firmware "carl9170-1.fw*"
+fi
+if in_chosen rtl8xxxu; then
+	copy_firmware "rtlwifi"
+fi
+if in_chosen rsi_91x; then
+	copy_firmware "rsi"
+fi
+if in_chosen wfx; then
+	copy_firmware "wfx"
+fi
+if in_chosen wlcore; then
+	copy_firmware "ti-connectivity"
+fi
+if in_chosen ar5523; then
+	copy_firmware "ar5523.bin*"
+fi
+if in_chosen wilc1000; then
+	copy_firmware "atmel"
+fi
+# cfg80211 needs the wireless regulatory DB, but never lists it in modinfo.
+# Without it some cards refuse to bring up the interface (nmtui shows only
+# lo). Tiny files, always ship them when wifi is on board.
+if in_chosen cfg80211; then
+	copy_firmware "regulatory.db"
+	copy_firmware "regulatory.db.p7s"
 fi
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
@@ -704,10 +836,12 @@ for _np in \
 	usr/bin/nmcli usr/bin/nm-online \
 	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
 	usr/bin/wpa_supplicant usr/bin/wpa_cli \
-	usr/sbin/wpa_supplicant \
+	usr/bin/rfkill usr/bin/iw \
+	usr/sbin/wpa_supplicant usr/sbin/rfkill usr/sbin/iw \
 	usr/lib/NetworkManager \
 	usr/lib/nm-dispatcher usr/lib/nm-priv-helper \
 	usr/lib/nm-daemon-helper usr/lib/nm-dhcp-helper usr/lib/nm-libnm-helper \
+	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper \
 	usr/lib64 \
 	etc/NetworkManager \
 	usr/share/dbus-1 \
@@ -742,6 +876,25 @@ cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS"
 cat > "$ISO_DIR/boot/grub/grub.cfg" <<EOF
 set default=0
 set timeout=5
+
+# video setup: without these GRUB prints "no suitable video mode found /
+# Booting in blind mode" on UEFI (GOP) machines and the screen stays black.
+# (grub-mkrescue ships all_video/gfxterm/unicode.pf2 on the ISO, so these
+# insmods resolve.)
+insmod part_gpt
+insmod part_msdos
+insmod fat
+insmod ext2
+insmod iso9660
+insmod all_video
+insmod gfxterm
+insmod efi_gop
+insmod efi_uga
+if loadfont \$prefix/fonts/unicode.pf2; then
+	set gfxmode=auto
+fi
+terminal_output gfxterm
+set gfxpayload=keep
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"

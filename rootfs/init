@@ -14,9 +14,18 @@ mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
 
+# quiet boot (installed system passes quiet on the kernel cmdline): hide
+# informational messages so the screen stays black until the login prompt.
+# Errors are still printed.
+QUIET=""
+for _q in $(cat /proc/cmdline 2>/dev/null); do
+	[ "$_q" = "quiet" ] && QUIET=1 && break
+done
+qecho() { [ -n "$QUIET" ] || echo "$@"; }
+
 # load the drivers/firmware needed to reach the install medium (or real root)
 if [ -f /etc/modules ]; then
-	echo "Loading kernel modules..."
+	qecho "Loading kernel modules..."
 	while read -r mod; do
 		[ -n "$mod" ] && modprobe -q "$mod"
 	done < /etc/modules
@@ -53,7 +62,7 @@ if [ -n "$rootarg" ]; then
 		sleep 1
 	done
 	if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
-		echo "Silen: mounting root $rootarg ($rootdev)"
+		qecho "Silen: mounting root $rootarg ($rootdev)"
 		mkdir -p /newroot
 		if mount -o ro "$rootdev" /newroot 2>/dev/null || mount "$rootdev" /newroot 2>/dev/null; then
 			mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
@@ -61,7 +70,12 @@ if [ -n "$rootarg" ]; then
 			mount --move /sys /newroot/sys 2>/dev/null
 			mount --move /dev /newroot/dev 2>/dev/null
 			mount --move /run /newroot/run 2>/dev/null
-			echo "Silen: switching to $newroot/sbin/init"
+			qecho "Silen: switching to $newroot/sbin/init"
+			# start the real init with a black screen when quiet was
+			# requested (agetty clears again before the login prompt)
+			if [ -n "$QUIET" ]; then
+				clear >/dev/console 2>&1 || printf '\033[H\033[2J' >/dev/console 2>&1 || true
+			fi
 			exec switch_root /newroot /sbin/init
 			echo "Silen: switch_root failed, falling back to live mode"
 		else
@@ -85,12 +99,25 @@ mountpoint -q /run  || mount -t tmpfs tmpfs /run 2>/dev/null
 
 echo "Welcome to Silen Linux"
 
-mkdir -p /run/dbus /run/NetworkManager /var/lib/NetworkManager
+mkdir -p /run/dbus /run/NetworkManager /run/wpa_supplicant /run/user /var/lib/NetworkManager
+chmod 755 /run/user 2>/dev/null || true
+# a soft-blocked radio looks exactly like "no wifi, only lo in nmtui"
+if command -v rfkill >/dev/null 2>&1; then
+	rfkill unblock all >/dev/null 2>&1 || true
+fi
 echo "Starting D-Bus..."
 dbus-daemon --system --nofork >/dev/null 2>&1 &
 sleep 1
 echo "Starting NetworkManager..."
-NetworkManager --no-daemon >/dev/null 2>&1 &
+NetworkManager --no-daemon >/tmp/NetworkManager.log 2>&1 &
+# give NM a moment to settle, then make sure wifi can actually scan: a
+# soft-blocked or software-disabled radio looks exactly like "no wifi, only
+# lo in nmtui" (drivers loaded late can re-assert the block, e.g. on laptops
+# with airplane-mode keys)
+(sleep 5; rfkill unblock all >/dev/null 2>&1 || true; nmcli radio wifi on >/dev/null 2>&1 || true; nmcli networking on >/dev/null 2>&1 || true) &
+# snapshot the wifi state for diagnosis (card, driver, rfkill, scan state);
+# the installer menu shows it, or run silen-wifi-check by hand
+(sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
 
 echo
 echo "Mounting install medium..."
