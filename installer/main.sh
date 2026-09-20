@@ -239,7 +239,7 @@ whiptail --msgbox --title "$title" "Silen linux installer (this script is still 
 main_screen() {
     men1=$(whiptail --title "$title" --menu "Choose an option:" 14 53 5 \
         "1" "Install Silen" \
-        "2" "Connect Wi-Fi (nmtui)" \
+        "2" "Configure internet (nmtui + wifi drivers)" \
         "3" "Wi-Fi status (debug purposes)" \
         "4" "Shell" \
         "5" "Reboot" \
@@ -248,11 +248,7 @@ main_screen() {
     if [ "$men1" = "1" ]; then
         partitioning
     elif [ "$men1" = "2" ]; then
-        if command -v nmtui >/dev/null 2>&1; then
-            nmtui 2>/dev/null || true
-        else
-            whiptail --msgbox --title "$title" "nmtui not found on this medium please (might be a ventoy issue)" 8 45
-        fi
+        configure_internet
         main_screen
     elif [ "$men1" = "3" ]; then
         if command -v silen-wifi-check >/dev/null 2>&1; then
@@ -273,6 +269,64 @@ main_screen() {
         main_screen
     else
         main_screen
+    fi
+}
+
+configure_internet() {
+    if ! command -v nmtui >/dev/null 2>&1; then
+        whiptail --msgbox --title "$title" "nmtui not found on this medium (might be a ventoy issue)" 8 45
+        return
+    fi
+
+    # Launch nmtui first
+    nmtui 2>/dev/null || true
+
+    # Then offer to install wifi drivers via spk
+    if whiptail --title "$title" --yesno "Install Wi-Fi drivers now? (requires network access)\nThis will use spk to install kernel modules/firmware for your wifi card." 10 55; then
+        install_wifi_drivers
+    fi
+}
+
+install_wifi_drivers() {
+    # Check if spk is available
+    if ! command -v spk >/dev/null 2>&1; then
+        whiptail --msgbox --title "$title" "spk not found - cannot install drivers" 8 40
+        return
+    fi
+
+    # Common wifi driver packages in spk_pkgs (based on kernel module names)
+    # These are the package names that would be in https://raw.githubusercontent.com/Cgtlpa/spk_pkgs/main/packages
+    driver_choice=$(whiptail --title "$title" --menu "Select Wi-Fi driver package to install:" 18 60 8 \
+        "linux-firmware" "All firmware (Intel, AMD, Realtek, MediaTek, etc.)" \
+        "rtl8822ce" "Realtek RTL8822CE (rtw88_8822ce)" \
+        "iwlwifi" "Intel WiFi (iwlwifi/iwlmvm)" \
+        "mt7921" "MediaTek MT7921/MT7922 (mt7921e)" \
+        "ath11k" "Qualcomm/Atheros WiFi 6/6E (ath11k)" \
+        "brcmfmac" "Broadcom FullMAC (brcmfmac)" \
+        "rtw89" "Realtek WiFi 6/6E/7 (rtw89)" \
+        "custom" "Enter custom package name" \
+        3>&1 1>&2 2>&3 || true)
+
+    [ -z "$driver_choice" ] && return
+
+    if [ "$driver_choice" = "custom" ]; then
+        driver_choice=$(whiptail --title "$title" --inputbox "Enter spk package name (from spk_pkgs):" 8 50 3>&1 1>&2 2>&3 || true)
+        [ -z "$driver_choice" ] && return
+    fi
+
+    whiptail --infobox --title "$title" "Installing $driver_choice via spk...\nThis may take a while." 8 50 2>/dev/null || true
+
+    if spk get "$driver_choice" 2>/tmp/spk-wifi.log; then
+        whiptail --msgbox --title "$title" "Wi-Fi driver '$driver_choice' installed successfully!\nRun 'nmtui' again to connect." 8 55
+        # Reload modules to pick up new drivers
+        if command -v modprobe >/dev/null 2>&1; then
+            modprobe -a $(echo "$driver_choice" | sed 's/-/_/g') 2>/dev/null || true
+        fi
+        rfkill unblock all 2>/dev/null || true
+        nmcli radio wifi on 2>/dev/null || true
+        nmcli device wifi rescan 2>/dev/null || true
+    else
+        whiptail --textbox /tmp/spk-wifi.log 20 70 2>/dev/null || true
     fi
 }
 
@@ -1278,6 +1332,16 @@ install-wifi() {
     chroot "$root" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || true
     chroot "$root" /bin/bash -c "rc-update add wpa_supplicant default" >/dev/null 2>&1 || true
     chroot "$root" /bin/bash -c "rc-update add NetworkManager default" >/dev/null 2>&1 || true
+
+    # Install wifi drivers via spk (linux-firmware + common driver packages)
+    whiptail --infobox --title "$title" "Installing Wi-Fi drivers (linux-firmware)..." 8 50 2>/dev/null || true
+    chroot "$root" /bin/bash -c "spk get linux-firmware" 2>/tmp/spk-wifi-install.log || \
+        whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Check /tmp/spk-wifi-install.log after reboot." 8 60
+
+    # Also install common wifi kernel modules if available
+    for pkg in rtl8822ce iwlwifi mt7921 ath11k brcmfmac rtw89; do
+        chroot "$root" /bin/bash -c "spk get $pkg" 2>>/tmp/spk-wifi-install.log || true
+    done
 }
 
 # Install GPU drivers

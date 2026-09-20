@@ -670,6 +670,15 @@ if in_chosen cfg80211; then
 	copy_firmware "regulatory.db.p7s"
 fi
 
+# ALWAYS copy all wifi firmware from rootfs to initramfs so live ISO has
+# full wifi support (installed system gets it from kernel-*.tar.zst + firmware/
+# on ISO, but live ISO only has initramfs). This ensures "no networks" issue
+# is fixed - the firmware is present for all supported wifi chips.
+if [ -d "$FIRMWARE_SOURCE" ]; then
+	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO..."
+	cp -a "$FIRMWARE_SOURCE" "$RAMROOT/lib/firmware" 2>/dev/null || true
+fi
+
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
