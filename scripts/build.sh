@@ -258,12 +258,12 @@ while [ ${#queue[@]} -gt 0 ]; do
 
 	is_blacklisted "$name" && continue
 
-	path="$(module_file "$name")"
+	path="$(module_file "$name" || true)"
 	[ -z "$path" ] && continue
 
 	chosen+=("$name")
 
-	deps="$(modinfo -F depends "$path" 2>/dev/null)"
+	deps="$(modinfo -F depends "$path" 2>/dev/null || true)"
 	for dep in ${deps//,/ }; do
 		[ -n "$dep" ] && queue+=("$dep")
 	done
@@ -290,23 +290,26 @@ mkdir -p "$RAMROOT/lib/modules"
 
 cp "$BUSYBOX_SOURCE" "$RAMROOT/bin/busybox"
 
-for _ld in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
+for _ld in /lib64/ld-linux-x86-64.so.2 /usr/lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
 	[ -f "$_ld" ] || continue
 	cp --dereference "$_ld" "$RAMROOT/lib64/ld-linux-x86-64.so.2" 2>/dev/null && break
 done
-for _clib in /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6 /usr/lib/libc.so.6; do
+for _clib in /usr/lib/libc.so.6 /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6; do
 	[ -f "$_clib" ] || continue
 	cp --dereference "$_clib" "$RAMROOT/usr/lib64/libc.so.6" 2>/dev/null && break
 done
-for _mlib in /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6 /usr/lib/libm.so.6; do
+for _mlib in /usr/lib/libm.so.6 /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6; do
 	[ -f "$_mlib" ] || continue
 	cp --dereference "$_mlib" "$RAMROOT/usr/lib64/libm.so.6" 2>/dev/null && break
 done
-for _rlib in /usr/lib64/libresolv.so.2 /lib/x86_64-linux-gnu/libresolv.so.2 /usr/lib/libresolv.so.2; do
+for _rlib in /usr/lib/libresolv.so.2 /usr/lib64/libresolv.so.2 /lib/x86_64-linux-gnu/libresolv.so.2; do
 	[ -f "$_rlib" ] || continue
 	cp --dereference "$_rlib" "$RAMROOT/usr/lib64/libresolv.so.2" 2>/dev/null && break
 done
 [ -f "$RAMROOT/lib64/ld-linux-x86-64.so.2" ] || { echo "  ERROR dynamic loader not found install it first"; exit 1; }
+[ -f "$RAMROOT/usr/lib64/libc.so.6" ] || { echo "  ERROR libc.so.6 copy failed install it first"; exit 1; }
+[ -f "$RAMROOT/usr/lib64/libm.so.6" ] || echo "  ! libm.so.6 not copied some tools may fail"
+[ -f "$RAMROOT/usr/lib64/libresolv.so.2" ] || echo "  ! libresolv.so.2 not copied DNS may fail in live env"
 
 cat > "$RAMROOT/etc/passwd" <<'EOF'
 root:x:0:0:root:/root:/bin/sh
@@ -337,15 +340,34 @@ copy_libs() {
 	local bin="$1" lib
 	[ -f "$bin" ] || return 0
 	mkdir -p "$RAMROOT/usr/lib64"
+	# Warn once if ldd reports missing libs (e.g. "libfoo.so => not found").
+	if ldd "$bin" 2>/dev/null | grep -q '=> not found'; then
+		echo "  ! $bin has missing libs:"
+		ldd "$bin" 2>/dev/null | grep '=> not found' | sed 's/^/    /' || true
+	fi
 	while IFS= read -r lib; do
+		# Strip any leading/trailing whitespace (ldd indents with tabs).
+		lib="$(printf '%s' "$lib" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 		[ -n "$lib" ] || continue
+		# Skip the virtual vdso (no file on disk) and any non-absolute entry.
+		case "$lib" in
+			/*) ;;
+			*) continue ;;
+		esac
+		case "$lib" in
+			*linux-vdso*|*linux-gate*) continue ;;
+		esac
 		case " $libs_seen " in
 			*" $lib "*) continue ;;
 		esac
 		libs_seen="$libs_seen $lib "
-		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy lib $lib"
+		if [ ! -e "$lib" ]; then
+			echo "  ! missing lib $lib (needed by $bin)"
+			continue
+		fi
+		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy lib $lib (needed by $bin)"
 		copy_libs "$lib"
-	done < <({ ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p'; ldd "$bin" 2>/dev/null | grep -o '^[[:space:]]*/[^ ]*' | tr -d ' '; } | sort -u)
+	done < <(ldd "$bin" 2>/dev/null | grep -o '/[^ ()]*' | sort -u || true)
 
 }
 
@@ -356,16 +378,16 @@ copy_app() {
 		echo "  ERROR required tool missing: $src (install it first)"
 		exit 1
 	fi
-	mkdir -p "$RAMROOT/usr/bin"
-	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
+	mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
+	cp --dereference "$src" "$RAMROOT/usr/bin/$dest" || { echo "  ERROR cannot copy $src (disk full?)"; exit 1; }
 	copy_libs "$src"
 }
 copy_opt() {
 	local dest="$1"
 	local src="$2"
 	[ -e "$src" ] || return 0
-	mkdir -p "$RAMROOT/usr/bin"
-	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
+	mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
+	cp --dereference "$src" "$RAMROOT/usr/bin/$dest" || { echo "  ! cannot copy optional $src"; return 0; }
 	copy_libs "$src"
 }
 
@@ -422,11 +444,11 @@ copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app wpa_supplicant /usr/sbin/wpa_supplicant
 mkdir -p "$RAMROOT/usr/sbin"
 ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
-[ -f /usr/bin/wpa_cli ] && copy_app wpa_cli /usr/bin/wpa_cli
-[ -f /usr/bin/rfkill ] && copy_app rfkill /usr/bin/rfkill
-[ -f /usr/bin/iw ] && copy_app iw /usr/bin/iw
-[ -f /usr/sbin/rfkill ] && { copy_app rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
-[ -f /usr/sbin/iw ] && { copy_app iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+[ -f /usr/bin/wpa_cli ] && copy_opt wpa_cli /usr/bin/wpa_cli
+[ -f /usr/bin/rfkill ] && copy_opt rfkill /usr/bin/rfkill
+[ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
+[ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
+[ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
 for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
 	[ -f "$_dbus_helper" ] || continue
 	_helper_rel="${_dbus_helper#/}"
@@ -589,7 +611,7 @@ in_chosen() {
 }
 
 for name in "${chosen[@]}"; do
-	path="$(module_file "$name")"
+	path="$(module_file "$name" || true)"
 	[ -z "$path" ] && continue
 
 	relative="${path#$MODULES_SOURCE/}"
@@ -600,7 +622,7 @@ for name in "${chosen[@]}"; do
 		rm "$MODULES_DIR/$relative"
 	fi
 
-	for firmware in $(modinfo -F firmware "$path" 2>/dev/null); do
+	for firmware in $(modinfo -F firmware "$path" 2>/dev/null || true); do
 		[ -n "$firmware" ] || continue
 		copy_firmware "$firmware"
 	done
@@ -698,7 +720,12 @@ find "$MODULES_DIR" -name '*.ko' -exec strip --strip-debug {} + 2>/dev/null || t
 echo "  modules after strip $(du -sh "$MODULES_DIR" | cut -f1)"
 
 echo "  writing /etc modules"
-printf '%s\n' "${chosen[@]}" | sort > "$RAMROOT/etc/modules"
+if [ "${#chosen[@]}" -gt 0 ]; then
+	printf '%s\n' "${chosen[@]}" | sort > "$RAMROOT/etc/modules"
+else
+	echo "  ! WARNING no modules selected (ALLOW list matched nothing)"
+	: > "$RAMROOT/etc/modules"
+fi
 
 mkdir -p "$RAMROOT/etc/modprobe.d"
 printf 'options rtw88_pci disable_aspm=Y\noptions rtw88_core disable_lps_deep=Y\n' > "$RAMROOT/etc/modprobe.d/silen-rtw88.conf"
@@ -737,17 +764,21 @@ fi
 
 CPIO_FILE="build/initramfs.cpio"
 
-(
+if ! (
 	cd "$RAMROOT"
-	find . -print0 | cpio --null -o --format=newc --owner=0:0 2>/dev/null
-) > "$CPIO_FILE"
+	find . -print0 | cpio --null -o --format=newc --owner=0:0
+) > "$CPIO_FILE"; then
+	echo "  ERROR cpio failed (need cpio package, disk space)"
+	exit 1
+fi
+[ -s "$CPIO_FILE" ] || { echo "  ERROR cpio produced empty archive"; exit 1; }
 
 if [ "$COMPRESS" = "zstd" ]; then
-	zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS"
+	zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd compression failed (need RAM/disk, try FORCE=1)"; exit 1; }
 elif [ "$COMPRESS" = "gzip" ]; then
-	gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS"
+	gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR gzip compression failed"; exit 1; }
 else
-	xz -9 -c "$CPIO_FILE" > "build/$INITRAMFS"
+	xz -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR xz compression failed"; exit 1; }
 fi
 
 rm -f "$CPIO_FILE"
@@ -761,18 +792,22 @@ mkdir -p "$ISO_DIR/boot/grub"
 
 if modules_ok "$MODULES_SOURCE"; then
 	echo "  packing kernel + module tree for the installed system"
+	if ! command -v zstd >/dev/null 2>&1; then
+		echo "  ERROR zstd not found (needed for kernel/network bundles) install it e.g. sudo pacman -S zstd"
+		exit 1
+	fi
 	KROOT="build/kernel-root"
 	rm -rf "$KROOT"
 	mkdir -p "$KROOT/boot" "$KROOT/lib/modules"
-	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz"
-	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION"
+	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz" || { echo "  ERROR cannot copy kernel image"; exit 1; }
+	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION" || { echo "  ERROR cannot copy module tree"; exit 1; }
 	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
 	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
 	       "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
 	find "$KROOT/lib/modules" \( -name '*.ko' -o -name '*.ko.zst' -o -name '*.ko.xz' \) -exec strip --strip-debug {} + 2>/dev/null || true
 	KERNEL_TAR="$ISO_DIR/kernel-$KERNEL_VERSION.tar.zst"
 	tar -C "$KROOT" --exclude='./lib/modules/*/build' --exclude='./lib/modules/*/source' \
-		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" .
+		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" . || { echo "  ERROR kernel tarball creation failed (disk full?)"; exit 1; }
 	echo "  kernel bundle: $(du -h "$KERNEL_TAR" | cut -f1)"
 else
 	echo "  no module tree found to add to ISO installed system gets the initramfs set"
@@ -780,7 +815,7 @@ fi
 
 if [ -d rootfs/lib/firmware ]; then
 	echo "  adding firmware to ISO at firmware"
-	cp -a rootfs/lib/firmware "$ISO_DIR/firmware"
+	cp -a rootfs/lib/firmware "$ISO_DIR/firmware" || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
 fi
 
 STAGE3_TARBALL=""
@@ -791,7 +826,7 @@ for _st in stage3-*.tar.* tarball-*.xz tarball-*.tar.*; do
 done
 if [ -n "$STAGE3_TARBALL" ]; then
 	echo "  copying stage3 tarball onto the ISO $STAGE3_TARBALL"
-	cp "$STAGE3_TARBALL" "$ISO_DIR/"
+	cp "$STAGE3_TARBALL" "$ISO_DIR/" || { echo "  ERROR cannot copy $STAGE3_TARBALL to ISO (disk full?)"; exit 1; }
 else
 	echo
 	echo "  !! WARNING no stage3/tarball found in the repo root"
@@ -809,7 +844,7 @@ if command -v cargo >/dev/null 2>&1; then
 	fi
 	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
 		echo "  copying spk onto the ISO"
-		cp spk/target/release/spk "$ISO_DIR/spk"
+		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
 	else
 		echo "  ! spk build failed installer will try to fetch it another way"
 	fi
@@ -840,12 +875,12 @@ for _np in \
 	etc/machine-id \
 ; do
 	[ -e "$RAMROOT/$_np" ] || [ -L "$RAMROOT/$_np" ] || continue
-	mkdir -p "$NETROOT/$(dirname "$_np")"
-	cp -a "$RAMROOT/$_np" "$NETROOT/$_np"
+	mkdir -p "$NETROOT/$(dirname "$_np")" || { echo "  ERROR cannot create $NETROOT/$(dirname "$_np")"; exit 1; }
+	cp -a "$RAMROOT/$_np" "$NETROOT/$_np" || { echo "  ERROR cannot copy $_np to network bundle"; exit 1; }
 done
 if [ -d "$NETROOT/usr/bin" ]; then
 	NETWORK_TAR="$ISO_DIR/network.tar.zst"
-	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" .
+	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" . || { echo "  ERROR network bundle creation failed"; exit 1; }
 	echo "  network bundle $(du -h "$NETWORK_TAR" | cut -f1)"
 else
 	echo "  ! network stack missing from ramroot installed system gets no NetworkManager"
@@ -854,7 +889,7 @@ fi
 if [ -d grub-bundle/usr/local ]; then
 	echo "  adding bundled grub EFI to ISO at grub"
 	mkdir -p "$ISO_DIR/grub"
-	cp -a grub-bundle/usr "$ISO_DIR/grub/"
+	cp -a grub-bundle/usr "$ISO_DIR/grub/" || { echo "  ERROR cannot copy grub-bundle"; exit 1; }
 else
 	echo "  ! no grub-bundle/ found - installer won't be able to set up GRUB"
 	echo "    build it once with scripts/make-grub-bundle.sh"
@@ -863,12 +898,12 @@ fi
 if [ -f branding/fastfetch_logo.txt ]; then
 	echo "  adding branding to ISO at branding"
 	mkdir -p "$ISO_DIR/branding"
-	cp branding/fastfetch_logo.txt "$ISO_DIR/branding/"
-	[ -f branding/info.txt ] && cp branding/info.txt "$ISO_DIR/branding/"
+	cp branding/fastfetch_logo.txt "$ISO_DIR/branding/" || { echo "  ERROR cannot copy branding"; exit 1; }
+	[ -f branding/info.txt ] && cp branding/info.txt "$ISO_DIR/branding/" || true
 fi
 
-cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz"
-cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS"
+cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz" || { echo "  ERROR cannot copy kernel to ISO"; exit 1; }
+cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS" || { echo "  ERROR cannot copy initramfs to ISO"; exit 1; }
 
 cat > "$ISO_DIR/boot/grub/grub.cfg" <<EOF
 set default=0

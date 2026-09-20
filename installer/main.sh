@@ -230,19 +230,19 @@ ensure_medium() {
 trap cleanup INT TERM EXIT
 
 [ "$(id -u)" = "0" ] || {
-    whiptail --msgbox --title "$title" "this installer needs root" 8 40 2>/dev/null || true
+    whiptail --msgbox --title "$title" "root perms needed" 8 40 2>/dev/null || true
     exit 1
 }
 
-whiptail --msgbox --title "$title" "Silen linux installer errors may occur" 10 40 || true
+whiptail --msgbox --title "$title" "Silen linux installer still in early development errors may accur" 10 40 || true
 
 
 connect_internet() {
-    if whiptail --title "$title" --yesno "Would you like to connect to the internet?\nNeeded for drivers wifi firmware and packages via spk" 10 55; then
+    if whiptail --title "$title" --yesno "Would you like to connect to the internet?\nNeeded for drivers, Desktop envs and packages via spk" 10 55; then
         if command -v nmtui >/dev/null 2>&1; then
             nmtui 2>/dev/null || true
         fi
-        if whiptail --title "$title" --yesno "Install wifi drivers now?\nUses spk for kernel modules and firmware" 10 55; then
+        if whiptail --title "$title" --yesno "Install wifi drivers?\nUses spk for kernel modules and firmware" 10 55; then
             install_wifi_drivers
         fi
     fi
@@ -252,7 +252,7 @@ main_screen() {
     men1=$(whiptail --title "$title" --menu "Choose an option" 14 53 5 \
         "1" "Install Silen" \
         "2" "Configure internet nmtui and wifi drivers" \
-        "3" "Wi-Fi status debug purposes" \
+        "3" "Wi-Fi status (debug purposes)" \
         "4" "Shell" \
         "5" "Reboot" \
         3>&1 1>&2 2>&3 || true)
@@ -268,7 +268,7 @@ main_screen() {
             silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true
             whiptail --textbox /tmp/silen-wifi.log 24 78 2>/dev/null || true
         else
-            whiptail --msgbox --title "$title" "silen-wifi-check not found on this medium" 8 40 || true
+            whiptail --msgbox --title "$title" "wifi check not found on this iso" 8 40 || true
         fi
         main_screen
     elif [ "$men1" = "4" ]; then
@@ -276,7 +276,7 @@ main_screen() {
         main_screen
     elif [ "$men1" = "5" ]; then
         sync 2>/dev/null || true
-        reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f from the shell or power the machine off" 8 60 || true
+        reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f or force off you maschine" 8 60 || true
         main_screen
     else
         main_screen
@@ -285,14 +285,14 @@ main_screen() {
 
 configure_internet() {
     if ! command -v nmtui >/dev/null 2>&1; then
-        whiptail --msgbox --title "$title" "nmtui not found on this medium might be a ventoy issue" 8 45 || true
+        whiptail --msgbox --title "$title" "nmtui not found on this iso might be a ventoy issue please try again with dd" 8 45 || true
         main_screen
         return
     fi
 
     nmtui 2>/dev/null || true
 
-    if whiptail --title "$title" --yesno "Install Wi-Fi drivers now? requires network access\nThis will use spk to install kernel modules and firmware for your wifi card" 10 55; then
+    if whiptail --title "$title" --yesno "Install Wi-Fi drivers now? requires wifi access\nThis will use spk to install kernel modules and firmware for your wifi card" 10 55; then
         install_wifi_drivers
     fi
     main_screen
@@ -312,7 +312,7 @@ install_wifi_drivers() {
         "ath11k" "Qualcomm Atheros WiFi 6 6E ath11k" \
         "brcmfmac" "Broadcom FullMAC brcmfmac" \
         "rtw89" "Realtek WiFi 6 6E 7 rtw89" \
-        "custom" "Enter custom package name" \
+        "custom" "Enter custom package name maybe its in the repo" \
         3>&1 1>&2 2>&3 || true)
 
     [ -z "$wifi_choice" ] && return
@@ -322,7 +322,7 @@ install_wifi_drivers() {
         [ -z "$wifi_choice" ] && return
     fi
 
-    whiptail --infobox --title "$title" "Installing $wifi_choice via spk This may take a while" 8 50 2>/dev/null || true
+    whiptail --infobox --title "$title" "Installing $wifi_choice via spk This may take a while depending on your internet speeds" 8 50 2>/dev/null || true
 
     if spk get "$wifi_choice" 2>/tmp/spk-wifi.log; then
         whiptail --msgbox --title "$title" "Wi-Fi driver installed successfully\nRun nmtui again to connect" 8 55 || true
@@ -485,13 +485,14 @@ install-base() {
             return
         fi
     else
+        # unpack tarball without top-level directory
         if ! tar -xpf "$stage3" -C "$root" --no-same-owner --numeric-owner --xattrs-include='*.*'; then
             whiptail --msgbox --title "$title" "failed to unpack the system tarball" 8 50 || true
             cleanup
             return
         fi
     fi
-    whiptail --infobox "Installing the system files, this might take a while...\n(fixing permissions)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing this might take a while...\n" 8 60 2>/dev/null || true
     fix-permissions
 
     mkdir -p "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/etc "$root"/usr/share/zoneinfo
@@ -544,18 +545,18 @@ EOF
         whiptail --msgbox --title "$title" "couldn't run ldconfig in the new system; shared libraries may not load until it is run" 8 60 || true
     fi
 
-    whiptail --infobox "Installing the system files, this might take a while...\n(copying kernel and drivers)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(copying kernel and drivers)" 8 60 2>/dev/null || true
     install-modules
-    whiptail --infobox "Installing the system files, this might take a while...\n(installing packages and network)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(installing packages and network)" 8 60 2>/dev/null || true
     install-spk
     install-network
-    whiptail --infobox "Installing the system files, this might take a while...\n(configuring Wi-Fi)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(configuring Wi-Fi)" 8 60 2>/dev/null || true
     install-wifi
-    whiptail --infobox "Installing the system files, this might take a while...\n(installing GPU drivers)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(installing GPU drivers)" 8 60 2>/dev/null || true
     install-drivers
-    whiptail --infobox "Installing the system files, this might take a while...\n(installing Desktop Environment)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(installing Desktop Environment)" 8 60 2>/dev/null || true
     install-desktop
-    whiptail --infobox "Installing the system files, this might take a while...\n(creating users and finishing setup)" 8 60 2>/dev/null || true
+    whiptail --infobox "Installing the system this might take a while...\n(creating users and finishing setup)" 8 60 2>/dev/null || true
     create-user
     install-branding
     fix-user-session
@@ -567,7 +568,7 @@ EOF
 
     sync 2>/dev/null || true
     cleanup
-    whiptail --msgbox --title "$title" "Silen is installed, reboot when ready" 8 40 || true
+    whiptail --msgbox --title "$title" "Silen is installed, reboot in main menu" 8 40 || true
     main_screen
 }
 
@@ -591,12 +592,12 @@ ask-install-settings() {
 
     newuser=""
     userpass=""
-    if whiptail --title "$title" --yesno "Create a user account (in addition to root)?" 8 50; then
+    if whiptail --title "$title" --yesno "Create a user account?" 8 50; then
         while :; do
-            newuser=$(whiptail --title "$title" --inputbox "Username for the new account (empty = skip):" 8 50 3>&1 1>&2 2>&3 || true)
+            newuser=$(whiptail --title "$title" --inputbox "Username for the new account if (empty = skip):" 8 50 3>&1 1>&2 2>&3 || true)
             [ -z "$newuser" ] && break
             if [ "$newuser" = "root" ]; then
-                whiptail --msgbox --title "$title" "root already exists, pick another name" 8 40 || true
+                whiptail --msgbox --title "$title" "root already exists choose another username" 8 40 || true
                 newuser=""
                 continue
             fi
