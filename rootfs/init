@@ -20,12 +20,13 @@ qecho() { [ -n "$QUIET" ] || echo "$@"; }
 if [ -f /etc/modules ]; then
 	qecho "Loading kernel modules"
 	while read -r mod; do
-		[ -n "$mod" ] && modprobe -q "$mod"
+		case "$mod" in ""|\#*|options\ *) continue ;; esac
+		modprobe -q "$mod" 2>/dev/null || true
 	done < /etc/modules
 fi
 
 rootarg=""
-for arg in $(cat /proc/cmdline); do
+for arg in $(cat /proc/cmdline 2>/dev/null); do
 	case "$arg" in
 		root=*) rootarg="${arg#root=}" ;;
 	esac
@@ -50,12 +51,12 @@ if [ -n "$rootarg" ]; then
 	if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
 		qecho "Silen mounting root $rootarg $rootdev"
 		mkdir -p /newroot
-		if mount -o ro "$rootdev" /newroot 2>/dev/null || mount "$rootdev" /newroot 2>/dev/null; then
+		if mount -o ro "$rootdev" /newroot 2>/dev/null; then
 			mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
-			mount --move /proc /newroot/proc 2>/dev/null
-			mount --move /sys /newroot/sys 2>/dev/null
-			mount --move /dev /newroot/dev 2>/dev/null
-			mount --move /run /newroot/run 2>/dev/null
+			mount --move /proc /newroot/proc 2>/dev/null || mount -t proc proc /newroot/proc 2>/dev/null || true
+			mount --move /sys /newroot/sys 2>/dev/null || mount -t sysfs sysfs /newroot/sys 2>/dev/null || true
+			mount --move /dev /newroot/dev 2>/dev/null || mount -t devtmpfs devtmpfs /newroot/dev 2>/dev/null || true
+			mount --move /run /newroot/run 2>/dev/null || mount -t tmpfs tmpfs /newroot/run 2>/dev/null || true
 			qecho "Silen switching to $newroot/sbin/init"
 			if [ -n "$QUIET" ]; then
 				clear >/dev/console 2>&1 || printf '\033[H\033[2J' >/dev/console 2>&1 || true
@@ -70,11 +71,12 @@ if [ -n "$rootarg" ]; then
 	fi
 fi
 
-mountpoint -q /proc || mount -t proc proc /proc 2>/dev/null
-mountpoint -q /sys  || mount -t sysfs sysfs /sys 2>/dev/null
-mountpoint -q /dev  || mount -t devtmpfs devtmpfs /dev 2>/dev/null
-mountpoint -q /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null
-mountpoint -q /run  || mount -t tmpfs tmpfs /run 2>/dev/null
+is_mounted() { grep -qs " $1 " /proc/mounts 2>/dev/null; }
+is_mounted /proc || mount -t proc proc /proc 2>/dev/null || true
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+is_mounted /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null || true
+is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
 
 echo "Welcome to Silen Linux"
 
@@ -84,13 +86,21 @@ chmod 755 /run/user 2>/dev/null || true
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
 fi
-ip link set lo up 2>/dev/null || true
 
-echo "Starting D-Bus"
-dbus-daemon --system --nofork >/dev/null 2>&1 &
-sleep 1
-echo "Starting NetworkManager"
-NetworkManager --no-daemon >/tmp/NetworkManager.log 2>&1 &
+if command -v dbus-daemon >/dev/null 2>&1; then
+	echo "Starting D-Bus"
+	[ -f /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
+	dbus-daemon --system --nofork >/dev/null 2>&1 &
+	sleep 1
+else
+	echo "dbus-daemon missing wifi/dbus will not work"
+fi
+if command -v NetworkManager >/dev/null 2>&1; then
+	echo "Starting NetworkManager"
+	NetworkManager --no-daemon >/tmp/NetworkManager.log 2>&1 &
+else
+	echo "NetworkManager missing networking will not work"
+fi
 (sleep 5; rfkill unblock all >/dev/null 2>&1 || true; nmcli radio wifi on >/dev/null 2>&1 || true; nmcli networking on >/dev/null 2>&1 || true) &
 (sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
 
@@ -99,7 +109,7 @@ echo "Mounting install medium"
 
 medium_has_tarball_at() {
 	_dir="$1"
-	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz; do
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
 		[ -f "$f" ] && return 0
 	done
 	return 1
@@ -109,7 +119,7 @@ medium_has_tarball() {
 }
 find_tarball_at() {
 	_dir="$1"
-	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz; do
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
 		[ -f "$f" ] && { echo "$f"; return 0; }
 	done
 	return 1
@@ -191,7 +201,7 @@ try_isos_on_scan() {
 	rm -f /tmp/.isolist
 	touch /tmp/.isolist
 	if [ -n "$iso_hint_base" ]; then
-		find /run/scan -maxdepth 4 -iname "$iso_hint_base" 2>/dev/null | head -n 5 >> /tmp/.isolist
+		find /run/scan -maxdepth 4 -iname "$iso_hint_base" 2>/dev/null >> /tmp/.isolist
 		_hintrel="$(echo "$iso_hint" | sed 's|^/*||')"
 		if [ -n "$_hintrel" ] && [ -f "/run/scan/$_hintrel" ]; then
 			echo "/run/scan/$_hintrel" >> /tmp/.isolist
@@ -233,14 +243,27 @@ try_isos_on_scan() {
 				fi
 				umount /iso 2>/dev/null
 			fi
-			if mountpoint -q /run/scan 2>/dev/null && mountpoint -q /run/ventoy 2>/dev/null; then
+			if grep -qs " /run/scan " /proc/mounts 2>/dev/null && grep -qs " /run/ventoy " /proc/mounts 2>/dev/null; then
 				umount /run/scan 2>/dev/null || true
 			fi
 			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
-			[ -n "$stage3" ] || stage3="/mnt/$(basename "$(find_tarball_at /iso 2>/dev/null)" 2>/dev/null)"
+			if [ -z "$stage3" ] || [ ! -f "$stage3" ]; then
+				_iso_tar="$(find_tarball_at /iso 2>/dev/null)" || _iso_tar=""
+				if [ -n "$_iso_tar" ] && [ -f "/mnt/$(basename "$_iso_tar")" ]; then
+					stage3="/mnt/$(basename "$_iso_tar")"
+				else
+					stage3=""
+				fi
+			fi
+			[ -n "$stage3" ] || continue
 			echo "  install medium is an ISO file on $_srcdev $_iso"
 			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
-			echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true
+			_rel="${_iso#/run/scan/}"
+			if [ "$_rel" != "$_iso" ] && mountpoint -q /run/ventoy 2>/dev/null || grep -qs " /run/ventoy " /proc/mounts 2>/dev/null; then
+				echo "/run/ventoy/$_rel" > /run/silen-medium-iso 2>/dev/null || true
+			else
+				echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true
+			fi
 			return 0
 		fi
 		umount /iso 2>/dev/null
@@ -319,8 +342,8 @@ else
 	echo "  hint filesystem or the ISO name was changed Most reliable is"
 	echo "  hint writing the ISO with dd see installer shell mount blkid"
 	if medium_has_tarball; then
-		:
-	elif mountpoint -q /mnt 2>/dev/null; then
+		stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+	elif grep -qs " /mnt " /proc/mounts 2>/dev/null; then
 		if umount /mnt 2>/dev/null; then
 			echo "  released the disk from /mnt"
 		fi
@@ -348,14 +371,11 @@ EOF
 export ENV=/etc/silen-shrc
 fi
 echo
-echo "Silen Linux live shell type exit to power off reboot to reboot"
+echo "Silen Linux live shell type reboot to reboot poweroff to power off"
 echo
 while true; do
-	/bin/sh
+	/bin/sh || true
 	echo
-	echo "Shell exited powering off"
-	sync 2>/dev/null || true
-	poweroff -f 2>/dev/null || reboot -f 2>/dev/null || true
-	echo "Power off failed starting a new shell"
+	echo "Shell exited starting a new shell"
 	sleep 1
 done

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 title="Silen installer"
@@ -126,20 +126,20 @@ rescan_medium() {
     done || true
     for _dm in /dev/mapper/*; do
         [ -e "$_dm" ] || continue
-        case "$_cands" in
-            *"$_dm"*) ;;
+        case " $_cands " in
+            *" $_dm "*) ;;
             *) _cands="$_cands $_dm" ;;
         esac
     done || true
     for _d in /dev/sd[a-z] /dev/vd[a-z] /dev/xvd[a-z] /dev/nvme[0-9]*n[0-9]* /dev/mmcblk[0-9]* /dev/sr[0-9]*; do
         [ -b "$_d" ] || continue
-        case "$_cands" in
-            *"$_d"*) ;;
+        case " $_cands " in
+            *" $_d "*) ;;
             *) _cands="$_cands $_d" ;;
         esac
         for _p in "$_d"?* "$_d"p?*; do
             [ -b "$_p" ] || continue
-            case "$_cands" in
+            case " $_cands " in
                 *"$_p"*) ;;
                 *) _cands="$_cands $_p" ;;
             esac
@@ -227,7 +227,7 @@ ensure_medium() {
     return 1
 }
 
-trap cleanup EXIT
+trap cleanup INT TERM
 
 [ "$(id -u)" = "0" ] || {
     whiptail --msgbox --title "$title" "this installer needs root" 8 40 2>/dev/null || true
@@ -268,15 +268,15 @@ main_screen() {
             silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true
             whiptail --textbox /tmp/silen-wifi.log 24 78 2>/dev/null || true
         else
-            whiptail --msgbox --title "$title" "silen-wifi-check not found on this medium" 8 40
+            whiptail --msgbox --title "$title" "silen-wifi-check not found on this medium" 8 40 || true
         fi
         main_screen
     elif [ "$men1" = "4" ]; then
-        sh
+        sh || true
         main_screen
     elif [ "$men1" = "5" ]; then
         sync 2>/dev/null || true
-        reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f from the shell or power the machine off" 8 60
+        reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f from the shell or power the machine off" 8 60 || true
         main_screen
     else
         main_screen
@@ -285,7 +285,7 @@ main_screen() {
 
 configure_internet() {
     if ! command -v nmtui >/dev/null 2>&1; then
-        whiptail --msgbox --title "$title" "nmtui not found on this medium might be a ventoy issue" 8 45
+        whiptail --msgbox --title "$title" "nmtui not found on this medium might be a ventoy issue" 8 45 || true
         main_screen
         return
     fi
@@ -300,11 +300,11 @@ configure_internet() {
 
 install_wifi_drivers() {
     if ! command -v spk >/dev/null 2>&1; then
-        whiptail --msgbox --title "$title" "spk not found cannot install drivers" 8 40
+        whiptail --msgbox --title "$title" "spk not found cannot install drivers" 8 40 || true
         return
     fi
 
-    driver_choice=$(whiptail --title "$title" --menu "Select Wi-Fi driver package to install" 18 60 8 \
+    wifi_choice=$(whiptail --title "$title" --menu "Select Wi-Fi driver package to install" 18 60 8 \
         "linux-firmware" "All firmware (Intel, AMD, Realtek, MediaTek, etc.)" \
         "rtl8822ce" "Realtek RTL8822CE rtw88_8822ce" \
         "iwlwifi" "Intel WiFi iwlwifi iwlmvm" \
@@ -315,19 +315,19 @@ install_wifi_drivers() {
         "custom" "Enter custom package name" \
         3>&1 1>&2 2>&3 || true)
 
-    [ -z "$driver_choice" ] && return
+    [ -z "$wifi_choice" ] && return
 
-    if [ "$driver_choice" = "custom" ]; then
-        driver_choice=$(whiptail --title "$title" --inputbox "Enter spk package name from spk_pkgs" 8 50 3>&1 1>&2 2>&3 || true)
-        [ -z "$driver_choice" ] && return
+    if [ "$wifi_choice" = "custom" ]; then
+        wifi_choice=$(whiptail --title "$title" --inputbox "Enter spk package name from spk_pkgs" 8 50 3>&1 1>&2 2>&3 || true)
+        [ -z "$wifi_choice" ] && return
     fi
 
-    whiptail --infobox --title "$title" "Installing $driver_choice via spk This may take a while" 8 50 2>/dev/null || true
+    whiptail --infobox --title "$title" "Installing $wifi_choice via spk This may take a while" 8 50 2>/dev/null || true
 
-    if spk get "$driver_choice" 2>/tmp/spk-wifi.log; then
-        whiptail --msgbox --title "$title" "Wi-Fi driver installed successfully\nRun nmtui again to connect" 8 55
+    if spk get "$wifi_choice" 2>/tmp/spk-wifi.log; then
+        whiptail --msgbox --title "$title" "Wi-Fi driver installed successfully\nRun nmtui again to connect" 8 55 || true
         if command -v modprobe >/dev/null 2>&1; then
-            modprobe -a $(echo "$driver_choice" | sed 's/-/_/g') 2>/dev/null || true
+            for _m in cfg80211 mac80211 rfkill; do modprobe -q "$_m" 2>/dev/null || true; done
         fi
         rfkill unblock all 2>/dev/null || true
         nmcli radio wifi on 2>/dev/null || true
@@ -347,7 +347,7 @@ partitioning() {
         fi
     done
     if [ ${#disks[@]} -eq 0 ]; then
-        whiptail --msgbox --title "$title" "no disks found" 8 40
+        whiptail --msgbox --title "$title" "no disks found" 8 40 || true
         main_screen
         return
     fi
@@ -366,31 +366,33 @@ partitioning() {
     if ! medium_has_tarball; then
         _dbg_mnt="$(mount 2>/dev/null | grep ' /mnt ' || echo 'nothing mounted at /mnt')"
         _dbg_blk="$(blkid 2>/dev/null | head -n 20 || echo 'blkid unavailable')"
-        whiptail --msgbox --title "$title" "No Silen tarball found at /mnt, so installing would fail AFTER wiping $disk.\n\nThe installer already rescanned all disks (including Ventoy ISO files) and found nothing.\n\nPressed OK for details. Current state:\n$_dbg_mnt\n$_dbg_blk\n\nFixes: reboot (slow USB/NVMe may need a retry), write the ISO with dd instead of Ventoy, or open Shell and mount the install medium at /mnt yourself, then rerun Install." 22 70
+        whiptail --msgbox --title "$title" "No Silen tarball found at /mnt, so installing would fail AFTER wiping $disk.\n\nThe installer already rescanned all disks (including Ventoy ISO files) and found nothing.\n\nPressed OK for details. Current state:\n$_dbg_mnt\n$_dbg_blk\n\nFixes: reboot (slow USB/NVMe may need a retry), write the ISO with dd instead of Ventoy, or open Shell and mount the install medium at /mnt yourself, then rerun Install." 22 70 || true
         main_screen
         return
     fi
 
     if medium_on_disk "$disk"; then
-        whiptail --msgbox --title "$title" "$disk holds the install medium directly or as the Ventoy partition backing the ISO - installing onto it wipes the ISO/tarball Pick a different disk" 9 70
+        whiptail --msgbox --title "$title" "$disk holds the install medium directly or as the Ventoy partition backing the ISO - installing onto it wipes the ISO/tarball Pick a different disk" 9 70 || true
         partitioning
         return
     fi
     for cmd in sfdisk mkfs.vfat mkfs.ext4 blkid; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
-            whiptail --msgbox --title "$title" "$cmd not found on the install medium" 8 40
+            whiptail --msgbox --title "$title" "$cmd not found on the install medium" 8 40 || true
             return
         fi
     done
     ask-install-settings
 
-    for part in $(mount 2>/dev/null | awk -v d="$disk" '$1 ~ ("^" d) {print $1}' || true); do
+    for part in $(mount 2>/dev/null | awk -v d="$disk" 'index($1,d)==1 {print $1}' || true); do
         [ -n "$part" ] || continue
         umount "$part" 2>/dev/null || true
     done
 
     if medium_on_disk "$disk"; then
-        umount /mnt 2>/dev/null || true
+        whiptail --msgbox --title "$title" "$disk holds the install medium refusing to wipe" 8 60 || true
+        main_screen
+        return
     fi
     whiptail --infobox "Partitioning $disk writing GPT" 8 40 2>/dev/null || true
     if command -v wipefs >/dev/null 2>&1; then
@@ -408,10 +410,10 @@ label: gpt
 , , L
 EOF
         then
-            if mount 2>/dev/null | awk -v d="$disk" '$1 ~ d {f=1} END {exit !f}'; then
-                whiptail --msgbox --title "$title" "couldn't write partition table to $disk: it is still in use (something is mounted on it). Open the shell and check 'mount'." 10 60
+            if mount 2>/dev/null | awk -v d="$disk" 'index($1,d)==1 {f=1} END {exit !f}'; then
+                whiptail --msgbox --title "$title" "couldn't write partition table to $disk: it is still in use (something is mounted on it). Open the shell and check 'mount'." 10 60 || true
             else
-                whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40
+                whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40 || true
             fi
             return
         fi
@@ -428,25 +430,25 @@ EOF
     _wait=0
     while [ ! -b "$bootp" ] || [ ! -b "$rootp" ]; do
         [ "$_wait" -ge 50 ] && break
-        sleep 0.1
+        sleep 0.1 2>/dev/null || sleep 1 2>/dev/null || true
         _wait=$((_wait + 1))
         if [ "$_wait" = "20" ]; then
             blockdev --rereadpt "$disk" 2>/dev/null || partx -u "$disk" 2>/dev/null || true
         fi
     done
     if [ ! -b "$bootp" ] || [ ! -b "$rootp" ]; then
-        whiptail --msgbox --title "$title" "partitioning failed, no partitions on $disk" 8 40
+        whiptail --msgbox --title "$title" "partitioning failed, no partitions on $disk" 8 40 || true
         partitioning
         return
     fi
     whiptail --infobox "Formatting $bootp FAT32 and $rootp ext4" 8 60 2>/dev/null || true
     if ! mkfs.vfat -F 32 -n SILENBOOT "$bootp" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "couldn't format $bootp as FAT32" 8 40
+        whiptail --msgbox --title "$title" "couldn't format $bootp as FAT32" 8 40 || true
         return
     fi
     if ! mkfs.ext4 -F -q -L silenroot -E nodiscard,lazy_itable_init=1,lazy_journal_init=1 "$rootp" 2>/dev/null; then
         if ! mkfs.ext4 -F -L silenroot -E nodiscard "$rootp"; then
-            whiptail --msgbox --title "$title" "couldn't format the partitions" 8 40
+            whiptail --msgbox --title "$title" "couldn't format the partitions" 8 40 || true
             return
         fi
     fi
@@ -454,15 +456,15 @@ EOF
 }
 
 install-base() {
-    mkdir -p $root
+    mkdir -p "$root"
     if ! mount "$rootp" "$root"; then
-        whiptail --msgbox --title "$title" "failed to mount $rootp" 8 40
+        whiptail --msgbox --title "$title" "failed to mount $rootp" 8 40 || true
         return
     fi
-    mkdir -p $root/boot
-    if ! mount "$bootp" $root/boot; then
+    mkdir -p "$root"/boot
+    if ! mount "$bootp" "$root"/boot; then
         cleanup
-        whiptail --msgbox --title "$title" "failed to mount $bootp" 8 40
+        whiptail --msgbox --title "$title" "failed to mount $bootp" 8 40 || true
         return
     fi
 
@@ -471,36 +473,44 @@ install-base() {
         [ -f "$s" ] && stage3="$s" && break
     done || true
     if [ -z "$stage3" ]; then
-        whiptail --msgbox --title "$title" "no Silen tarball found on the install medium" 8 40
+        whiptail --msgbox --title "$title" "no Silen tarball found on the install medium" 8 40 || true
         cleanup
         return
     fi
     whiptail --infobox "Installing the system files, this might take a while...\n(extracting $(basename "$stage3"))" 8 60 2>/dev/null || true
-    if [ "$(tar -tf "$stage3" | awk -F/ 'NF>1 {print $1}' | sort -u | wc -l)" = "1" ]; then
-        tar -xpf "$stage3" -C "$root" --strip-components=1 --no-same-owner --numeric-owner --xattrs-include='*.*'
+    if [ "$(tar -tf "$stage3" 2>/dev/null | awk -F/ 'NF>1 {print $1}' | sort -u | wc -l)" = "1" ]; then
+        if ! tar -xpf "$stage3" -C "$root" --strip-components=1 --no-same-owner --numeric-owner --xattrs-include='*.*'; then
+            whiptail --msgbox --title "$title" "failed to unpack the system tarball" 8 50 || true
+            cleanup
+            return
+        fi
     else
-        tar -xpf "$stage3" -C "$root" --no-same-owner --numeric-owner --xattrs-include='*.*'
+        if ! tar -xpf "$stage3" -C "$root" --no-same-owner --numeric-owner --xattrs-include='*.*'; then
+            whiptail --msgbox --title "$title" "failed to unpack the system tarball" 8 50 || true
+            cleanup
+            return
+        fi
     fi
     whiptail --infobox "Installing the system files, this might take a while...\n(fixing permissions)" 8 60 2>/dev/null || true
     fix-permissions
 
-    mkdir -p $root/proc $root/sys $root/dev $root/run $root/etc $root/usr/share/zoneinfo
-    mount -t proc proc $root/proc
-    mount -t sysfs sysfs $root/sys
-    mount --rbind /dev $root/dev
-    mount --rbind /run $root/run
+    mkdir -p "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/etc "$root"/usr/share/zoneinfo
+    mount -t proc proc "$root"/proc
+    mount -t sysfs sysfs "$root"/sys
+    mount --rbind /dev "$root"/dev
+    mount --rbind /run "$root"/run
 
     if [ -f /etc/resolv.conf ]; then
-        cp /etc/resolv.conf $root/etc/resolv.conf
+        cp /etc/resolv.conf "$root"/etc/resolv.conf
     else
-        echo "nameserver 1.1.1.1" > $root/etc/resolv.conf
+        echo "nameserver 1.1.1.1" > "$root"/etc/resolv.conf
     fi
-    echo "$hostnm" > $root/etc/hostname
-    if [ -f $root/etc/conf.d/hostname ]; then
-        if grep -q '^hostname=' $root/etc/conf.d/hostname 2>/dev/null; then
-            sed -i "s/^hostname=.*/hostname=\"$hostnm\"/" $root/etc/conf.d/hostname 2>/dev/null || true
+    echo "$hostnm" > "$root"/etc/hostname
+    if [ -f "$root"/etc/conf.d/hostname ]; then
+        if grep -q '^hostname=' "$root"/etc/conf.d/hostname 2>/dev/null; then
+            sed -i "s/^hostname=.*/hostname=\"$hostnm\"/" "$root"/etc/conf.d/hostname 2>/dev/null || true
         else
-            printf 'hostname="%s"\n' "$hostnm" >> $root/etc/conf.d/hostname
+            printf 'hostname="%s"\n' "$hostnm" >> "$root"/etc/conf.d/hostname
         fi
     fi
 
@@ -510,28 +520,28 @@ install-base() {
     done
     [ -z "$chpasswd_bin" ] && chpasswd_bin="/usr/bin/chpasswd"
     if ! printf 'root:%s\n' "$rootpass" | chroot "$root" "$chpasswd_bin" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "couldn't set the root password - log in after reboot and run passwd" 8 60
+        whiptail --msgbox --title "$title" "couldn't set the root password - log in after reboot and run passwd" 8 60 || true
     fi
     rootpass=""
 
     bootuuid=$(blkid -s UUID -o value "$bootp" || true)
     rootuuid=$(blkid -s UUID -o value "$rootp" || true)
     if [ -z "$bootuuid" ] || [ -z "$rootuuid" ]; then
-        whiptail --msgbox --title "$title" "couldn't read the partition UUIDs" 8 40
+        whiptail --msgbox --title "$title" "couldn't read the partition UUIDs" 8 40 || true
         cleanup
         return
     fi
-    cat > $root/etc/fstab <<EOF
+    cat > "$root"/etc/fstab <<EOF
 UUID=$rootuuid / ext4 defaults 0 1
 UUID=$bootuuid /boot vfat defaults 0 2
 EOF
 
     apply-settings
     if [ -n "$made_swapfile" ]; then
-        echo "/swapfile none swap sw 0 0" >> $root/etc/fstab
+        echo "/swapfile none swap sw 0 0" >> "$root"/etc/fstab
     fi
     if ! chroot "$root" /bin/bash -c "ldconfig" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "couldn't run ldconfig in the new system; shared libraries may not load until it is run" 8 60
+        whiptail --msgbox --title "$title" "couldn't run ldconfig in the new system; shared libraries may not load until it is run" 8 60 || true
     fi
 
     whiptail --infobox "Installing the system files, this might take a while...\n(copying kernel and drivers)" 8 60 2>/dev/null || true
@@ -550,15 +560,14 @@ EOF
     install-branding
     fix-user-session
     if [ -n "${_elogind_hint:-}" ]; then
-        whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65
+        whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
     fi
     setup-quiet-boot
     setup-grub
-    install-gpu-drivers-choice
 
+    sync 2>/dev/null || true
     cleanup
-    sync
-    whiptail --msgbox --title "$title" "Silen is installed, reboot when ready" 8 40
+    whiptail --msgbox --title "$title" "Silen is installed, reboot when ready" 8 40 || true
     main_screen
 }
 
@@ -574,7 +583,7 @@ ask-install-settings() {
     while :; do
         rootpass=$(whiptail --title "$title" --passwordbox "Set the root password" 8 40 3>&1 1>&2 2>&3 || true)
         [ -n "$rootpass" ] && break
-        whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
+        whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
     done
 
     newuser=""
@@ -584,7 +593,7 @@ ask-install-settings() {
             newuser=$(whiptail --title "$title" --inputbox "Username for the new account (empty = skip):" 8 50 3>&1 1>&2 2>&3 || true)
             [ -z "$newuser" ] && break
             if [ "$newuser" = "root" ]; then
-                whiptail --msgbox --title "$title" "root already exists, pick another name" 8 40
+                whiptail --msgbox --title "$title" "root already exists, pick another name" 8 40 || true
                 newuser=""
                 continue
             fi
@@ -592,19 +601,19 @@ ask-install-settings() {
                 [a-z_]*)
                     case "$newuser" in
                         *[!a-z0-9_-]*)
-                            whiptail --msgbox --title "$title" "only lowercase letters, digits, _ and - allowed" 8 50
+                            whiptail --msgbox --title "$title" "only lowercase letters, digits, _ and - allowed" 8 50 || true
                             newuser=""
                             continue
                             ;;
                     esac
                     if [ "${#newuser}" -gt 32 ]; then
-                        whiptail --msgbox --title "$title" "username too long max 32" 8 40
+                        whiptail --msgbox --title "$title" "username too long max 32" 8 40 || true
                         newuser=""
                         continue
                     fi
                     ;;
                 *)
-                    whiptail --msgbox --title "$title" "must start with a lowercase letter or dash" 8 50
+                    whiptail --msgbox --title "$title" "must start with a lowercase letter or dash" 8 50 || true
                     newuser=""
                     continue
                     ;;
@@ -614,7 +623,7 @@ ask-install-settings() {
         while [ -n "$newuser" ]; do
             userpass=$(whiptail --title "$title" --passwordbox "Password for $newuser:" 8 40 3>&1 1>&2 2>&3 || true)
             [ -n "$userpass" ] && break
-            whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40
+            whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
         done || true
     fi
 
@@ -753,50 +762,50 @@ fix-user-session() {
 }
 
 apply-settings() {
-    ln -sf /usr/share/zoneinfo/$zone $root/etc/localtime
+    ln -sf /usr/share/zoneinfo/$zone "$root"/etc/localtime
 
-    mkdir -p $root/etc/conf.d
-    echo "keymap=\"$keymap\"" > $root/etc/conf.d/keymaps
+    mkdir -p "$root"/etc/conf.d
+    echo "keymap=\"$keymap\"" > "$root"/etc/conf.d/keymaps
 
-    echo "$locale UTF-8" > $root/etc/locale.gen
+    echo "$locale UTF-8" > "$root"/etc/locale.gen
     if ! chroot "$root" /bin/bash -c "locale-gen" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "couldn't generate locales, check locale.gen later" 8 40
+        whiptail --msgbox --title "$title" "couldn't generate locales, check locale.gen later" 8 40 || true
     fi
-    mkdir -p $root/etc/env.d
-    echo "LANG=\"$locale\"" > $root/etc/env.d/02locale
+    mkdir -p "$root"/etc/env.d
+    echo "LANG=\"$locale\"" > "$root"/etc/env.d/02locale
 
     made_swapfile=""
     if [ -n "${want_swap:-}" ]; then
         if chroot "$root" /bin/bash -c "fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile" 2>/dev/null; then
             made_swapfile="1"
         else
-            whiptail --msgbox --title "$title" "couldn't create the swapfile" 8 40
+            whiptail --msgbox --title "$title" "couldn't create the swapfile" 8 40 || true
         fi
     fi
 
-    printf 'Welcome to Silen Linux\n' > $root/etc/motd 2>/dev/null || true
+    printf 'Welcome to Silen Linux\n' > "$root"/etc/motd 2>/dev/null || true
 
-    cat > $root/etc/profile.d/silen-hostname.sh <<'EOF'
+    cat > "$root"/etc/profile.d/silen-hostname.sh <<'EOF'
 if [ -f /etc/hostname ]; then
     HOSTNAME=$(cat /etc/hostname 2>/dev/null)
     export HOSTNAME
 fi
 EOF
-    chmod 644 $root/etc/profile.d/silen-hostname.sh 2>/dev/null || true
+    chmod 644 "$root"/etc/profile.d/silen-hostname.sh 2>/dev/null || true
 
-    cat > $root/etc/bash.bashrc <<'EOF'
+    cat > "$root"/etc/bash.bashrc <<'EOF'
 [ -f /etc/profile.d/silen-hostname.sh ] && . /etc/profile.d/silen-hostname.sh
 if [ -f /etc/bash_completion ]; then
     . /etc/bash_completion
 fi
 EOF
-    chmod 644 $root/etc/bash.bashrc 2>/dev/null || true
+    chmod 644 "$root"/etc/bash.bashrc 2>/dev/null || true
 }
 
 create-user() {
     [ -n "${newuser:-}" ] || return 0
     if ! chroot "$root" /bin/bash -c "command -v useradd" >/dev/null 2>&1; then
-        whiptail --msgbox --title "$title" "couldn't create user $newuser (no useradd in the new system)" 8 60
+        whiptail --msgbox --title "$title" "couldn't create user $newuser (no useradd in the new system)" 8 60 || true
         return 0
     fi
     usergroups=""
@@ -815,32 +824,32 @@ create-user() {
         _uflags="-m -s /bin/bash"
     fi
     if ! chroot "$root" /bin/bash -c "useradd $_uflags $newuser" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "couldn't create user $newuser - add it by hand after reboot with useradd" 8 60
+        whiptail --msgbox --title "$title" "couldn't create user $newuser - add it by hand after reboot with useradd" 8 60 || true
         return 0
     fi
     if ! printf '%s:%s\n' "$newuser" "$userpass" | chroot "$root" /bin/bash -c "chpasswd" 2>/dev/null; then
-        whiptail --msgbox --title "$title" "user $newuser created but the password couldn't be set - run passwd $newuser after reboot" 8 60
+        whiptail --msgbox --title "$title" "user $newuser created but the password couldn't be set - run passwd $newuser after reboot" 8 60 || true
     fi
     userpass=""
     if ! chroot "$root" /bin/bash -c "id -nG $newuser 2>/dev/null | grep -qw wheel" >/dev/null 2>&1; then
         chroot "$root" /bin/bash -c "usermod -aG wheel $newuser" >/dev/null 2>&1 || true
     fi
     if ! chroot "$root" /bin/bash -c "id -nG $newuser 2>/dev/null | grep -qw wheel" >/dev/null 2>&1; then
-        whiptail --msgbox --title "$title" "user $newuser is not in the wheel group, so 'su -' will refuse even the right password. After reboot run as root: usermod -aG wheel $newuser" 9 70
+        whiptail --msgbox --title "$title" "user $newuser is not in the wheel group, so 'su -' will refuse even the right password. After reboot run as root: usermod -aG wheel $newuser" 9 70 || true
     fi
-    if mkdir -p $root/home/$newuser/.local/bin \
-             $root/home/$newuser/.local/share/spk/apps \
-             $root/home/$newuser/.local/share/spk/packages \
-             $root/home/$newuser/.cache/spk 2>/dev/null; then
+    if mkdir -p "$root"/home/$newuser/.local/bin \
+             "$root"/home/$newuser/.local/share/spk/apps \
+             "$root"/home/$newuser/.local/share/spk/packages \
+             "$root"/home/$newuser/.cache/spk 2>/dev/null; then
         chroot "$root" /bin/bash -c "chown -R $newuser:$newuser /home/$newuser/.local /home/$newuser/.cache" 2>/dev/null || \
         chroot "$root" /bin/bash -c "chown -R $newuser /home/$newuser/.local /home/$newuser/.cache" 2>/dev/null || true
     fi
-    chroot "$root" /bin/bash -c "chown $newuser:$(id -gn $newuser 2>/dev/null || echo $newuser) /home/$newuser && chmod 755 /home/$newuser" >/dev/null 2>&1 || \
+    chroot "$root" /bin/bash -c "chown $newuser:$(id -gn $newuser 2>/dev/null || echo \$newuser) /home/$newuser && chmod 755 /home/$newuser" >/dev/null 2>&1 || \
     chroot "$root" /bin/bash -c "chown $newuser /home/$newuser && chmod 755 /home/$newuser" >/dev/null 2>&1 || true
 }
 
 install-modules() {
-	mkdir -p $root/lib/modules
+	mkdir -p "$root"/lib/modules
 	kernel_tar=""
 	for f in /mnt/kernel-*.tar.*; do
 		[ -f "$f" ] && kernel_tar="$f" && break
@@ -850,27 +859,27 @@ install-modules() {
 		bundle_kver="${kname#kernel-}"
 		bundle_kver="${bundle_kver%%.tar.*}"
 		if ! tar -xpf "$kernel_tar" -C "$root" --no-same-owner --numeric-owner; then
-			whiptail --msgbox --title "$title" "couldn't unpack the kernel/modules from the install medium. The system may not boot." 10 60
+			whiptail --msgbox --title "$title" "couldn't unpack the kernel/modules from the install medium. The system may not boot." 10 60 || true
 		fi
 	elif [ -d /mnt/modules ] && [ -n "$(ls /mnt/modules 2>/dev/null)" ]; then
-		cp -a /mnt/modules/. $root/lib/modules/ 2>/dev/null || true
+		cp -a /mnt/modules/. "$root"/lib/modules/ 2>/dev/null || true
 	elif [ -d /lib/modules ]; then
-		cp -a /lib/modules/. $root/lib/modules/ 2>/dev/null || true
+		cp -a /lib/modules/. "$root"/lib/modules/ 2>/dev/null || true
 	fi
 	if [ -n "${bundle_kver:-}" ] && [ -d "$root/lib/modules/$bundle_kver" ]; then
 		kver="$bundle_kver"
 	else
-		kver="$(ls $root/lib/modules 2>/dev/null | head -n1)"
+		kver="$(ls "$root"/lib/modules 2>/dev/null | head -n1)"
 	fi
 if [ -n "$kver" ] && chroot "$root" /bin/bash -c "command -v depmod" >/dev/null 2>&1; then
         chroot "$root" /bin/bash -c "depmod -a $kver" 2>/dev/null || true
 	fi
 	if [ -d /mnt/firmware ] && [ -n "$(ls /mnt/firmware 2>/dev/null)" ]; then
-		mkdir -p $root/lib/firmware
-		cp -a /mnt/firmware/. $root/lib/firmware/ 2>/dev/null || true
+		mkdir -p "$root"/lib/firmware
+		cp -a /mnt/firmware/. "$root"/lib/firmware/ 2>/dev/null || true
 	fi
 	if [ -d /lib/firmware ]; then
-		mkdir -p $root/lib/firmware
+		mkdir -p "$root"/lib/firmware
 		find /lib/firmware -mindepth 1 | while IFS= read -r _src; do
 			_rel="${_src#/lib/firmware/}"
 			[ -n "$_rel" ] || continue
@@ -885,13 +894,13 @@ if [ -n "$kver" ] && chroot "$root" /bin/bash -c "command -v depmod" >/dev/null 
 			fi
 		done || true
 	fi
-	mkdir -p $root/etc/modprobe.d 2>/dev/null || true
-	cat > $root/etc/modprobe.d/silen-rtw88.conf <<'EOF'
+	mkdir -p "$root"/etc/modprobe.d 2>/dev/null || true
+	cat > "$root"/etc/modprobe.d/silen-rtw88.conf <<'EOF'
 options rtw88_pci disable_aspm=Y
 options rtw88_core disable_lps_deep=Y
 EOF
 	if [ -f /etc/modules ]; then
-		mkdir -p $root/etc/modules-load.d 2>/dev/null || true
+		mkdir -p "$root"/etc/modules-load.d 2>/dev/null || true
 		grep -E '^(cfg80211|mac80211|rfkill|iwlwifi|iwlmvm|ipw2100|ipw2200|ath9k|ath10k|ath11k|ath12k|ath6kl|carl9170|ar5523|wil6210|zd1211|mt7|mt76|rtw88|rtw89|rtl8|brcmfmac|brcmsmac|b43|wl12xx|wl18xx|wlcore|wl1251|mwifiex|mwl8k|libertas|usb8xxx|p54|at76c50x|adm8211|rsi|wfx|wilc|rt2|rt3)' /etc/modules 2>/dev/null | sort -u > "$root/etc/modules-load.d/silen-wifi.conf" 2>/dev/null || true
 		if [ -s "$root/etc/modules-load.d/silen-wifi.conf" ] && [ -f "$root/etc/conf.d/modules" ]; then
 			_wifi_mods="$(tr '\n' ' ' < "$root/etc/modules-load.d/silen-wifi.conf" 2>/dev/null)"
@@ -908,30 +917,29 @@ install-spk() {
         [ -f "$f" ] && spk_src="$f" && break
     done || true
     if [ -n "$spk_src" ]; then
-        tar -xpf "$spk_src" -C $root/usr/bin
+        tar -xpf "$spk_src" -C "$root"/usr/bin
         return
     fi
     if [ -f /usr/bin/spk ]; then
-        cp /usr/bin/spk $root/usr/bin/spk
+        cp /usr/bin/spk "$root"/usr/bin/spk
         return
     fi
     if [ -f /mnt/spk ]; then
-        cp /mnt/spk $root/usr/bin/spk
+        cp /mnt/spk "$root"/usr/bin/spk
         return
     fi
     if [ -d /mnt/spk ]; then
-        cp -r /mnt/spk $root/usr/bin/spk
-        return
+        cp -r /mnt/spk "$root"/usr/bin/spk 2>/dev/null && return
     fi
     url=$(whiptail --title "$title" --inputbox "spk not found, enter a git url to clone it (leave empty to skip):" 8 46 3>&1 1>&2 2>&3 || true)
     if [ -n "$url" ]; then
         if ! git clone "$url" /tmp/spk 2>/dev/null; then
-            whiptail --msgbox --title "$title" "couldn't clone spk" 8 40
+            whiptail --msgbox --title "$title" "couldn't clone spk" 8 40 || true
             return
         fi
-        cp -r /tmp/spk $root/usr/src/spk 2>/dev/null || true
+        cp -r /tmp/spk "$root"/usr/src/spk 2>/dev/null || true
         if ! chroot "$root" /bin/bash -c "cd /usr/src/spk && make install" 2>/dev/null; then
-            whiptail --msgbox --title "$title" "couldn't build spk, keeping the source in /usr/src/spk" 8 40
+            whiptail --msgbox --title "$title" "couldn't build spk, keeping the source in /usr/src/spk" 8 40 || true
         fi
     fi
 }
@@ -945,11 +953,11 @@ install-network() {
         if ! tar -xpf "$net_tar" -C "$root" --skip-old-files --no-same-owner --numeric-owner 2>/dev/null; then
             if ! tar -xpf "$net_tar" -C "$root" -k --no-same-owner --numeric-owner 2>/dev/null; then
                 tar -xpf "$net_tar" -C "$root" --no-same-owner --numeric-owner 2>/dev/null || \
-                    whiptail --msgbox --title "$title" "couldn't unpack the network bundle, trying the live files instead" 8 60
+                    whiptail --msgbox --title "$title" "couldn't unpack the network bundle, trying the live files instead" 8 60 || true
             fi
         fi
     fi
-    if [ -z "$net_tar" ] || [ ! -x $root/usr/bin/NetworkManager ]; then
+    if [ -z "$net_tar" ] || [ ! -x "$root"/usr/bin/NetworkManager ]; then
         install-network-from-live
     fi
     install-network-config
@@ -957,7 +965,7 @@ install-network() {
 
 install-network-from-live() {
     net_missing=""
-    mkdir -p $root/usr/bin $root/usr/lib $root/usr/lib64
+    mkdir -p "$root"/usr/bin "$root"/usr/lib "$root"/usr/lib64
     for _b in NetworkManager nmtui nmtui-connect nmtui-edit nmtui-hostname \
             nmcli nm-online dbus-daemon dbus-uuidgen wpa_supplicant wpa_cli; do
         _src=""
@@ -969,7 +977,7 @@ install-network-from-live() {
             net_missing="$net_missing $_b"
             continue
         fi
-        cp -a "$_src" $root/usr/bin/ 2>/dev/null || net_missing="$net_missing $_b"
+        cp -a "$_src" "$root"/usr/bin/ 2>/dev/null || net_missing="$net_missing $_b"
     done || true
     for _b in rfkill iw; do
         _src=""
@@ -978,7 +986,7 @@ install-network-from-live() {
             _src="/usr/sbin/$_b"
         fi
         [ -z "$_src" ] && continue
-        cp -a "$_src" $root/usr/bin/ 2>/dev/null || true
+        cp -a "$_src" "$root"/usr/bin/ 2>/dev/null || true
     done || true
     for _lib in /usr/lib64/*; do
         [ -e "$_lib" ] || [ -L "$_lib" ] || continue
@@ -987,40 +995,40 @@ install-network-from-live() {
         if [ -e "$root/usr/lib64/$_bn" ] || [ -e "$root/usr/lib/$_bn" ]; then
             continue
         fi
-        cp -a "$_lib" $root/usr/lib64/ 2>/dev/null || true
+        cp -a "$_lib" "$root"/usr/lib64/ 2>/dev/null || true
     done || true
     if [ -d /usr/lib/NetworkManager ]; then
-        mkdir -p $root/usr/lib/NetworkManager
-        cp -a /usr/lib/NetworkManager/. $root/usr/lib/NetworkManager/ 2>/dev/null || true
+        mkdir -p "$root"/usr/lib/NetworkManager
+        cp -a /usr/lib/NetworkManager/. "$root"/usr/lib/NetworkManager/ 2>/dev/null || true
     fi
     for _h in /usr/lib/nm-dispatcher /usr/lib/nm-priv-helper \
             /usr/lib/nm-daemon-helper /usr/lib/nm-dhcp-helper \
             /usr/lib/nm-libnm-helper; do
         [ -e "$_h" ] || [ -L "$_h" ] || continue
         [ -e "$root/usr/lib/${_h##*/}" ] && continue
-        cp -a "$_h" $root/usr/lib/ 2>/dev/null || true
+        cp -a "$_h" "$root"/usr/lib/ 2>/dev/null || true
     done || true
 }
 
 install-network-config() {
-    mkdir -p $root/etc/NetworkManager/system-connections \
-             $root/etc/NetworkManager/conf.d \
-             $root/etc/NetworkManager/dispatcher.d \
-             $root/usr/share/dbus-1/system.d \
-             $root/usr/share/dbus-1/system-services \
-             $root/run/dbus $root/run/NetworkManager $root/run/wpa_supplicant \
-             $root/run/user \
-             $root/var/lib/NetworkManager $root/var/lib/dbus \
-             $root/etc/init.d
-    chmod 700 $root/etc/NetworkManager/system-connections 2>/dev/null || true
-    chmod 755 $root/run/user 2>/dev/null || true
+    mkdir -p "$root"/etc/NetworkManager/system-connections \
+             "$root"/etc/NetworkManager/conf.d \
+             "$root"/etc/NetworkManager/dispatcher.d \
+             "$root"/usr/share/dbus-1/system.d \
+             "$root"/usr/share/dbus-1/system-services \
+             "$root"/run/dbus "$root"/run/NetworkManager "$root"/run/wpa_supplicant \
+             "$root"/run/user \
+             "$root"/var/lib/NetworkManager "$root"/var/lib/dbus \
+             "$root"/etc/init.d
+    chmod 700 "$root"/etc/NetworkManager/system-connections 2>/dev/null || true
+    chmod 755 "$root"/run/user 2>/dev/null || true
     mkdir -p "$root/usr/lib/tmpfiles.d" 2>/dev/null || true
     printf 'd /run/dbus 0755 root root -\nd /run/NetworkManager 0755 root root -\nd /run/wpa_supplicant 0755 root root -\n' > "$root/usr/lib/tmpfiles.d/silen-network.conf" 2>/dev/null || true
-    if [ ! -f $root/etc/NetworkManager/NetworkManager.conf ]; then
+    if [ ! -f "$root"/etc/NetworkManager/NetworkManager.conf ]; then
         if [ -f /etc/NetworkManager/NetworkManager.conf ]; then
-            cp /etc/NetworkManager/NetworkManager.conf $root/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
+            cp /etc/NetworkManager/NetworkManager.conf "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
         else
-            cat > $root/etc/NetworkManager/NetworkManager.conf <<'EOF'
+            cat > "$root"/etc/NetworkManager/NetworkManager.conf <<'EOF'
 [main]
 plugins=keyfile
 dhcp=internal
@@ -1036,20 +1044,25 @@ wifi.powersave=2
 EOF
         fi
     else
-        if ! grep -q '^\[device\]' $root/etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
-            printf '\n[device]\nwifi.scan-rand-mac-address=no\n' >> $root/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
+        if ! grep -q '^\[device\]' "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
+            printf '\n[device]\nwifi.scan-rand-mac-address=no\n' >> "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
         fi
-        if ! grep -q '^auth-polkit=' $root/etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
-            printf '\n[main]\nauth-polkit=false\nwifi.backend=wpa_supplicant\n' >> $root/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
+        if ! grep -q '^auth-polkit=' "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
+            if grep -q '^\[main\]' "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null; then
+                sed -i '/^\[main\]/a auth-polkit=false\nwifi.backend=wpa_supplicant' "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null || \
+                    printf '\nauth-polkit=false\nwifi.backend=wpa_supplicant\n' >> "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
+            else
+                printf '\n[main]\nauth-polkit=false\nwifi.backend=wpa_supplicant\n' >> "$root"/etc/NetworkManager/NetworkManager.conf 2>/dev/null || true
+            fi
         fi
     fi
     for _dbc in org.freedesktop.NetworkManager.conf wpa_supplicant.conf nm-dispatcher.conf; do
-        if [ ! -f $root/usr/share/dbus-1/system.d/$_dbc ] && [ -f /usr/share/dbus-1/system.d/$_dbc ]; then
-            cp /usr/share/dbus-1/system.d/$_dbc $root/usr/share/dbus-1/system.d/ 2>/dev/null || true
+        if [ ! -f "$root"/usr/share/dbus-1/system.d/$_dbc ] && [ -f /usr/share/dbus-1/system.d/$_dbc ]; then
+            cp /usr/share/dbus-1/system.d/$_dbc "$root"/usr/share/dbus-1/system.d/ 2>/dev/null || true
         fi
     done || true
-    if [ ! -f $root/usr/share/dbus-1/system.conf ] && [ -f /usr/share/dbus-1/system.conf ]; then
-        cp /usr/share/dbus-1/system.conf $root/usr/share/dbus-1/system.conf 2>/dev/null || true
+    if [ ! -f "$root"/usr/share/dbus-1/system.conf ] && [ -f /usr/share/dbus-1/system.conf ]; then
+        cp /usr/share/dbus-1/system.conf "$root"/usr/share/dbus-1/system.conf 2>/dev/null || true
     fi
     if [ -f "$root/usr/share/dbus-1/system.conf" ]; then
         if ! grep -q '<fork/>' "$root/usr/share/dbus-1/system.conf" 2>/dev/null; then
@@ -1061,30 +1074,30 @@ EOF
                 "$root/usr/share/dbus-1/system.conf" 2>/dev/null || true
         fi
     fi
-    if [ ! -e $root/usr/lib/dbus-daemon-launch-helper ]; then
+    if [ ! -e "$root"/usr/lib/dbus-daemon-launch-helper ]; then
         if [ -e /usr/lib/dbus-daemon-launch-helper ]; then
-            cp -a /usr/lib/dbus-daemon-launch-helper $root/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
+            cp -a /usr/lib/dbus-daemon-launch-helper "$root"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
         elif [ -e /usr/libexec/dbus-daemon-launch-helper ]; then
-            cp -a /usr/libexec/dbus-daemon-launch-helper $root/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
+            cp -a /usr/libexec/dbus-daemon-launch-helper "$root"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
         fi
     fi
-    if [ -e $root/usr/lib/dbus-daemon-launch-helper ]; then
-        chown root:root $root/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
-        chmod 4755 $root/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
+    if [ -e "$root"/usr/lib/dbus-daemon-launch-helper ]; then
+        chown root:root "$root"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
+        chmod 4755 "$root"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
     fi
-    if [ -e $root/usr/lib/dbus-daemon-launch-helper ] && [ ! -e $root/usr/libexec/dbus-daemon-launch-helper ]; then
-        mkdir -p $root/usr/libexec 2>/dev/null || true
-        cp -a $root/usr/lib/dbus-daemon-launch-helper $root/usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true
+    if [ -e "$root"/usr/lib/dbus-daemon-launch-helper ] && [ ! -e "$root"/usr/libexec/dbus-daemon-launch-helper ]; then
+        mkdir -p "$root"/usr/libexec 2>/dev/null || true
+        cp -a "$root"/usr/lib/dbus-daemon-launch-helper "$root"/usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true
     fi
     if [ -f /usr/bin/silen-wifi-check ]; then
-        mkdir -p $root/usr/local/bin 2>/dev/null || true
-        cp /usr/bin/silen-wifi-check $root/usr/local/bin/silen-wifi-check 2>/dev/null || true
-        chmod 0755 $root/usr/local/bin/silen-wifi-check 2>/dev/null || true
+        mkdir -p "$root"/usr/local/bin 2>/dev/null || true
+        cp /usr/bin/silen-wifi-check "$root"/usr/local/bin/silen-wifi-check 2>/dev/null || true
+        chmod 0755 "$root"/usr/local/bin/silen-wifi-check 2>/dev/null || true
     fi
-    if [ ! -f $root/usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ] && \
+    if [ ! -f "$root"/usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ] && \
        [ -f /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ]; then
         cp /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service \
-            $root/usr/share/dbus-1/system-services/ 2>/dev/null || true
+            "$root"/usr/share/dbus-1/system-services/ 2>/dev/null || true
     fi
     chroot "$root" /bin/bash -c "ldconfig" 2>/dev/null || true
     _mid=""
@@ -1093,10 +1106,10 @@ EOF
     fi
     [ -z "$_mid" ] && _mid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' || true)"
     if [ -n "$_mid" ]; then
-        echo "$_mid" > $root/etc/machine-id 2>/dev/null || true
-        cp $root/etc/machine-id $root/var/lib/dbus/machine-id 2>/dev/null || true
+        echo "$_mid" > "$root"/etc/machine-id 2>/dev/null || true
+        cp "$root"/etc/machine-id "$root"/var/lib/dbus/machine-id 2>/dev/null || true
     fi
-    cat > $root/etc/init.d/dbus <<'EOF'
+    cat > "$root"/etc/init.d/dbus <<'EOF'
 #!/sbin/openrc-run
 command=/usr/bin/dbus-daemon
 command_args="--system --fork"
@@ -1119,8 +1132,8 @@ start_pre() {
 }
 EOF
     _nm_cmd=/usr/bin/NetworkManager
-    [ -x $root/usr/bin/NetworkManager ] || _nm_cmd=/usr/sbin/NetworkManager
-    cat > $root/etc/init.d/NetworkManager <<EOF
+    [ -x "$root"/usr/bin/NetworkManager ] || _nm_cmd=/usr/sbin/NetworkManager
+    cat > "$root"/etc/init.d/NetworkManager <<EOF
 #!/sbin/openrc-run
 command=$_nm_cmd
 command_args="--pid-file=/run/NetworkManager.pid"
@@ -1140,7 +1153,7 @@ start_pre() {
 	fi
 }
 EOF
-    cat > $root/etc/init.d/wpa_supplicant <<'EOF'
+    cat > "$root"/etc/init.d/wpa_supplicant <<'EOF'
 #!/sbin/openrc-run
 command=/usr/bin/wpa_supplicant
 command_args="-B -P /run/wpa_supplicant.pid -u -s -O /run/wpa_supplicant"
@@ -1157,9 +1170,9 @@ start_pre() {
 	mkdir -p /run/wpa_supplicant 2>/dev/null || true
 }
 EOF
-    chmod 755 $root/etc/init.d/dbus $root/etc/init.d/NetworkManager $root/etc/init.d/wpa_supplicant
-    mkdir -p $root/etc/local.d 2>/dev/null || true
-    cat > $root/etc/local.d/wifi-unblock.start <<'EOF'
+    chmod 755 "$root"/etc/init.d/dbus "$root"/etc/init.d/NetworkManager "$root"/etc/init.d/wpa_supplicant
+    mkdir -p "$root"/etc/local.d 2>/dev/null || true
+    cat > "$root"/etc/local.d/wifi-unblock.start <<'EOF'
 #!/bin/sh
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
@@ -1170,7 +1183,7 @@ if command -v nmcli >/dev/null 2>&1; then
 	nmcli device wifi rescan >/dev/null 2>&1 || true
 fi
 EOF
-    chmod 0755 $root/etc/local.d/wifi-unblock.start 2>/dev/null || true
+    chmod 0755 "$root"/etc/local.d/wifi-unblock.start 2>/dev/null || true
     _net_broken=""
     for _bin in /usr/bin/dbus-daemon /usr/bin/NetworkManager /usr/bin/wpa_supplicant /usr/bin/nmcli /usr/bin/nmtui; do
         if [ -x "$root$_bin" ] && ! chroot "$root" "${_bin#/usr/bin/}" --version >/dev/null 2>&1; then
@@ -1182,40 +1195,40 @@ EOF
         fi
     done || true
     if [ -n "$_net_broken" ]; then
-        whiptail --msgbox --title "$title" "Network tools copied but fail to run in the new system missing libraries $_net_broken Wi-Fi may not work after reboot run silen-wifi-check then" 10 65
+        whiptail --msgbox --title "$title" "Network tools copied but fail to run in the new system missing libraries $_net_broken Wi-Fi may not work after reboot run silen-wifi-check then" 10 65 || true
     fi
     _rc_ok="1"
     chroot "$root" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || _rc_ok=""
     chroot "$root" /bin/bash -c "rc-update add wpa_supplicant default" >/dev/null 2>&1 || _rc_ok=""
     chroot "$root" /bin/bash -c "rc-update add NetworkManager default" >/dev/null 2>&1 || _rc_ok=""
     if [ -z "$_rc_ok" ]; then
-        whiptail --msgbox --title "$title" "NetworkManager was copied but couldn't be enabled; after reboot run: rc-update add dbus default; rc-update add wpa_supplicant default; rc-update add NetworkManager default" 9 70
+        whiptail --msgbox --title "$title" "NetworkManager was copied but couldn't be enabled; after reboot run: rc-update add dbus default; rc-update add wpa_supplicant default; rc-update add NetworkManager default" 9 70 || true
     fi
     if [ -n "${net_missing:-}" ]; then
-        whiptail --msgbox --title "$title" "NetworkManager was installed, but these live tools were missing and got skipped:$net_missing" 8 60
+        whiptail --msgbox --title "$title" "NetworkManager was installed, but these live tools were missing and got skipped:$net_missing" 8 60 || true
     fi
-    if [ ! -x $root/usr/bin/NetworkManager ] || [ ! -x $root/usr/bin/nmtui ]; then
-        whiptail --msgbox --title "$title" "NetworkManager/nmtui couldn't be installed (not on the medium and not in the live system); Wi-Fi will need manual setup after reboot" 9 70
+    if [ ! -x "$root"/usr/bin/NetworkManager ] || [ ! -x "$root"/usr/bin/nmtui ]; then
+        whiptail --msgbox --title "$title" "NetworkManager/nmtui couldn't be installed (not on the medium and not in the live system); Wi-Fi will need manual setup after reboot" 9 70 || true
     fi
 }
 
 install-wifi() {
     [ -n "${want_wifi:-}" ] || return 0
-    if [ ! -x $root/usr/bin/nmtui ] && [ ! -x $root/usr/bin/nmcli ]; then
-        whiptail --msgbox --title "$title" "NetworkManager not available, skipping Wi-Fi setup" 8 50
+    if [ ! -x "$root"/usr/bin/nmtui ] && [ ! -x "$root"/usr/bin/nmcli ]; then
+        whiptail --msgbox --title "$title" "NetworkManager not available, skipping Wi-Fi setup" 8 50 || true
         return 0
     fi
-    whiptail --msgbox --title "$title" "Wi-Fi will be configured on first boot via nmtui. After reboot, run 'nmtui' as root to connect." 8 60
+    whiptail --msgbox --title "$title" "Wi-Fi will be configured on first boot via nmtui. After reboot, run 'nmtui' as root to connect." 8 60 || true
     chroot "$root" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || true
     chroot "$root" /bin/bash -c "rc-update add wpa_supplicant default" >/dev/null 2>&1 || true
     chroot "$root" /bin/bash -c "rc-update add NetworkManager default" >/dev/null 2>&1 || true
 
     whiptail --infobox --title "$title" "Installing Wi-Fi drivers linux-firmware" 8 50 2>/dev/null || true
-    chroot "$root" /bin/bash -c "spk get linux-firmware" 2>/tmp/spk-wifi-install.log || \
-        whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Check /tmp/spk-wifi-install.log after reboot." 8 60
+    chroot "$root" /bin/bash -c "spk get linux-firmware" 2>"$root/tmp/spk-wifi-install.log" || \
+        whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Check /tmp/spk-wifi-install.log after reboot." 8 60 || true
 
     for pkg in rtl8822ce iwlwifi mt7921 ath11k brcmfmac rtw89; do
-        chroot "$root" /bin/bash -c "spk get $pkg" 2>>/tmp/spk-wifi-install.log || true
+        chroot "$root" /bin/bash -c "spk get $pkg" 2>>"$root/tmp/spk-wifi-install.log" || true
     done
 }
 
@@ -1223,45 +1236,48 @@ install-drivers() {
     case "${driver_choice:-none}" in
         nvidia)
             chroot "$root" /bin/bash -c "spk get nvidia-drivers" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install nvidia-drivers via spk Run spk get nvidia-drivers after boot" 8 70
-            mkdir -p $root/etc/modprobe.d
-            cat > $root/etc/modprobe.d/nvidia.conf <<'EOF'
+                whiptail --msgbox --title "$title" "Failed to install nvidia-drivers via spk Run spk get nvidia-drivers after boot" 8 70 || true
+            mkdir -p "$root"/etc/modprobe.d
+            cat > "$root"/etc/modprobe.d/nvidia.conf <<'EOF'
 options nvidia NVreg_UsePageAttributeTable=1
 options nvidia_drm modeset=1
 EOF
-            printf 'nvidia\nnvidia_drm\nnvidia_modeset\nnvidia_uvm\n' > $root/etc/modules-load.d/nvidia.conf 2>/dev/null || true
+            printf 'nvidia\nnvidia_drm\nnvidia_modeset\nnvidia_uvm\n' > "$root"/etc/modules-load.d/nvidia.conf 2>/dev/null || true
             ;;
         nvidia-legacy)
             chroot "$root" /bin/bash -c "spk get nvidia-legacy-drivers" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install nvidia-legacy-drivers via spk Run spk get nvidia-legacy-drivers after boot" 8 70
-            mkdir -p $root/etc/modprobe.d
-            cat > $root/etc/modprobe.d/nvidia.conf <<'EOF'
+                whiptail --msgbox --title "$title" "Failed to install nvidia-legacy-drivers via spk Run spk get nvidia-legacy-drivers after boot" 8 70 || true
+            mkdir -p "$root"/etc/modprobe.d
+            cat > "$root"/etc/modprobe.d/nvidia.conf <<'EOF'
 options nvidia NVreg_UsePageAttributeTable=1
 options nvidia_drm modeset=1
 EOF
-            printf 'nvidia\nnvidia_drm\nnvidia_modeset\nnvidia_uvm\n' > $root/etc/modules-load.d/nvidia.conf 2>/dev/null || true
+            printf 'nvidia\nnvidia_drm\nnvidia_modeset\nnvidia_uvm\n' > "$root"/etc/modules-load.d/nvidia.conf 2>/dev/null || true
             ;;
         amd)
             chroot "$root" /bin/bash -c "spk get mesa xf86-video-amdgpu" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install AMD drivers via spk" 8 70
-            printf 'amdgpu\n' > $root/etc/modules-load.d/amdgpu.conf 2>/dev/null || true
+                whiptail --msgbox --title "$title" "Failed to install AMD drivers via spk" 8 70 || true
+            mkdir -p "$root/etc/modules-load.d" 2>/dev/null || true
+            printf 'amdgpu\n' > "$root"/etc/modules-load.d/amdgpu.conf 2>/dev/null || true
             ;;
         intel)
             chroot "$root" /bin/bash -c "spk get mesa xf86-video-intel" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install Intel drivers via spk" 8 70
-            printf 'i915\n' > $root/etc/modules-load.d/intel.conf 2>/dev/null || true
+                whiptail --msgbox --title "$title" "Failed to install Intel drivers via spk" 8 70 || true
+            mkdir -p "$root/etc/modules-load.d" 2>/dev/null || true
+            printf 'i915\n' > "$root"/etc/modules-load.d/intel.conf 2>/dev/null || true
             ;;
         vmware)
             chroot "$root" /bin/bash -c "spk get mesa xf86-video-vmware" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install VMware drivers via spk" 8 70
-            printf 'vmwgfx\n' > $root/etc/modules-load.d/vmwgfx.conf 2>/dev/null || true
+                whiptail --msgbox --title "$title" "Failed to install VMware drivers via spk" 8 70 || true
+            mkdir -p "$root/etc/modules-load.d" 2>/dev/null || true
+            printf 'vmwgfx\n' > "$root"/etc/modules-load.d/vmwgfx.conf 2>/dev/null || true
             ;;
     esac
 }
 
 
 install-gpu-drivers-choice() {
-    whiptail --msgbox --title "$title" "After install, choose your GPU drivers.\nCheck spk_pkgs for exact package names." 8 60
+    whiptail --msgbox --title "$title" "After install, choose your GPU drivers.\nCheck spk_pkgs for exact package names." 8 60 || true
     gpu_choice=$(whiptail --title "$title" --menu "Select GPU driver" 14 50 6 \
         "nvidia" "NVIDIA (spk: nvidia-drivers)" \
         "nvidia-legacy" "NVIDIA Legacy (spk: nvidia-legacy-drivers)" \
@@ -1287,7 +1303,7 @@ install-gpu-drivers-choice() {
             return
             ;;
     esac
-    whiptail --msgbox --title "$title" "GPU drivers installed Reboot to use them" 8 40
+    whiptail --msgbox --title "$title" "GPU drivers installed Reboot to use them" 8 40 || true
 }
 
 install-desktop() {
@@ -1297,33 +1313,35 @@ install-desktop() {
     case "${de_choice}" in
         kde)
             chroot "$root" /bin/bash -c "spk get plasma-desktop konsole dolphin kate kwrite" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install KDE Plasma via spk" 8 76
+                whiptail --msgbox --title "$title" "Failed to install KDE Plasma via spk" 8 76 || true
             ;;
         gnome)
             chroot "$root" /bin/bash -c "spk get gnome gnome-terminal nautilus" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install GNOME via spk" 8 70
+                whiptail --msgbox --title "$title" "Failed to install GNOME via spk" 8 70 || true
             ;;
         xfce)
             chroot "$root" /bin/bash -c "spk get xfce4 xfce4-terminal thunar" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install XFCE via spk" 8 70
+                whiptail --msgbox --title "$title" "Failed to install XFCE via spk" 8 70 || true
             ;;
         i3)
             chroot "$root" /bin/bash -c "spk get i3 i3status dmenu rxvt-unicode" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install i3 via spk" 8 70
+                whiptail --msgbox --title "$title" "Failed to install i3 via spk" 8 70 || true
             ;;
         sway)
             chroot "$root" /bin/bash -c "spk get sway waybar wofi foot" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install Sway via spk" 8 70
+                whiptail --msgbox --title "$title" "Failed to install Sway via spk" 8 70 || true
             ;;
     esac
 
     case "${dm_choice:-}" in
         sddm)
-            chroot "$root" /bin/bash -c "spk get sddm" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install SDDM via spk" 8 70
-            chroot "$root" /bin/bash -c "rc-update add sddm default" 2>/dev/null || true
+            if chroot "$root" /bin/bash -c "spk get sddm" 2>/dev/null; then
+                chroot "$root" /bin/bash -c "rc-update add sddm default" 2>/dev/null || true
+            else
+                whiptail --msgbox --title "$title" "Failed to install SDDM via spk" 8 70 || true
+            fi
             if [ -n "${newuser:-}" ]; then
-                mkdir -p $root/etc/sddm.conf.d
+                mkdir -p "$root"/etc/sddm.conf.d
                 _sddm_session="plasma"
                 case "${de_choice:-none}" in
                     i3) _sddm_session="i3" ;;
@@ -1331,7 +1349,7 @@ install-desktop() {
                     xfce) _sddm_session="xfce" ;;
                     gnome) _sddm_session="gnome" ;;
                 esac
-                cat > $root/etc/sddm.conf.d/autologin.conf <<EOF
+                cat > "$root"/etc/sddm.conf.d/autologin.conf <<EOF
 [Autologin]
 User=$newuser
 Session=$_sddm_session
@@ -1339,14 +1357,18 @@ EOF
             fi
             ;;
         gdm)
-            chroot "$root" /bin/bash -c "spk get gdm" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install GDM via spk" 8 70
-            chroot "$root" /bin/bash -c "rc-update add gdm default" 2>/dev/null || true
+            if chroot "$root" /bin/bash -c "spk get gdm" 2>/dev/null; then
+                chroot "$root" /bin/bash -c "rc-update add gdm default" 2>/dev/null || true
+            else
+                whiptail --msgbox --title "$title" "Failed to install GDM via spk" 8 70 || true
+            fi
             ;;
         lightdm)
-            chroot "$root" /bin/bash -c "spk get lightdm lightdm-gtk-greeter" 2>/dev/null || \
-                whiptail --msgbox --title "$title" "Failed to install LightDM via spk" 8 70
-            chroot "$root" /bin/bash -c "rc-update add lightdm default" 2>/dev/null || true
+            if chroot "$root" /bin/bash -c "spk get lightdm lightdm-gtk-greeter" 2>/dev/null; then
+                chroot "$root" /bin/bash -c "rc-update add lightdm default" 2>/dev/null || true
+            else
+                whiptail --msgbox --title "$title" "Failed to install LightDM via spk" 8 70 || true
+            fi
             ;;
     esac
 
@@ -1364,14 +1386,14 @@ install-branding() {
     done || true
     [ -n "$logo_src" ] || return 0
 
-    mkdir -p $root/usr/share/silen
-    cp "$logo_src" $root/usr/share/silen/fastfetch_logo.txt 2>/dev/null || return 0
+    mkdir -p "$root"/usr/share/silen
+    cp "$logo_src" "$root"/usr/share/silen/fastfetch_logo.txt 2>/dev/null || return 0
     if [ -f /mnt/branding/info.txt ]; then
-        cp /mnt/branding/info.txt $root/usr/share/silen/info.txt 2>/dev/null || true
+        cp /mnt/branding/info.txt "$root"/usr/share/silen/info.txt 2>/dev/null || true
     fi
 
-    mkdir -p $root/etc/fastfetch $root/etc/xdg/fastfetch $root/etc/skel/.config/fastfetch $root/root/.config/fastfetch
-    cat > $root/etc/fastfetch/config.jsonc <<'EOF'
+    mkdir -p "$root"/etc/fastfetch "$root"/etc/xdg/fastfetch "$root"/etc/skel/.config/fastfetch "$root"/root/.config/fastfetch
+    cat > "$root"/etc/fastfetch/config.jsonc <<'EOF'
 {
     "logo": {
         "type": "file",
@@ -1398,74 +1420,79 @@ install-branding() {
     ]
 }
 EOF
-    cp $root/etc/fastfetch/config.jsonc $root/etc/xdg/fastfetch/config.jsonc 2>/dev/null || true
-    cp $root/etc/fastfetch/config.jsonc $root/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null || true
-    cp $root/etc/fastfetch/config.jsonc $root/root/.config/fastfetch/config.jsonc 2>/dev/null || true
+    cp "$root"/etc/fastfetch/config.jsonc "$root"/etc/xdg/fastfetch/config.jsonc 2>/dev/null || true
+    cp "$root"/etc/fastfetch/config.jsonc "$root"/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null || true
+    cp "$root"/etc/fastfetch/config.jsonc "$root"/root/.config/fastfetch/config.jsonc 2>/dev/null || true
 
     if [ -n "${newuser:-}" ] && [ -d "$root/home/$newuser" ]; then
-        mkdir -p $root/home/$newuser/.config/fastfetch 2>/dev/null || true
-        cp $root/etc/fastfetch/config.jsonc $root/home/$newuser/.config/fastfetch/config.jsonc 2>/dev/null || true
+        mkdir -p "$root"/home/$newuser/.config/fastfetch 2>/dev/null || true
+        cp "$root"/etc/fastfetch/config.jsonc "$root"/home/$newuser/.config/fastfetch/config.jsonc 2>/dev/null || true
         chroot "$root" /bin/bash -c "chown -R $newuser /home/$newuser/.config" >/dev/null 2>&1 || \
         chown -R --reference="$root/home/$newuser" "$root/home/$newuser/.config" 2>/dev/null || true
     fi
 }
 
 setup-quiet-boot() {
-    if [ -f $root/etc/inittab ]; then
+    if [ -f "$root"/etc/inittab ]; then
         sed -i 's#/sbin/openrc \(sysinit\|boot\|shutdown\|single\|nonetwork\|default\|reboot\)#/sbin/openrc --quiet \1#g' \
-            $root/etc/inittab 2>/dev/null || true
-        sed -i 's|/sbin/agetty --noclear|/sbin/agetty|g' $root/etc/inittab 2>/dev/null || true
+            "$root"/etc/inittab 2>/dev/null || true
+        sed -i 's|/sbin/agetty --noclear|/sbin/agetty|g' "$root"/etc/inittab 2>/dev/null || true
     fi
-    if [ -f $root/etc/rc.conf ]; then
-        if grep -q '^[[:space:]]*rc_logger=' $root/etc/rc.conf 2>/dev/null; then
-            sed -i 's|^[[:space:]]*rc_logger=.*|rc_logger="YES"|' $root/etc/rc.conf 2>/dev/null || true
-        elif grep -q 'rc_logger=' $root/etc/rc.conf 2>/dev/null; then
-            sed -i 's|.*rc_logger=.*|rc_logger="YES"|' $root/etc/rc.conf 2>/dev/null || true
+    if [ -f "$root"/etc/rc.conf ]; then
+        if grep -q '^[[:space:]]*rc_logger=' "$root"/etc/rc.conf 2>/dev/null; then
+            sed -i 's|^[[:space:]]*rc_logger=.*|rc_logger="YES"|' "$root"/etc/rc.conf 2>/dev/null || true
+        elif grep -q 'rc_logger=' "$root"/etc/rc.conf 2>/dev/null; then
+            sed -i 's|.*rc_logger=.*|rc_logger="YES"|' "$root"/etc/rc.conf 2>/dev/null || true
         else
-            printf '\n# log boot messages to /var/log/rc.log while the console stays quiet\nrc_logger="YES"\n' >> $root/etc/rc.conf 2>/dev/null || true
+            printf '\n# log boot messages to /var/log/rc.log while the console stays quiet\nrc_logger="YES"\n' >> "$root"/etc/rc.conf 2>/dev/null || true
         fi
     fi
 }
 
 setup-grub() {
     if [ -f /mnt/boot/vmlinuz ]; then
-        cp /mnt/boot/vmlinuz $root/boot/vmlinuz
+        if ! cp /mnt/boot/vmlinuz "$root"/boot/vmlinuz 2>/dev/null; then
+            whiptail --msgbox --title "$title" "couldn't copy the kernel" 8 40 || true
+            return
+        fi
     else
-        whiptail --msgbox --title "$title" "no kernel found on the install medium" 8 40
+        whiptail --msgbox --title "$title" "no kernel found on the install medium" 8 40 || true
         return
     fi
     initramfs_name=""
     for i in /mnt/boot/initramfs.*; do
-        [ -f "$i" ] && initramfs_name="$(basename "$i")" && cp "$i" $root/boot/ && break
+        [ -f "$i" ] && initramfs_name="$(basename "$i")" && cp "$i" "$root"/boot/ && break
     done || true
     if [ -z "$initramfs_name" ]; then
-        whiptail --msgbox --title "$title" "no initramfs found in the install ISO" 8 40
+        whiptail --msgbox --title "$title" "no initramfs found in the install ISO" 8 40 || true
         return
     fi
 
     if [ ! -d /sys/firmware/efi ]; then
-        whiptail --msgbox --title "$title" "this machine booted in legacy mode, but Silen can currently only install an EFI bootloader. Boot the iso in UEFI mode and try again." 10 60
+        whiptail --msgbox --title "$title" "this machine booted in legacy mode, but Silen can currently only install an EFI bootloader. Boot the iso in UEFI mode and try again." 10 60 || true
         return
     fi
 
     if [ -d /mnt/grub/usr/local ]; then
-        mkdir -p $root/usr/local
-        cp -a /mnt/grub/usr/local/. $root/usr/local/
+        mkdir -p "$root"/usr/local
+        cp -a /mnt/grub/usr/local/. "$root"/usr/local/ 2>/dev/null || { whiptail --msgbox --title "$title" "couldn't copy bundled GRUB" 8 40 || true; }
     fi
 
-    if chroot "$root" /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >/tmp/grub-install.log 2>&1; then
-        if [ ! -f $root/boot/grub/fonts/unicode.pf2 ]; then
+    mkdir -p "$root/tmp" 2>/dev/null || true
+    if chroot "$root" /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >"$root/tmp/grub-install.log" 2>&1 || chroot "$root" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >>"$root/tmp/grub-install.log" 2>&1; then
+        cp "$root/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
+        if [ ! -f "$root"/boot/grub/fonts/unicode.pf2 ]; then
             for _pf2 in /mnt/grub/usr/local/share/grub/unicode.pf2 \
                          /usr/local/share/grub/unicode.pf2 \
                          /usr/share/grub/unicode.pf2; do
                 if [ -f "$_pf2" ]; then
-                    mkdir -p $root/boot/grub/fonts 2>/dev/null || true
-                    cp "$_pf2" $root/boot/grub/fonts/unicode.pf2 2>/dev/null || true
+                    mkdir -p "$root"/boot/grub/fonts 2>/dev/null || true
+                    cp "$_pf2" "$root"/boot/grub/fonts/unicode.pf2 2>/dev/null || true
                     break
                 fi
             done || true
         fi
-        cat > $root/boot/grub/grub.cfg <<EOF
+        cat > "$root"/boot/grub/grub.cfg <<EOF
 set default=0
 set timeout=5
 
@@ -1473,6 +1500,7 @@ insmod part_gpt
 insmod part_msdos
 insmod fat
 insmod ext2
+insmod search_fs_uuid
 insmod all_video
 insmod gfxterm
 insmod efi_gop
@@ -1482,15 +1510,16 @@ if loadfont \$prefix/fonts/unicode.pf2; then
 fi
 terminal_output gfxterm
 set gfxpayload=keep
+search --no-floppy --fs-uuid --set=root $bootuuid
 
 menuentry "Silen Linux" {
-    linux /boot/vmlinuz root=UUID=$rootuuid ro quiet loglevel=0
-    initrd /boot/$initramfs_name
+    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=0
+    initrd /$initramfs_name
 }
 EOF
-        whiptail --msgbox --title "$title" "GRUB is installed" 8 40
+        whiptail --msgbox --title "$title" "GRUB is installed" 8 40 || true
     else
-        whiptail --msgbox --title "$title" "grub-install failed, see /tmp/grub-install.log for errors" 8 40
+        whiptail --msgbox --title "$title" "grub-install failed, see /tmp/grub-install.log for errors" 8 40 || true
     fi
 }
 

@@ -2,16 +2,29 @@
 
 set -e
 
-KVER="${KVER:-$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)}"
+KVER="${KVER:-}"
+if [ -z "$KVER" ]; then
+	for _d in rootfs/lib/modules/[0-9]*; do
+		[ -d "$_d" ] || continue
+		KVER="${_d##*/}"
+		break
+	done
+fi
 if [ -z "$KVER" ]; then
     echo "ERROR: no kernel module tree found in rootfs/lib/modules." >&2
     echo "Set KVER=<version> or copy a module tree into rootfs/lib/modules first." >&2
     exit 1
 fi
 
-HOST="/usr/lib/modules/$KVER"
+for _cand in /usr/lib/modules/$KVER /lib/modules/$KVER; do
+	if [ -d "$_cand" ]; then HOST="$_cand"; break; fi
+done
+[ -n "${HOST:-}" ] || HOST="/usr/lib/modules/$KVER"
 DST="rootfs/lib/modules/$KVER"
-FW_SRC=/lib/firmware
+for _fw in /lib/firmware /usr/lib/firmware; do
+	if [ -d "$_fw" ]; then FW_SRC="$_fw"; break; fi
+done
+[ -n "${FW_SRC:-}" ] || FW_SRC=/lib/firmware
 FW_DST=rootfs/lib/firmware
 
 if [ ! -d "$HOST" ]; then
@@ -19,6 +32,7 @@ if [ ! -d "$HOST" ]; then
     exit 1
 fi
 
+command -v modinfo >/dev/null 2>&1 || { echo "ERROR: modinfo not found" >&2; exit 1; }
 echo "== Syncing modules from $HOST to $DST"
 
 WIFI_MODS="
@@ -109,15 +123,25 @@ while IFS= read -r path; do
     if [ -z "${file_by_name[$name]:-}" ]; then
         file_by_name[$name]="$path"
     fi
-done < <(find "$HOST" \( -name '*.ko' -o -name '*.ko.zst' \))
+done < <(find "$HOST" \( -name '*.ko' -o -name '*.ko.zst' -o -name '*.ko.xz' \))
 
 mod_file() {
-    local name="$1"
+    local name="$1" alt=""
     if [ -n "${file_by_name[$name]:-}" ]; then
         printf '%s\n' "${file_by_name[$name]}"
-    else
-        printf '%s\n' "${file_by_name[${name//_/-}]:-}"
+        return 0
     fi
+    alt="${name//_/-}"
+    if [ "$alt" != "$name" ] && [ -n "${file_by_name[$alt]:-}" ]; then
+        printf '%s\n' "${file_by_name[$alt]}"
+        return 0
+    fi
+    alt="${name//-/_}"
+    if [ "$alt" != "$name" ] && [ -n "${file_by_name[$alt]:-}" ]; then
+        printf '%s\n' "${file_by_name[$alt]}"
+        return 0
+    fi
+    return 1
 }
 
 
@@ -175,7 +199,7 @@ fw_copy_from_src() {
 
 copy_fw() {
     local fw="$1" f matched=0
-    set -- $FW_SRC/$fw
+    set -- "$FW_SRC"/$fw
     for f in "$@"; do
         [ -e "$f" ] || continue
         matched=1
@@ -197,7 +221,7 @@ copy_fw() {
 
 copy_fw_zst() {
     local fw="$1" f matched=0
-    set -- $FW_SRC/$fw.zst
+    set -- "$FW_SRC"/$fw.zst
     for f in "$@"; do
         [ -e "$f" ] || continue
         matched=1
@@ -226,6 +250,7 @@ while IFS=':' read -r mod fwlist; do
     esac
     IFS=',' read -r -a extras <<<"$fwlist"
     for fw in "${extras[@]}"; do
+        fw="${fw//[[:space:]]/}"
         [ -n "$fw" ] && copy_fw "$fw"
     done
 done <<EOF
@@ -234,12 +259,12 @@ EOF
 
 
 for meta in modules.builtin modules.builtin.alias.bin modules.builtin.bin \
-            modules.builtin.modinfo; do
+            modules.builtin.modinfo modules.order; do
     [ -f "$HOST/$meta" ] && cp "$HOST/$meta" "$DST/$meta" 2>/dev/null || true
 done
 
 echo "  regenerating modules dep and modules alias"
-depmod -b rootfs "$KVER" 2>/dev/null || true
+depmod -b "$(dirname "$0")/../rootfs" "$KVER" 2>/dev/null || echo "  ! depmod failed run depmod manually"
 
 echo
 echo "Done now make sure the same driver names are on the ALLOW list in"

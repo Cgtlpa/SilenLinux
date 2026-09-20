@@ -2,7 +2,12 @@
 set -e
 
 trap 'echo; echo "!! Build stopped with an error See the message above"; echo "   Remove build/ if needed rm -rf build" >&2' ERR
-DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
+DEFAULT_KVER=""
+for _kv in rootfs/lib/modules/[0-9]*; do
+	[ -d "$_kv" ] || continue
+	DEFAULT_KVER="${_kv##*/}"
+	break
+done
 KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.4-zen2-1-zen}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
 MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
@@ -169,8 +174,8 @@ if [ -d build ]; then
 	fi
 fi
 
-FREE_KB=$(df -Pk . | awk 'NR==2 {print $4}')
-if [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ]; then
+FREE_KB=$(df -Pk . 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ]; then
 	echo "  ERROR: only $((FREE_KB / 1024))MB free on disk - need at least ${MIN_DISK_MB}MB to build."
 	exit 1
 fi
@@ -194,12 +199,22 @@ done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 
 
 module_file() {
-	local name="$1"
+	local name="$1" alt=""
 	if [ -n "${module_file_by_name[$name]:-}" ]; then
 		printf '%s\n' "${module_file_by_name[$name]}"
-	else
-		printf '%s\n' "${module_file_by_name[${name//_/-}]:-}"
+		return 0
 	fi
+	alt="${name//_/-}"
+	if [ "$alt" != "$name" ] && [ -n "${module_file_by_name[$alt]:-}" ]; then
+		printf '%s\n' "${module_file_by_name[$alt]}"
+		return 0
+	fi
+	alt="${name//-/_}"
+	if [ "$alt" != "$name" ] && [ -n "${module_file_by_name[$alt]:-}" ]; then
+		printf '%s\n' "${module_file_by_name[$alt]}"
+		return 0
+	fi
+	return 1
 }
 
 is_blacklisted() {
@@ -220,8 +235,9 @@ if [ "$FULL" = "1" ]; then
 else
 	queue=($ALLOW $ALLOW_WIFI)
 	if [ "$AUTO_HOST" = "1" ]; then
-		for name in $(ls /sys/module); do
-			queue+=("$name")
+		for _mp in /sys/module/*; do
+			[ -e "$_mp" ] || continue
+			queue+=("${_mp##*/}")
 		done
 	fi
 fi
@@ -253,7 +269,7 @@ while [ ${#queue[@]} -gt 0 ]; do
 	done
 done
 
-echo "  $(printf '%s\n' "${chosen[@]}" | wc -l) modules selected"
+echo "  ${#chosen[@]} modules selected"
 
 
 echo "[3/7] Setting up ramdisk root"
@@ -274,10 +290,23 @@ mkdir -p "$RAMROOT/lib/modules"
 
 cp "$BUSYBOX_SOURCE" "$RAMROOT/bin/busybox"
 
-cp --dereference /lib64/ld-linux-x86-64.so.2 "$RAMROOT/lib64/ld-linux-x86-64.so.2"
-cp --dereference /usr/lib64/libc.so.6        "$RAMROOT/usr/lib64/libc.so.6"
-cp --dereference /usr/lib64/libm.so.6        "$RAMROOT/usr/lib64/libm.so.6"
-cp --dereference /usr/lib64/libresolv.so.2   "$RAMROOT/usr/lib64/libresolv.so.2"
+for _ld in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
+	[ -f "$_ld" ] || continue
+	cp --dereference "$_ld" "$RAMROOT/lib64/ld-linux-x86-64.so.2" 2>/dev/null && break
+done
+for _clib in /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6 /usr/lib/libc.so.6; do
+	[ -f "$_clib" ] || continue
+	cp --dereference "$_clib" "$RAMROOT/usr/lib64/libc.so.6" 2>/dev/null && break
+done
+for _mlib in /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6 /usr/lib/libm.so.6; do
+	[ -f "$_mlib" ] || continue
+	cp --dereference "$_mlib" "$RAMROOT/usr/lib64/libm.so.6" 2>/dev/null && break
+done
+for _rlib in /usr/lib64/libresolv.so.2 /lib/x86_64-linux-gnu/libresolv.so.2 /usr/lib/libresolv.so.2; do
+	[ -f "$_rlib" ] || continue
+	cp --dereference "$_rlib" "$RAMROOT/usr/lib64/libresolv.so.2" 2>/dev/null && break
+done
+[ -f "$RAMROOT/lib64/ld-linux-x86-64.so.2" ] || { echo "  ERROR dynamic loader not found install it first"; exit 1; }
 
 cat > "$RAMROOT/etc/passwd" <<'EOF'
 root:x:0:0:root:/root:/bin/sh
@@ -293,9 +322,15 @@ EOF
 
 touch "$RAMROOT/etc/fstab"
 
-for applet in $("$BUSYBOX_SOURCE" --list); do
+_applets="$("$BUSYBOX_SOURCE" --list 2>/dev/null)" || _applets=""
+if [ -z "$_applets" ]; then
+	echo "  ERROR busybox --list failed ($BUSYBOX_SOURCE unusable)"
+	exit 1
+fi
+for applet in $_applets; do
 	ln -sf busybox "$RAMROOT/bin/$applet"
 done
+[ -x "$RAMROOT/bin/sh" ] && [ -x "$RAMROOT/bin/mount" ] || { echo "  ERROR busybox applets missing sh/mount"; exit 1; }
 
 libs_seen=" "
 copy_libs() {
@@ -308,19 +343,33 @@ copy_libs() {
 			*" $lib "*) continue ;;
 		esac
 		libs_seen="$libs_seen $lib "
-		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null
+		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy lib $lib"
 		copy_libs "$lib"
-	done < <(ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p')
+	done < <({ ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p'; ldd "$bin" 2>/dev/null | grep -o '^\s*/[^ ]*' | tr -d ' '; } | sort -u)
+
 }
 
 copy_app() {
 	local dest="$1"
 	local src="$2"
+	if [ ! -e "$src" ]; then
+		echo "  ERROR required tool missing: $src (install it first)"
+		exit 1
+	fi
+	mkdir -p "$RAMROOT/usr/bin"
+	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
+	copy_libs "$src"
+}
+copy_opt() {
+	local dest="$1"
+	local src="$2"
+	[ -e "$src" ] || return 0
 	mkdir -p "$RAMROOT/usr/bin"
 	cp --dereference "$src" "$RAMROOT/usr/bin/$dest"
 	copy_libs "$src"
 }
 
+if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
 copy_app whiptail /usr/bin/whiptail
 copy_app nmtui /usr/bin/nmtui
 for _nmtui_link in nmtui-connect nmtui-edit nmtui-hostname; do
@@ -345,18 +394,28 @@ ln -sf /usr/bin/zstd "$RAMROOT/bin/zstd"
 copy_app git  /usr/bin/git
 copy_app curl /usr/bin/curl
 
-mkdir -p "$RAMROOT/usr/lib/git-core"
-cp -a /usr/lib/git-core/. "$RAMROOT/usr/lib/git-core/"
+if [ -d /usr/lib/git-core ]; then
+	mkdir -p "$RAMROOT/usr/lib/git-core"
+	cp -a /usr/lib/git-core/. "$RAMROOT/usr/lib/git-core/"
+fi
 for helper in git-remote-http git-http-fetch git-http-push git-http-backend git-imap-send git-daemon; do
 	copy_libs "/usr/lib/git-core/$helper"
 done
 
-mkdir -p "$RAMROOT/usr/share/git-core"
-cp -a /usr/share/git-core/templates "$RAMROOT/usr/share/git-core/"
+if [ -d /usr/share/git-core/templates ]; then
+	mkdir -p "$RAMROOT/usr/share/git-core"
+	cp -a /usr/share/git-core/templates "$RAMROOT/usr/share/git-core/"
+fi
 
 mkdir -p "$RAMROOT/etc/ssl/certs"
-cp /etc/ca-certificates/extracted/tls-ca-bundle.pem "$RAMROOT/etc/ssl/certs/ca-certificates.crt"
-cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf"
+if [ -f /etc/ca-certificates/extracted/tls-ca-bundle.pem ]; then
+	cp /etc/ca-certificates/extracted/tls-ca-bundle.pem "$RAMROOT/etc/ssl/certs/ca-certificates.crt"
+elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+	cp /etc/ssl/certs/ca-certificates.crt "$RAMROOT/etc/ssl/certs/ca-certificates.crt"
+else
+	echo "  ! no CA bundle found https may fail in live env"
+fi
+[ -f /etc/ssl/openssl.cnf ] && cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf" || true
 
 copy_app NetworkManager /usr/sbin/NetworkManager
 copy_app dbus-daemon  /usr/bin/dbus-daemon
@@ -379,11 +438,16 @@ for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-
 		echo "  ! cannot copy $_dbus_helper (build as root so live wifi works)"
 	fi
 done
-
-if [ -d /usr/lib/NetworkManager ]; then
-	mkdir -p "$RAMROOT/usr/lib/NetworkManager"
-	cp -a /usr/lib/NetworkManager/. "$RAMROOT/usr/lib/NetworkManager/"
+if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr/libexec/dbus-daemon-launch-helper" ]; then
+	echo "  ! no dbus-daemon-launch-helper copied wifi activation may fail"
 fi
+
+for _nmdir in /usr/lib/NetworkManager /usr/lib64/NetworkManager; do
+	if [ -d "$_nmdir" ]; then
+		mkdir -p "$RAMROOT/usr/lib/NetworkManager"
+		cp -a "$_nmdir"/. "$RAMROOT/usr/lib/NetworkManager/"
+	fi
+done
 mkdir -p "$RAMROOT/usr/lib"
 for _nm_helper in /usr/lib/nm-dispatcher /usr/lib/nm-priv-helper \
 		/usr/lib/nm-daemon-helper /usr/lib/nm-dhcp-helper \
@@ -401,7 +465,11 @@ printf 'deadbeef000000000000000000000001\n' > "$RAMROOT/etc/machine-id"
 cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
 
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
-cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
+if [ -f /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf ]; then
+	cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
+else
+	echo "  ! NetworkManager dbus policy missing"
+fi
 for _wpa_conf in /usr/share/dbus-1/system.d/wpa_supplicant.conf \
 		/etc/dbus-1/system.d/wpa_supplicant.conf; do
 	if [ -f "$_wpa_conf" ]; then
@@ -416,7 +484,7 @@ if [ -f /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ]; then
 	cp /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service \
 		"$RAMROOT/usr/share/dbus-1/system-services/"
 fi
-sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
+if [ -f /usr/share/dbus-1/system.conf ]; then sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"; else echo "  ! dbus system.conf missing"; fi
 
 mkdir -p "$RAMROOT/etc/NetworkManager"
 cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
@@ -445,11 +513,9 @@ mkdir -p "$RAMROOT/usr/share/terminfo/l"
 mkdir -p "$RAMROOT/usr/share/terminfo/x"
 mkdir -p "$RAMROOT/usr/share/terminfo/v"
 mkdir -p "$RAMROOT/usr/share/terminfo/s"
-cp /usr/share/terminfo/l/linux      "$RAMROOT/usr/share/terminfo/l/linux"
-cp /usr/share/terminfo/x/xterm      "$RAMROOT/usr/share/terminfo/x/xterm"
-cp /usr/share/terminfo/x/xterm-256color "$RAMROOT/usr/share/terminfo/x/xterm-256color"
-cp /usr/share/terminfo/v/vt100      "$RAMROOT/usr/share/terminfo/v/vt100"
-cp /usr/share/terminfo/s/screen     "$RAMROOT/usr/share/terminfo/s/screen"
+for _ti in "l/linux" "x/xterm" "x/xterm-256color" "v/vt100" "s/screen"; do
+	[ -f "/usr/share/terminfo/$_ti" ] && cp "/usr/share/terminfo/$_ti" "$RAMROOT/usr/share/terminfo/$_ti" 2>/dev/null || echo "  ! terminfo $_ti missing"
+done
 
 printf '/lib64\n/usr/lib64\n' > "$RAMROOT/etc/ld.so.conf"
 ldconfig -r "$RAMROOT" 2>/dev/null || echo "  ! ldconfig failed (dynamic apps may not load)"
@@ -612,7 +678,8 @@ fi
 
 if [ -d "$FIRMWARE_SOURCE" ]; then
 	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO"
-	cp -a "$FIRMWARE_SOURCE" "$RAMROOT/lib/firmware" 2>/dev/null || true
+	mkdir -p "$RAMROOT/lib/firmware"
+	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" 2>/dev/null || true
 fi
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
@@ -625,7 +692,8 @@ echo "  firmware  $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
 
 echo "[5/7] Stripping debug info"
 
-find "$MODULES_DIR" -name '*.ko' -exec strip --strip-debug {} +
+command -v strip >/dev/null 2>&1 || { echo "  ERROR strip not found"; exit 1; }
+find "$MODULES_DIR" -name '*.ko' -exec strip --strip-debug {} + 2>/dev/null || true
 
 echo "  modules after strip $(du -sh "$MODULES_DIR" | cut -f1)"
 
@@ -671,7 +739,7 @@ CPIO_FILE="build/initramfs.cpio"
 
 (
 	cd "$RAMROOT"
-	find . -print0 | cpio --null -o --format=newc 2>/dev/null
+	find . -print0 | cpio --null -o --format=newc --owner=0:0 2>/dev/null
 ) > "$CPIO_FILE"
 
 if [ "$COMPRESS" = "zstd" ]; then
@@ -701,7 +769,7 @@ if modules_ok "$MODULES_SOURCE"; then
 	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
 	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
 	       "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
-	find "$KROOT/lib/modules" -name '*.ko' -exec strip --strip-debug {} +
+	find "$KROOT/lib/modules" \( -name '*.ko' -o -name '*.ko.zst' -o -name '*.ko.xz' \) -exec strip --strip-debug {} + 2>/dev/null || true
 	KERNEL_TAR="$ISO_DIR/kernel-$KERNEL_VERSION.tar.zst"
 	tar -C "$KROOT" --exclude='./lib/modules/*/build' --exclude='./lib/modules/*/source' \
 		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" .
@@ -715,7 +783,12 @@ if [ -d rootfs/lib/firmware ]; then
 	cp -a rootfs/lib/firmware "$ISO_DIR/firmware"
 fi
 
-STAGE3_TARBALL="$(ls stage3-*.tar.* tarball-*.xz tarball-*.tar.* 2>/dev/null | head -n1)"
+STAGE3_TARBALL=""
+for _st in stage3-*.tar.* tarball-*.xz tarball-*.tar.*; do
+	[ -f "$_st" ] || continue
+	STAGE3_TARBALL="$_st"
+	break
+done
 if [ -n "$STAGE3_TARBALL" ]; then
 	echo "  copying stage3 tarball onto the ISO $STAGE3_TARBALL"
 	cp "$STAGE3_TARBALL" "$ISO_DIR/"
@@ -732,7 +805,7 @@ if command -v cargo >/dev/null 2>&1; then
 	echo "  building spk spk/src/get.rs"
 	CARGO_ENV=()
 	if [ -n "$SUDO_USER" ]; then
-		CARGO_ENV+=(RUSTUP_HOME=/home/$SUDO_USER/.rustup CARGO_HOME=/home/$SUDO_USER/.cargo)
+		CARGO_ENV+=(RUSTUP_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)/.rustup CARGO_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)/.cargo)
 	fi
 	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
 		echo "  copying spk onto the ISO"
@@ -824,7 +897,7 @@ menuentry "Silen Linux" {
 EOF
 
 echo "  running grub-mkrescue"
-grub-mkrescue -o "$RESULT" "$ISO_DIR"
+grub-mkrescue -o "$RESULT" "$ISO_DIR" || { echo "  ERROR grub-mkrescue failed (need xorriso mtools dosfstools)"; exit 1; }
 
 echo
 echo "Done"

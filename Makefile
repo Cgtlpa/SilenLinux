@@ -1,3 +1,5 @@
+.PHONY: iso qemu clean
+
 # Silen Linux - build tools
 #
 #   make iso     build the bootable ISO
@@ -8,6 +10,8 @@ iso:
 	sudo nice -n 10 ionice -c 3 ./scripts/build.sh
 
 qemu:
+	@test -f build/silen-linux.iso || { echo "ERROR: build/silen-linux.iso missing run make iso first"; exit 1; }
+	@command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "ERROR: qemu-system-x86_64 not found"; exit 1; }
 	@firmware=""; code=""; vars=""; \
 	for f in /usr/share/edk2/x64/OVMF.4m.fd \
 	         /usr/share/edk2-ovmf/OVMF.fd \
@@ -25,10 +29,10 @@ qemu:
 		[ -f "$$f" ] && vars="$$f" && break; \
 	done; \
 	if [ -n "$$firmware" ]; then \
-		qemu-system-x86_64 -m 2G -cpu max -bios "$$firmware" -cdrom build/silen-linux.iso -boot d; \
+		qemu-system-x86_64 -m 2G -cpu max $([ -e /dev/kvm ] && echo "-enable-kvm") -M q35 -bios "$$firmware" -cdrom build/silen-linux.iso -boot d; \
 	elif [ -n "$$code" ] && [ -n "$$vars" ]; then \
-		cp "$$vars" /tmp/OVMF_VARS.fd && \
-		qemu-system-x86_64 -m 2G -cpu max \
+		rm -f /tmp/OVMF_VARS.fd && cp "$$vars" /tmp/OVMF_VARS.fd && \
+		qemu-system-x86_64 -m 2G -cpu max $([ -e /dev/kvm ] && echo "-enable-kvm") -M q35 \
 			-drive if=pflash,format=raw,readonly=on,file="$$code" \
 			-drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
 			-cdrom build/silen-linux.iso -boot d; \
@@ -37,4 +41,4 @@ qemu:
 	fi
 
 clean:
-	rm -rf build
+	rm -rf build /tmp/OVMF_VARS.fd

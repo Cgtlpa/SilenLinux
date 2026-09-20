@@ -11,7 +11,7 @@ pub fn remove_package(name: &str, layout: &Layout) {
 
     let files = fs::read_to_string(format!("{}/files", layout.registry)).unwrap_or_default();
     let shims = fs::read_to_string(format!("{}/shims", layout.registry)).unwrap_or_default();
-    let system_files = fs::read_to_string(format!("{}/system-files", layout.appdir)).unwrap_or_default();
+    let system_files = fs::read_to_string(format!("{}/system-files", layout.registry)).unwrap_or_default();
 
     let mut removed = 0;
     for line in files.lines().chain(shims.lines()).chain(system_files.lines()) {
@@ -40,6 +40,17 @@ pub fn remove_package(name: &str, layout: &Layout) {
     let _ = fs::remove_dir_all(&layout.registry);
 
     remove_lib_conf(name, layout);
+    if !layout.user_mode && removed > 0 {
+        let prefix = if layout.root.is_empty() { "/" } else { layout.root.as_str() };
+        let status = if prefix == "/" {
+            std::process::Command::new("ldconfig").status()
+        } else {
+            std::process::Command::new("ldconfig").arg("-r").arg(prefix).status()
+        };
+        if !matches!(status, Ok(code) if code.success()) {
+            println!("spk: warning: ldconfig refresh failed - run ldconfig by hand");
+        }
+    }
 
     if removed == 0 {
         println!("spk: {} was already gone, cleaned up its records", name);
@@ -139,9 +150,12 @@ fn legacy_remove(name: &str, layout: &Layout) {
         let path = format!("{}/{}", dir.trim_end_matches('/'), name);
         if fs::remove_file(&path).is_ok() {
             println!("spk: removed {}", path);
+            let _ = fs::remove_dir_all(&layout.appdir);
+            let _ = fs::remove_dir_all(&layout.pkgdir);
+            let _ = fs::remove_dir_all(&layout.registry);
             return;
         }
     }
-    println!("spk: could not find {}", name);
+    eprintln!("spk: could not find {}", name);
     process::exit(1);
 }

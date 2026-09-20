@@ -8,7 +8,7 @@ echo "kernel ---"
 uname -r 2>/dev/null
 echo "wifi modules loaded ---"
 if command -v lsmod >/dev/null 2>&1; then
-	lsmod 2>/dev/null | grep -iE "iwl|cfg80211|mac80211|ath|rtw|rtl8|rtl_|mt76|mt79|brcm|b43|mwifiex|libertas|rsi|wfx|wilc|zd12|carl9170|ar5523|rfkill" || echo "no wifi modules loaded"
+	lsmod 2>/dev/null | grep -iE "iwl|cfg80211|mac80211|ath|rtw|rtl8|rtl_|rtlwifi|mt76|mt79|brcm|b43|mwifiex|libertas|rsi|wfx|wilc|wl12|wl18|wlcore|mwl8k|p54|at76|rt2|rt6|zd12|carl9170|ar5523|rfkill" || echo "no wifi modules loaded"
 else
 	echo "lsmod unavailable"
 fi
@@ -26,7 +26,7 @@ if command -v lspci >/dev/null 2>&1; then
 	for d in /sys/bus/pci/devices/*; do
 		[ -f "$d/class" ] || continue
 		case "$(cat "$d/class" 2>/dev/null)" in
-			0x0280*) echo "$(basename "$d"): class 0280 vendor=$(cat "$d/vendor" 2>/dev/null) device=$(cat "$d/device" 2>/dev/null) driver=$(basename "$(readlink "$d/driver" 2>/dev/null)" 2>/dev/null || echo none)" ;;
+			0x0280*) _drv="$(basename "$(readlink "$d/driver" 2>/dev/null)" 2>/dev/null)"; echo "$(basename "$d"): class 0280 vendor=$(cat "$d/vendor" 2>/dev/null) device=$(cat "$d/device" 2>/dev/null) driver=${_drv:-none}" ;;
 		esac
 	done
 else
@@ -39,12 +39,12 @@ else
 	echo "lsusb unavailable"
 fi
 echo "kernel wifi/firmware messages ---"
-dmesg 2>/dev/null | grep -iE "firmware|wlan|wifi|iwl|cfg80211|regulatory|rtw|mt76|mt79|ath1|brcmfmac|b43|mwifiex|80211|wpa_supplicant|NetworkManager|probe|failed|error|blocked|rfkill" | tail -n 50 || echo "dmesg unavailable"
+_dmsg="$(dmesg 2>/dev/null | grep -iE "firmware|wlan|wifi|iwl|cfg80211|regulatory|rtw|mt76|mt79|ath1|brcmfmac|b43|mwifiex|80211|wpa_supplicant|NetworkManager|probe|failed|error|blocked|rfkill" | tail -n 50)"; if [ -n "$_dmsg" ]; then printf "%s\n" "$_dmsg"; else echo "dmesg unavailable or no matches"; fi
 echo "NetworkManager devices ---"
 if command -v nmcli >/dev/null 2>&1; then
 	nmcli -t device status 2>/dev/null || echo "nmcli device status failed is NetworkManager running"
 	echo "NetworkManager wifi scan cached ---"
-	nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null | head -n 25 || echo "wifi scan unavailable"
+	if nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null | head -n 25; then :; else echo "wifi scan unavailable"; fi
 	echo "NM radio ---"
 	nmcli radio all 2>/dev/null || true
 else
@@ -58,7 +58,7 @@ else
 	ps 2>/dev/null | grep -i "[w]pa_supplicant" || echo "wpa_supplicant not running"
 fi
 echo "dbus activation helper ---"
-ls -l /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || echo "no helper found"
+{ ls -l /usr/lib/dbus-daemon-launch-helper 2>/dev/null || true; ls -l /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true; } | grep -q . || echo "no helper found"
 echo "NM wifi plugin ---"
 ls /usr/lib/NetworkManager/libnm-device-plugin-wifi.so 2>/dev/null || echo "wifi plugin missing"
 echo "===== end ====="

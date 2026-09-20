@@ -59,17 +59,24 @@ fn main() {
     }
 
     if args[1] == "list" {
+        // list takes no package name; fall through
         let layout = layout_for(&root, user_mode, "");
         list(&layout);
     } else if args[1] == "remove" || args[1] == "rm" {
         if positional.is_empty() {
             fail("usage: spk rm <package> [--root DIR] [--user]");
         }
+        if !valid_name(&positional[0]) {
+            fail("bad package name (use [a-z0-9_.+-], no / or ..)");
+        }
         let layout = layout_for(&root, user_mode, &positional[0]);
         remove::remove_package(&positional[0], &layout);
     } else if args[1] == "get" {
         if positional.is_empty() {
             fail("usage: spk get <package> [--root DIR] [--user]");
+        }
+        if !valid_name(&positional[0]) {
+            fail("bad package name (use [a-z0-9_.+-], no / or ..)");
         }
         let layout = layout_for(&root, user_mode, &positional[0]);
         get(&positional[0], &layout);
@@ -79,15 +86,30 @@ fn main() {
 }
 
 fn usage() {
-    println!("usage:");
-    println!("  spk get <package> [--root DIR] [--user]");
-    println!("  spk rm <package> [--root DIR] [--user]");
-    println!("  spk list [--root DIR] [--user]");
+    eprintln!("usage:");
+    eprintln!("  spk get <package> [--root DIR] [--user]");
+    eprintln!("  spk rm <package> [--root DIR] [--user]");
+    eprintln!("  spk list [--root DIR] [--user]");
 }
 
 fn fail(message: &str) -> ! {
-    println!("spk: error: {}", message.trim_start());
+    eprintln!("spk: error: {}", message.trim_start());
     process::exit(1);
+}
+
+fn valid_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 128 {
+        return false;
+    }
+    if name == "." || name == ".." {
+        return false;
+    }
+    for c in name.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+') {
+            return false;
+        }
+    }
+    !(name.contains("..") || name.contains('/'))
 }
 
 fn check(result: std::io::Result<()>, what: &str) {
@@ -133,7 +155,7 @@ fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
             appdir: format!("{}/opt/spk/{}", prefix, name),
             pkgdir: format!("{}/spk_pkgs/{}", prefix, name),
             shimdir: format!("{}/usr/local/bin", prefix),
-            tmp: format!("/tmp/{}.spk", name),
+            tmp: format!("/tmp/spk-{}-{}.spk", sanitize_conf_name(name), std::process::id()),
             user_mode: false,
         }
     }
@@ -195,7 +217,14 @@ fn get(name: &str, layout: &Layout) {
     let version = read_field(&manifest, "version");
     let expected = read_field(&manifest, "sha256");
     let parts_str = read_field(&manifest, "parts");
-    let parts: u32 = parts_str.parse().unwrap_or(1);
+    let parts: u32 = if parts_str.trim().is_empty() {
+        1
+    } else {
+        match parts_str.trim().parse() {
+            Ok(n) if (1..=64).contains(&n) => n,
+            _ => fail(&format!("bad parts value {:?} in manifest for {}", parts_str, name)),
+        }
+    };
     let system_str = read_field(&manifest, "system");
     let system = matches!(system_str.as_str(), "true" | "1");
 
@@ -223,8 +252,8 @@ fn get(name: &str, layout: &Layout) {
     println!("spk: downloaded {} bytes", size);
 
     if expected.is_empty() {
-        println!("spk: no sha256 in manifest, skipping check");
-    } else if digest != expected {
+        eprintln!("spk: warning: no sha256 in manifest, skipping check");
+    } else if digest.to_lowercase() != expected.trim().to_lowercase() {
         let _ = fs::remove_file(&layout.tmp);
         fail(&format!("sha256 mismatch for {} expected {} got {}", name, expected, digest));
     } else {
@@ -574,15 +603,20 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             if ours {
                 shims.push_str(&shim);
                 shims.push('\n');
+            } else {
+                eprintln!("spk: warning: {} already exists (another package?), keeping it", shim);
             }
             continue;
         }
-        if std::os::unix::fs::symlink(&want, &shim).is_ok() {
-            shims.push_str(&shim);
-            shims.push('\n');
-            if !commands.contains(&cmd) {
-                commands.push(cmd);
+        match std::os::unix::fs::symlink(&want, &shim) {
+            Ok(()) => {
+                shims.push_str(&shim);
+                shims.push('\n');
+                if !commands.contains(&cmd) {
+                    commands.push(cmd);
+                }
             }
+            Err(err) => eprintln!("spk: warning: cannot create shim {}: {}", shim, err),
         }
     }
 
@@ -674,7 +708,7 @@ fn http_get(url: &str) -> String {
         match ureq::get(url).call() {
             Ok(mut response) => {
                 if response.status().as_u16() != 200 {
-                    fail(&format!("could not fetch {}", url));
+                    fail(&format!("could not fetch {} (http {})", url, response.status().as_u16()));
                 }
                 match response.body_mut().read_to_string() {
                     Ok(text) => return text,
@@ -734,6 +768,9 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
                     }
                 }
                 PartFetch::Transient(err) => {
+                    if err.starts_with("cannot write") {
+                        fail(&format!("could not download {}: {}", part_url, err));
+                    }
                     truncate_to(dst, start);
                     if attempt >= 6 {
                         let _ = fs::remove_file(dst);
@@ -750,6 +787,10 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
         }
 
         index += 1;
+        if index > 64 {
+            let _ = fs::remove_file(dst);
+            fail(&format!("too many parts for {} (limit 64)", url));
+        }
         if !split || (parts > 1 && index == parts) {
             break;
         }
@@ -858,7 +899,7 @@ fn read_field(text: &str, key: &str) -> String {
             }
             continue;
         }
-        if !in_string && (c == ',' || c == '}' || c == '\n' || c == ' ') {
+        if !in_string && (c == ',' || c == '}' || c == '\n' || c == ' ' || c == '\t' || c == '\r' || c == ':') {
             if !value.is_empty() {
                 break;
             }
@@ -896,7 +937,6 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
     let entries = match tar.entries() {
         Ok(entries) => entries,
         Err(err) => {
-            let _ = fs::remove_file(archive);
             fail(&format!("bad archive {}: {}", archive, err));
         }
     };
@@ -905,7 +945,6 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
         let mut entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
-                let _ = fs::remove_file(archive);
                 fail(&format!("bad archive {}: {}", archive, err));
             }
         };
@@ -918,7 +957,6 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
         let name = match entry.path() {
             Ok(path) => path.to_string_lossy().to_string(),
             Err(err) => {
-                let _ = fs::remove_file(archive);
                 fail(&format!("bad path in {}: {}", archive, err));
             }
         };
@@ -942,11 +980,10 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
             let target = match entry.link_name() {
                 Ok(Some(target)) => target.to_string_lossy().to_string(),
                 _ => {
-                    let _ = fs::remove_file(archive);
                     fail(&format!("symlink without target in {}", name));
                 }
             };
-            let link = resolve(&target, root);
+            let link = resolve_link(&dest, &target, root);
             if Path::new(&dest).is_dir() {
                 continue;
             }
@@ -961,7 +998,6 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
             let target = match entry.link_name() {
                 Ok(Some(target)) => target.to_string_lossy().to_string(),
                 _ => {
-                    let _ = fs::remove_file(archive);
                     fail(&format!("hardlink without target in {}", name));
                 }
             };
@@ -998,7 +1034,6 @@ fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
                     continue;
                 }
             }
-            let _ = fs::remove_file(archive);
             fail(&format!("cannot create hardlink {}: {}", dest, err));
         }
         installed.push(Installed { path: dest, mode, is_link: true });
@@ -1037,13 +1072,36 @@ fn clean(name: &str, root: &str) -> String {
     }
 }
 
-fn resolve(target: &str, root: &str) -> String {
-    if target.starts_with('/') {
-        if root == "/" || root.is_empty() {
+fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
+    let scope = if root == "/" || root.is_empty() { "/".to_string() } else { root.trim_end_matches('/').to_string() };
+    let abs = if target.starts_with('/') {
+        if scope == "/" {
             target.to_string()
         } else {
-            format!("{}{}", root.trim_end_matches('/'), target)
+            format!("{}{}", scope, target)
         }
+    } else {
+        let parent = Path::new(link_dest).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        format!("{}/{}", parent.trim_end_matches('/'), target)
+    };
+    // normalize .. without touching fs
+    let mut parts: Vec<&str> = Vec::new();
+    for part in abs.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            parts.pop();
+            continue;
+        }
+        parts.push(part);
+    }
+    let norm = format!("/{}", parts.join("/"));
+    if scope != "/" && (norm != scope && !norm.starts_with(&format!("{}/", scope))) {
+        fail(&format!("symlink escapes install root: {} -> {}", link_dest, target));
+    }
+    if target.starts_with('/') {
+        abs
     } else {
         target.to_string()
     }
