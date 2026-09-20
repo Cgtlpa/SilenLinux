@@ -140,7 +140,7 @@ rescan_medium() {
         for _p in "$_d"?* "$_d"p?*; do
             [ -b "$_p" ] || continue
             case " $_cands " in
-                *"$_p"*) ;;
+                *" $_p "*) ;;
                 *) _cands="$_cands $_p" ;;
             esac
         done || true
@@ -227,7 +227,7 @@ ensure_medium() {
     return 1
 }
 
-trap cleanup INT TERM
+trap cleanup INT TERM EXIT
 
 [ "$(id -u)" = "0" ] || {
     whiptail --msgbox --title "$title" "this installer needs root" 8 40 2>/dev/null || true
@@ -581,7 +581,10 @@ ask-install-settings() {
 
     rootpass=""
     while :; do
-        rootpass=$(whiptail --title "$title" --passwordbox "Set the root password" 8 40 3>&1 1>&2 2>&3 || true)
+        if ! rootpass=$(whiptail --title "$title" --passwordbox "Set the root password" 8 40 3>&1 1>&2 2>&3); then
+            main_screen
+            return
+        fi
         [ -n "$rootpass" ] && break
         whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
     done
@@ -621,7 +624,11 @@ ask-install-settings() {
             break
         done || true
         while [ -n "$newuser" ]; do
-            userpass=$(whiptail --title "$title" --passwordbox "Password for $newuser:" 8 40 3>&1 1>&2 2>&3 || true)
+            if ! userpass=$(whiptail --title "$title" --passwordbox "Password for $newuser:" 8 40 3>&1 1>&2 2>&3); then
+                newuser=""
+                userpass=""
+                break
+            fi
             [ -n "$userpass" ] && break
             whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
         done || true

@@ -29,10 +29,10 @@ qemu:
 		[ -f "$$f" ] && vars="$$f" && break; \
 	done; \
 	if [ -n "$$firmware" ]; then \
-		qemu-system-x86_64 -m 2G -cpu max $([ -e /dev/kvm ] && echo "-enable-kvm") -M q35 -bios "$$firmware" -cdrom build/silen-linux.iso -boot d; \
+		qemu-system-x86_64 -m 2G -cpu max $$( [ -e /dev/kvm ] && echo "-enable-kvm" ) -M q35 -bios "$$firmware" -cdrom build/silen-linux.iso -boot d; \
 	elif [ -n "$$code" ] && [ -n "$$vars" ]; then \
 		rm -f /tmp/OVMF_VARS.fd && cp "$$vars" /tmp/OVMF_VARS.fd && \
-		qemu-system-x86_64 -m 2G -cpu max $([ -e /dev/kvm ] && echo "-enable-kvm") -M q35 \
+		qemu-system-x86_64 -m 2G -cpu max $$( [ -e /dev/kvm ] && echo "-enable-kvm" ) -M q35 \
 			-drive if=pflash,format=raw,readonly=on,file="$$code" \
 			-drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
 			-cdrom build/silen-linux.iso -boot d; \

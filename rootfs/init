@@ -259,7 +259,7 @@ try_isos_on_scan() {
 			echo "  install medium is an ISO file on $_srcdev $_iso"
 			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
 			_rel="${_iso#/run/scan/}"
-			if [ "$_rel" != "$_iso" ] && mountpoint -q /run/ventoy 2>/dev/null || grep -qs " /run/ventoy " /proc/mounts 2>/dev/null; then
+			if [ "$_rel" != "$_iso" ] && is_mounted /run/ventoy; then
 				echo "/run/ventoy/$_rel" > /run/silen-medium-iso 2>/dev/null || true
 			else
 				echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true

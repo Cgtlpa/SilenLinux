@@ -345,7 +345,7 @@ copy_libs() {
 		libs_seen="$libs_seen $lib "
 		cp --dereference "$lib" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy lib $lib"
 		copy_libs "$lib"
-	done < <({ ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p'; ldd "$bin" 2>/dev/null | grep -o '^\s*/[^ ]*' | tr -d ' '; } | sort -u)
+	done < <({ ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p'; ldd "$bin" 2>/dev/null | grep -o '^[[:space:]]*/[^ ]*' | tr -d ' '; } | sort -u)
 
 }
 
