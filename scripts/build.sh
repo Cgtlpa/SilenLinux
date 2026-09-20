@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-trap 'echo; echo "!! Build stopped with an error. See the message above."; echo "   Remove build/ if needed: rm -rf build" >&2' ERR
+trap 'echo; echo "!! Build stopped with an error See the message above"; echo "   Remove build/ if needed rm -rf build" >&2' ERR
 DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
 KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.4-zen2-1-zen}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
@@ -100,7 +100,7 @@ case "$COMPRESS" in
 esac
 
 echo "== Silen Linux ISO builder =="
-echo "compression: $COMPRESS   auto-detect host modules: $AUTO_HOST   full module tree: $FULL"
+echo "compression $COMPRESS   auto-detect host modules $AUTO_HOST   full module tree $FULL"
 echo
 
 modules_ok() {
@@ -108,12 +108,12 @@ modules_ok() {
 }
 
 if ! modules_ok "$MODULES_SOURCE"; then
-	echo "  kernel module tree not found: $MODULES_SOURCE"
-	echo "  (auto-detecting host kernel instead...)"
+	echo "  kernel module tree not found $MODULES_SOURCE"
+	echo "  auto-detecting host kernel instead"
 	HOST_VER="$(uname -r 2>/dev/null)"
 	HOST_MODS="/usr/lib/modules/$HOST_VER"
 	if [ -n "$HOST_VER" ] && modules_ok "$HOST_MODS"; then
-		echo "  -> using host kernel: $HOST_VER"
+		echo "  using host kernel $HOST_VER"
 		echo "     modules from $HOST_MODS"
 		KERNEL_VERSION="$HOST_VER"
 		MODULES_SOURCE="$HOST_MODS"
@@ -131,39 +131,39 @@ if ! modules_ok "$MODULES_SOURCE"; then
 fi
 
 if [ ! -f "$KERNEL_SOURCE" ]; then
-	echo "  ERROR: kernel image not found: $KERNEL_SOURCE"
-	echo "  Set KERNEL_SOURCE=/path/to/vmlinuz (or put one at boot/vmlinuz)"
+	echo "  ERROR kernel image not found $KERNEL_SOURCE"
+	echo "  Set KERNEL_SOURCE=/path/to/vmlinuz or put one at boot/vmlinuz"
 	exit 1
 fi
 
-echo "  kernel:    $KERNEL_SOURCE"
-echo "  modules:   $MODULES_SOURCE"
+echo "  kernel    $KERNEL_SOURCE"
+echo "  modules   $MODULES_SOURCE"
 
 if ! command -v grub-mkrescue >/dev/null 2>&1; then
-	echo "  ERROR: grub-mkrescue not found."
-	echo "  Install it first, e.g. on Arch: sudo pacman -S grub xorriso mtools dosfstools"
+	echo "  ERROR grub-mkrescue not found"
+	echo "  Install it first e.g. on Arch sudo pacman -S grub xorriso mtools dosfstools"
 	exit 1
 fi
 
 AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
 if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
-	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB)."
-	echo "  Close heavy apps first, or rerun with FORCE=1 to try anyway."
+	echo "  ERROR only ${AVAIL_MB}MB RAM available need ${MIN_RAM_MB}MB"
+	echo "  Close heavy apps first or rerun with FORCE=1 to try anyway"
 	exit 1
 fi
 
 
-echo "[1/7] Cleaning old build (removing build/)..."
+echo "[1/7] Cleaning old build"
 
 if [ -d build ]; then
 	rm -rf build 2>/dev/null || true
 fi
 
 if [ -d build ]; then
-	echo "  build/ is root-owned, using sudo..."
+	echo "  build/ is root-owned using sudo"
 	if ! sudo -n rm -rf build 2>/dev/null; then
-		echo "  ERROR: cannot remove build/ without typing a sudo password."
-		echo "  Fix it yourself once, then rerun this script:"
+		echo "  ERROR cannot remove build/ without typing a sudo password"
+		echo "  Fix it yourself once then rerun this script"
 		echo "      sudo rm -rf $(pwd)/build"
 		exit 1
 	fi
@@ -175,7 +175,7 @@ if [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ]; then
 	exit 1
 fi
 
-echo "[2/7] Building module list..."
+echo "[2/7] Building module list"
 
 mod_name_from_path() {
 	local n
@@ -256,7 +256,7 @@ done
 echo "  $(printf '%s\n' "${chosen[@]}" | wc -l) modules selected"
 
 
-echo "[3/7] Setting up ramdisk root..."
+echo "[3/7] Setting up ramdisk root"
 
 mkdir -p "$RAMROOT/bin"
 mkdir -p "$RAMROOT/sbin"
@@ -328,75 +328,50 @@ for _nmtui_link in nmtui-connect nmtui-edit nmtui-hostname; do
 done
 copy_app nmcli /usr/bin/nmcli
 copy_app nm-online /usr/bin/nm-online
-# dbus-uuidgen lets the installer generate a unique machine-id for the
-# installed system (the live system uses a static one, see below)
 copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
 
-# tools the installer needs to format disk + write fstab
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
 copy_app mkfs.vfat /usr/sbin/mkfs.vfat
 copy_app blkid   /usr/sbin/blkid
 copy_app sfdisk  /usr/bin/sfdisk
 copy_app tar     /usr/bin/tar
 ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
-# busybox also provides applets with these names in /bin, which would shadow
-# (or, for applets that behave differently, silently break) the real tools;
-# point them at the copies in /usr/bin
 ln -sf /usr/bin/blkid    "$RAMROOT/bin/blkid"
 ln -sf /usr/bin/mkfs.vfat "$RAMROOT/bin/mkfs.vfat"
 ln -sf /usr/bin/mkfs.ext4 "$RAMROOT/bin/mkfs.ext4"
-# GNU tar shells out to `zstd` to unpack the kernel bundle on the ISO; the
-# live environment has no zstd otherwise, so ship it (libzstd is pulled by
-# copy_libs automatically).
 copy_app zstd    /usr/bin/zstd
 ln -sf /usr/bin/zstd "$RAMROOT/bin/zstd"
 
-# git + curl, with every library they need (clone/fetch/upload in the live env)
 copy_app git  /usr/bin/git
 copy_app curl /usr/bin/curl
 
-# git's helper programs in /usr/lib/git-core - clone/pull/push over http(s)
-# uses git-remote-http, git-http-fetch, git-http-push, git-imap-send, ...
 mkdir -p "$RAMROOT/usr/lib/git-core"
 cp -a /usr/lib/git-core/. "$RAMROOT/usr/lib/git-core/"
 for helper in git-remote-http git-http-fetch git-http-push git-http-backend git-imap-send git-daemon; do
 	copy_libs "/usr/lib/git-core/$helper"
 done
 
-# `git init` needs the default templates
 mkdir -p "$RAMROOT/usr/share/git-core"
 cp -a /usr/share/git-core/templates "$RAMROOT/usr/share/git-core/"
 
-# CA certificates so git/curl can verify https sites
 mkdir -p "$RAMROOT/etc/ssl/certs"
 cp /etc/ca-certificates/extracted/tls-ca-bundle.pem "$RAMROOT/etc/ssl/certs/ca-certificates.crt"
 cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf"
 
-# network stack: NetworkManager daemon, its D-Bus, and wpa_supplicant (Wi-Fi)
 copy_app NetworkManager /usr/sbin/NetworkManager
 copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app wpa_supplicant /usr/sbin/wpa_supplicant
 mkdir -p "$RAMROOT/usr/sbin"
 ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
-# wpa_cli is tiny and handy for debugging Wi-Fi associations
 [ -f /usr/bin/wpa_cli ] && copy_app wpa_cli /usr/bin/wpa_cli
-# rfkill (unblock radios - a soft-block looks like "no wifi, only lo") and
-# iw (low-level wifi debugging). Both tiny, both needed when NM shows nothing.
 [ -f /usr/bin/rfkill ] && copy_app rfkill /usr/bin/rfkill
 [ -f /usr/bin/iw ] && copy_app iw /usr/bin/iw
 [ -f /usr/sbin/rfkill ] && { copy_app rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
 [ -f /usr/sbin/iw ] && { copy_app iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
-# D-Bus activation helper: NetworkManager starts wpa_supplicant over the
-# system bus, and without this setuid helper activation fails - NM then sees
-# the wifi device but can never scan, so nmtui shows no networks. dbus 1.16
-# refuses a helper that is not root-owned and setuid, so fix the mode here
-# (the build runs as root, so ownership is already 0:0 in the image).
 for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
 	[ -f "$_dbus_helper" ] || continue
 	_helper_rel="${_dbus_helper#/}"
 	mkdir -p "$RAMROOT/$(dirname "$_helper_rel")"
-	# the helper is mode 4750 root:dbus (not world-readable), so a
-	# non-root build cannot copy it - warn instead of dying to set -e
 	if cp -a "$_dbus_helper" "$RAMROOT/$_helper_rel" 2>/dev/null; then
 		chmod 4755 "$RAMROOT/$_helper_rel" 2>/dev/null || true
 		copy_libs "$_dbus_helper"
@@ -405,10 +380,6 @@ for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-
 	fi
 done
 
-# NetworkManager device plugins (wifi needs libnm-device-plugin-wifi.so;
-# without these NM only manages wired links) + the nm-* helper daemons.
-# Their extra libraries (libmm-glib, libjansson, ...) are pulled in by
-# copy_libs automatically.
 if [ -d /usr/lib/NetworkManager ]; then
 	mkdir -p "$RAMROOT/usr/lib/NetworkManager"
 	cp -a /usr/lib/NetworkManager/. "$RAMROOT/usr/lib/NetworkManager/"
@@ -425,17 +396,12 @@ while IFS= read -r _nm_plugin; do
 	copy_libs "$_nm_plugin"
 done < <(find "$RAMROOT/usr/lib/NetworkManager" -name '*.so' 2>/dev/null)
 
-# D-Bus machine-id (live system - a static id is fine)
 mkdir -p "$RAMROOT/var/lib/dbus"
 printf 'deadbeef000000000000000000000001\n' > "$RAMROOT/etc/machine-id"
 cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
 
-# system bus config: run as root (no dbus/messagebus user), no fork (init backgrounds it)
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
 cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
-# wpa_supplicant's D-Bus policy lives under /usr/share/dbus-1 on systemd
-# distros (older /etc/dbus-1/system.d location kept as a fallback); without
-# it NM cannot talk to wpa_supplicant over D-Bus and Wi-Fi stays unmanaged
 for _wpa_conf in /usr/share/dbus-1/system.d/wpa_supplicant.conf \
 		/etc/dbus-1/system.d/wpa_supplicant.conf; do
 	if [ -f "$_wpa_conf" ]; then
@@ -452,9 +418,6 @@ if [ -f /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ]; then
 fi
 sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"
 
-# NetworkManager config (internal DHCP - no external helper needed, and the
-# default dns backend so NM writes /etc/resolv.conf itself instead of expecting
-# systemd-resolved, which is not shipped)
 mkdir -p "$RAMROOT/etc/NetworkManager"
 cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
 [main]
@@ -465,14 +428,12 @@ auth-polkit=false
 wifi.backend=wpa_supplicant
 
 [device]
-# without this some cards stay unmanaged / invisible in nmtui (only lo)
 wifi.scan-rand-mac-address=no
 
 [connection]
 wifi.powersave=2
 EOF
 
-# glibc needs an nsswitch.conf for hostname/DNS lookups (git + curl in the live env)
 cat > "$RAMROOT/etc/nsswitch.conf" <<'EOF'
 passwd: files
 group: files
@@ -480,7 +441,6 @@ shadow: files
 hosts: files dns
 EOF
 
-# terminfo entries whiptail/newt need to draw its menus
 mkdir -p "$RAMROOT/usr/share/terminfo/l"
 mkdir -p "$RAMROOT/usr/share/terminfo/x"
 mkdir -p "$RAMROOT/usr/share/terminfo/v"
@@ -491,10 +451,6 @@ cp /usr/share/terminfo/x/xterm-256color "$RAMROOT/usr/share/terminfo/x/xterm-256
 cp /usr/share/terminfo/v/vt100      "$RAMROOT/usr/share/terminfo/v/vt100"
 cp /usr/share/terminfo/s/screen     "$RAMROOT/usr/share/terminfo/s/screen"
 
-# The Silen installer, available at /installer/main.sh in the live environment
-# This glibc's loader only finds libraries through /etc/ld.so.cache, so
-# generate one for the ramroot (after every app + library is in place) or
-# no dynamic app (git/curl/whiptail/...) would run in the live system.
 printf '/lib64\n/usr/lib64\n' > "$RAMROOT/etc/ld.so.conf"
 ldconfig -r "$RAMROOT" 2>/dev/null || echo "  ! ldconfig failed (dynamic apps may not load)"
 
@@ -502,29 +458,22 @@ mkdir -p "$RAMROOT/installer"
 cp installer/main.sh "$RAMROOT/installer/main.sh"
 chmod 0755 "$RAMROOT/installer/main.sh"
 
-# wifi diagnostic, available as silen-wifi-check in the live shell and the
-# installer menu (the installer also drops it into the target system)
 if [ -f scripts/wifi-check.sh ]; then
 	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check"
 	chmod 0755 "$RAMROOT/usr/bin/silen-wifi-check"
 fi
 
-# the kernel entry point
 cp "$INIT_SOURCE" "$RAMROOT/init"
 chmod 0755 "$RAMROOT/init"
 
 echo "  $(du -sh "$RAMROOT/bin" | cut -f1) busybox + applets"
 
 
-
-echo "[4/7] Copying modules and firmware..."
+echo "[4/7] Copying modules and firmware"
 
 MODULES_DIR="$RAMROOT/lib/modules/$KERNEL_VERSION"
 mkdir -p "$MODULES_DIR"
 
-# copy one firmware request (may be a glob like "ath11k/WCN6855/hw2.1/*");
-# knows about directories and the kernel's *.fw.zst compressed firmware.
-# searches the in-repo firmware tree first, then the host tree.
 copy_firmware() {
 	local fw="$1" src f
 	for src in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
@@ -546,9 +495,6 @@ copy_firmware() {
 				[ -f "$target" ] || cp "$f" "$target"
 			fi
 		done
-		# host trees (and this repo) often carry firmware zstd-compressed
-		# (*.bin.zst): a pattern like brcm/brcmfmac*-sdio.*.bin matches no
-		# literal file then, so retry the same pattern with .zst appended
 		if [ "$found" = 0 ]; then
 			set -- "$src/$fw.zst"
 			for f in "$@"; do
@@ -594,7 +540,6 @@ for name in "${chosen[@]}"; do
 	done
 done
 
-# firmware some drivers request at runtime without advertising it in modinfo
 if in_chosen iwlwifi; then
 	copy_firmware "iwlwifi-*.ucode*"
 fi
@@ -619,8 +564,6 @@ fi
 if in_chosen brcmfmac; then
 	copy_firmware "brcm"
 fi
-# any mt76-family driver pulls the shared mt76 core, which is the stable
-# trigger for the whole mediatek firmware dir (eeproms, board files)
 if in_chosen mt76; then
 	copy_firmware "mediatek"
 fi
@@ -662,20 +605,13 @@ fi
 if in_chosen wilc1000; then
 	copy_firmware "atmel"
 fi
-# cfg80211 needs the wireless regulatory DB, but never lists it in modinfo.
-# Without it some cards refuse to bring up the interface (nmtui shows only
-# lo). Tiny files, always ship them when wifi is on board.
 if in_chosen cfg80211; then
 	copy_firmware "regulatory.db"
 	copy_firmware "regulatory.db.p7s"
 fi
 
-# ALWAYS copy all wifi firmware from rootfs to initramfs so live ISO has
-# full wifi support (installed system gets it from kernel-*.tar.zst + firmware/
-# on ISO, but live ISO only has initramfs). This ensures "no networks" issue
-# is fixed - the firmware is present for all supported wifi chips.
 if [ -d "$FIRMWARE_SOURCE" ]; then
-	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO..."
+	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO"
 	cp -a "$FIRMWARE_SOURCE" "$RAMROOT/lib/firmware" 2>/dev/null || true
 fi
 
@@ -683,24 +619,23 @@ cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null 
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
 
-echo "  modules:   $(du -sh "$MODULES_DIR" | cut -f1)"
-echo "  firmware:  $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
+echo "  modules   $(du -sh "$MODULES_DIR" | cut -f1)"
+echo "  firmware  $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
 
 
-echo "[5/7] Stripping debug info..."
+echo "[5/7] Stripping debug info"
 
 find "$MODULES_DIR" -name '*.ko' -exec strip --strip-debug {} +
 
-echo "  modules after strip: $(du -sh "$MODULES_DIR" | cut -f1)"
+echo "  modules after strip $(du -sh "$MODULES_DIR" | cut -f1)"
 
-echo "  writing /etc/modules..."
+echo "  writing /etc modules"
 printf '%s\n' "${chosen[@]}" | sort > "$RAMROOT/etc/modules"
 
-# RTL8822CE shows an interface but empty scans with ASPM / deep power-save
 mkdir -p "$RAMROOT/etc/modprobe.d"
 printf 'options rtw88_pci disable_aspm=Y\noptions rtw88_core disable_lps_deep=Y\n' > "$RAMROOT/etc/modprobe.d/silen-rtw88.conf"
 
-echo "  generating modules.dep..."
+echo "  generating modules dep"
 
 if [ -x /usr/bin/depmod ]; then
 	DEPMOD=/usr/bin/depmod
@@ -709,26 +644,26 @@ elif [ -x /sbin/depmod ]; then
 else
 	DEPMOD=depmod
 fi
-$DEPMOD -b "$RAMROOT" "$KERNEL_VERSION" || echo "  ! depmod failed (modules.dep may be missing)"
+$DEPMOD -b "$RAMROOT" "$KERNEL_VERSION" || echo "  ! depmod failed modules dep may be missing"
 
 
-echo "[6/7] Packing initramfs ($COMPRESS)..."
+echo "[6/7] Packing initramfs ($COMPRESS)"
 
 AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
 if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
-	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB) at compression time."
-	echo "  Rerun with FORCE=1 to try anyway."
+	echo "  ERROR only ${AVAIL_MB}MB RAM available need ${MIN_RAM_MB}MB at compression time"
+	echo "  Rerun with FORCE=1 to try anyway"
 	exit 1
 fi
 
 for cmd in cpio; do
 	if ! command -v "$cmd" >/dev/null 2>&1; then
-		echo "  ERROR: '$cmd' not found - install it (e.g. sudo pacman -S $cmd)"
+		echo "  ERROR $cmd not found install it e.g. sudo pacman -S $cmd"
 		exit 1
 	fi
 done
 if ! command -v "$COMPRESS" >/dev/null 2>&1; then
-	echo "  ERROR: '$COMPRESS' not found - install it (e.g. sudo pacman -S $COMPRESS)"
+	echo "  ERROR $COMPRESS not found install it e.g. sudo pacman -S $COMPRESS"
 	exit 1
 fi
 
@@ -752,21 +687,16 @@ rm -f "$CPIO_FILE"
 echo "  initramfs: $(du -h "build/$INITRAMFS" | cut -f1)"
 
 
-echo "[7/7] Assembling ISO..."
+echo "[7/7] Assembling ISO"
 
 mkdir -p "$ISO_DIR/boot/grub"
 
-# full module tree + kernel for the installed system (the live initramfs only
-# carries the lean selected set, so the installed system gets everything in one
-# tarball that the installer just untars into $root)
 if modules_ok "$MODULES_SOURCE"; then
-	echo "  packing kernel + module tree for the installed system..."
+	echo "  packing kernel + module tree for the installed system"
 	KROOT="build/kernel-root"
 	rm -rf "$KROOT"
 	mkdir -p "$KROOT/boot" "$KROOT/lib/modules"
 	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz"
-	# a module tree sometimes carries a kernel build/source dir and its own
-	# vmlinuz; neither belongs on the installed system, so leave them out
 	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION"
 	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
 	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
@@ -777,33 +707,29 @@ if modules_ok "$MODULES_SOURCE"; then
 		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" .
 	echo "  kernel bundle: $(du -h "$KERNEL_TAR" | cut -f1)"
 else
-	echo "  no module tree found to add to ISO (installed system gets the initramfs set)"
+	echo "  no module tree found to add to ISO installed system gets the initramfs set"
 fi
 
-# firmware for the installed system, so modprobe works there too
 if [ -d rootfs/lib/firmware ]; then
-	echo "  adding firmware to ISO at firmware/"
+	echo "  adding firmware to ISO at firmware"
 	cp -a rootfs/lib/firmware "$ISO_DIR/firmware"
 fi
 
-# drop the Silen stage3 tarball onto the ISO so it can be used from live env
 STAGE3_TARBALL="$(ls stage3-*.tar.* tarball-*.xz tarball-*.tar.* 2>/dev/null | head -n1)"
 if [ -n "$STAGE3_TARBALL" ]; then
-	echo "  copying stage3 tarball onto the ISO: $STAGE3_TARBALL"
+	echo "  copying stage3 tarball onto the ISO $STAGE3_TARBALL"
 	cp "$STAGE3_TARBALL" "$ISO_DIR/"
 else
 	echo
-	echo "  !! WARNING: no stage3/tarball found in the repo root."
+	echo "  !! WARNING no stage3/tarball found in the repo root"
 	echo "  !! The ISO will boot but the installer will refuse to install"
-	echo "  !! ('no Silen tarball found'). Put tarball-silen.xz (or a"
-	echo "  !! stage3-*.tar.*) next to this repo before building."
+	echo "  !! no Silen tarball found Put tarball-silen.xz or a"
+	echo "  !! stage3-*.tar.*) next to this repo before building"
 	echo
 fi
 
-# compile spk (the package manager, src/get.rs) and ship it on the ISO so the
-# installer can drop the prebuilt binary into the installed system
 if command -v cargo >/dev/null 2>&1; then
-	echo "  building spk (spk/src/get.rs)..."
+	echo "  building spk spk/src/get.rs"
 	CARGO_ENV=()
 	if [ -n "$SUDO_USER" ]; then
 		CARGO_ENV+=(RUSTUP_HOME=/home/$SUDO_USER/.rustup CARGO_HOME=/home/$SUDO_USER/.cargo)
@@ -812,20 +738,13 @@ if command -v cargo >/dev/null 2>&1; then
 		echo "  copying spk onto the ISO"
 		cp spk/target/release/spk "$ISO_DIR/spk"
 	else
-		echo "  ! spk build failed - installer will try to fetch it another way"
+		echo "  ! spk build failed installer will try to fetch it another way"
 	fi
 else
-	echo "  ! cargo not found - skipping spk build (installer will try to fetch it)"
+	echo "  ! cargo not found skipping spk build installer will try to fetch it"
 fi
 
-# network bundle for the installed system: the same NetworkManager/nmtui
-# stack that runs in the live environment, so the installer can copy it into
-# the target root (the stage3 tarball ships no NetworkManager, dbus or wifi
-# tools). Staged from the ramroot, i.e. exactly what was tested live. The
-# installer extracts it with --skip-old-files, so the stage3's own libraries
-# (glibc, libcrypto, ...) are never overwritten - only files missing there
-# (libnm, libndp, glib, NM plugins, ...) are added.
-echo "  packing network bundle (NetworkManager/nmtui + deps) for the installed system..."
+echo "  packing network bundle NetworkManager/nmtui + deps for the installed system"
 NETROOT="build/network-root"
 rm -rf "$NETROOT"
 mkdir -p "$NETROOT"
@@ -854,24 +773,22 @@ done
 if [ -d "$NETROOT/usr/bin" ]; then
 	NETWORK_TAR="$ISO_DIR/network.tar.zst"
 	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" .
-	echo "  network bundle: $(du -h "$NETWORK_TAR" | cut -f1)"
+	echo "  network bundle $(du -h "$NETWORK_TAR" | cut -f1)"
 else
-	echo "  ! network stack missing from ramroot - installed system gets no NetworkManager"
+	echo "  ! network stack missing from ramroot installed system gets no NetworkManager"
 fi
 
-# bundled GRUB (x86_64-efi) so the installer can set up the bootloader
 if [ -d grub-bundle/usr/local ]; then
-	echo "  adding bundled grub (EFI) to ISO at grub/"
+	echo "  adding bundled grub EFI to ISO at grub"
 	mkdir -p "$ISO_DIR/grub"
 	cp -a grub-bundle/usr "$ISO_DIR/grub/"
 else
 	echo "  ! no grub-bundle/ found - installer won't be able to set up GRUB"
-	echo "    build it once with: scripts/make-grub-bundle.sh"
+	echo "    build it once with scripts/make-grub-bundle.sh"
 fi
 
-# Silen branding for the installed system (fastfetch logo)
 if [ -f branding/fastfetch_logo.txt ]; then
-	echo "  adding branding to ISO at branding/"
+	echo "  adding branding to ISO at branding"
 	mkdir -p "$ISO_DIR/branding"
 	cp branding/fastfetch_logo.txt "$ISO_DIR/branding/"
 	[ -f branding/info.txt ] && cp branding/info.txt "$ISO_DIR/branding/"
@@ -884,10 +801,6 @@ cat > "$ISO_DIR/boot/grub/grub.cfg" <<EOF
 set default=0
 set timeout=5
 
-# video setup: without these GRUB prints "no suitable video mode found /
-# Booting in blind mode" on UEFI (GOP) machines and the screen stays black.
-# (grub-mkrescue ships all_video/gfxterm/unicode.pf2 on the ISO, so these
-# insmods resolve.)
 insmod part_gpt
 insmod part_msdos
 insmod fat
@@ -910,20 +823,18 @@ menuentry "Silen Linux" {
 }
 EOF
 
-echo "  running grub-mkrescue..."
+echo "  running grub-mkrescue"
 grub-mkrescue -o "$RESULT" "$ISO_DIR"
 
 echo
-echo "Done!"
+echo "Done"
 du -sh "$RESULT"
 echo
-echo "initramfs:  $(du -h "build/$INITRAMFS" | cut -f1)"
-echo "kernel:     $(du -h "$KERNEL_SOURCE" | cut -f1)"
-echo "modules:    $(du -sh "$MODULES_DIR" | cut -f1)"
-echo "firmware:   $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
+echo "initramfs  $(du -h "build/$INITRAMFS" | cut -f1)"
+echo "kernel     $(du -h "$KERNEL_SOURCE" | cut -f1)"
+echo "modules    $(du -sh "$MODULES_DIR" | cut -f1)"
+echo "firmware   $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
 
-# build/ is created as root (make iso runs under sudo); hand it back so the
-# normal user can remove it with `make clean` afterwards
 if [ -n "${SUDO_USER:-}" ]; then
 	chown -R "$SUDO_USER" build 2>/dev/null || true
 fi

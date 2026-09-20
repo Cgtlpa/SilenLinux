@@ -1,17 +1,4 @@
 #!/bin/bash
-# Adds WiFi drivers (+ a few extra modules) and their firmware from the host
-# kernel's module tree into rootfs/ so they get shipped on the ISO. The ISO
-# build picks the initramfs modules from the ALLOW list in build.sh, but the
-# FULL tree under rootfs/lib/modules is what the installer copies to the
-# installed system (/mnt/modules), so both need the drivers.
-#
-# It also pulls the firmware for EVERY module already shipped in the tree, so
-# once this has been run (and the results committed) the ISO build is fully
-# self-contained: wifi + wired NICs work from boot with no build-time scripts
-# and no host /lib/firmware needed.
-#
-# Usage:  ./scripts/add-wifi.sh [KERNEL_VERSION]
-# Default kernel version = the one already in rootfs/lib/modules.
 
 set -e
 
@@ -32,12 +19,8 @@ if [ ! -d "$HOST" ]; then
     exit 1
 fi
 
-echo "== Syncing modules from $HOST -> $DST"
+echo "== Syncing modules from $HOST to $DST"
 
-# top-level drivers; every dependency is pulled in automatically below.
-# Keep this list in sync with ALLOW_WIFI in scripts/build.sh (the live
-# initramfs subset). Covers the user's RTL8822CE (rtw88_8822ce) plus the
-# popular Intel/Qualcomm/MediaTek/Realtek/Broadcom/Marvell families.
 WIFI_MODS="
 	rfkill
 	iwlwifi iwlmvm iwlmld iwldvm iwlegacy
@@ -82,15 +65,12 @@ WIFI_MODS="
 	cfg80211 mac80211
 "
 
-# a few small extra modules (cheap USB ethernet, exfat, some legacy NICs)
 EXTRA_MODS="
 	exfat
 	cdc_ether rndis_host rndis_wlan
 	alx 8139too via-rhine
 "
 
-# firmware that drivers request at runtime but don't advertise via modinfo
-# (board files, combo blobs, eeproms). Format: module:fw1,fw2 (globs ok).
 EXTRA_FW="
 	iwlwifi:iwlwifi-*.ucode*
 	rtw88_core:rtw88/*
@@ -120,9 +100,6 @@ EXTRA_FW="
 	wilc1000:atmel/*
 "
 
-# ---------------------------------------------------------------------------
-# index the host tree by module basename
-# ---------------------------------------------------------------------------
 
 declare -A file_by_name
 while IFS= read -r path; do
@@ -143,9 +120,6 @@ mod_file() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# copy modules + dependency closure
-# ---------------------------------------------------------------------------
 
 seen=" "
 copied=" "
@@ -170,7 +144,7 @@ while [ ${#queue[@]} -gt 0 ]; do
     mkdir -p "$DST/$(dirname "$relative")"
     if [ ! -f "$DST/$relative" ]; then
         cp "$path" "$DST/$relative"
-        echo "  module: $relative"
+        echo "  module $relative"
     fi
     copied="$copied $path "
 
@@ -180,9 +154,6 @@ while [ ${#queue[@]} -gt 0 ]; do
     done
 done
 
-# ---------------------------------------------------------------------------
-# firmware for each copied module (glob + .zst aware)
-# ---------------------------------------------------------------------------
 
 fw_from_module() {
     local path="$1" fw
@@ -198,7 +169,7 @@ fw_copy_from_src() {
     mkdir -p "$(dirname "$target")"
     if [ ! -f "$target" ]; then
         cp "$src" "$target"
-        echo "  firmware: $rel"
+        echo "  firmware $rel"
     fi
 }
 
@@ -213,7 +184,7 @@ copy_fw() {
             if [ ! -d "$FW_DST/$rel" ]; then
                 mkdir -p "$FW_DST/$(dirname "$rel")"
                 cp -a "$f" "$FW_DST/$rel"
-                echo "  firmware: $rel/"
+                echo "  firmware $rel/"
             fi
         else
             fw_copy_from_src "$f" "$rel"
@@ -226,8 +197,6 @@ copy_fw() {
 
 copy_fw_zst() {
     local fw="$1" f matched=0
-    # glob-aware: patterns like brcm/brcmfmac*-sdio.*.bin must also match
-    # their zstd-compressed twins (brcmfmac43430-sdio.bin.zst)
     set -- $FW_SRC/$fw.zst
     for f in "$@"; do
         [ -e "$f" ] || continue
@@ -237,24 +206,18 @@ copy_fw_zst() {
     [ "$matched" = 1 ] || return 0
 }
 
-echo "  copying firmware..."
+echo "  copying firmware"
 while IFS= read -r path; do
     fw_from_module "$path"
 done < <(printf '%s\n' $copied)
 
-# firmware for every module that ships in the tree (the base storage/NIC
-# drivers like r8169/tg3/r8152 too), so the ISO build is fully self-contained
-# and never depends on the host firmware tree at build time.
-echo "  copying firmware for all shipped modules..."
+echo "  copying firmware for all shipped modules"
 while IFS= read -r path; do
     fw_from_module "$path"
 done < <(find "$DST" \( -name '*.ko' -o -name '*.ko.zst' \))
 
-echo "  copying extra firmware..."
+echo "  copying extra firmware"
 while IFS=':' read -r mod fwlist; do
-    # strip whitespace: the heredoc lines are tab-indented, and $seen has
-    # bare names, so an unstripped $mod would never match (silently skipping
-    # every extra-firmware line)
     mod="${mod//[[:space:]]/}"
     [ -n "$mod" ] && [ -n "$fwlist" ] || continue
     case " $seen " in
@@ -269,18 +232,15 @@ done <<EOF
 $EXTRA_FW
 EOF
 
-# ---------------------------------------------------------------------------
-# refresh the metadata so the installed system's modprobe/depmod works
-# ---------------------------------------------------------------------------
 
 for meta in modules.builtin modules.builtin.alias.bin modules.builtin.bin \
             modules.builtin.modinfo; do
     [ -f "$HOST/$meta" ] && cp "$HOST/$meta" "$DST/$meta" 2>/dev/null || true
 done
 
-echo "  regenerating modules.dep / modules.alias ..."
+echo "  regenerating modules dep and modules alias"
 depmod -b rootfs "$KVER" 2>/dev/null || true
 
 echo
-echo "Done. Now make sure the same driver names are on the ALLOW list in"
-echo "scripts/build.sh so the live initramfs gets them too."
+echo "Done now make sure the same driver names are on the ALLOW list in"
+echo "scripts/build.sh so the live initramfs gets them too"

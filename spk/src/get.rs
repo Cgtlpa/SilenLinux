@@ -231,9 +231,6 @@ fn get(name: &str, layout: &Layout) {
         println!("spk: checksum ok");
     }
 
-    // system packages extract straight into the target root so sessions,
-    // services and the bootloader find their files; everything else stays
-    // isolated under the payload dir
     let payload_base: &str = if system {
         clean_stale_isolated(name, layout);
         layout.root.as_str()
@@ -671,7 +668,6 @@ fn list(layout: &Layout) {
 }
 
 fn http_get(url: &str) -> String {
-    // manifest bodies are tiny - a few quick retries ride out blips
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -719,8 +715,6 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
             }
         }
 
-        // bytes already on disk before this part - a retried part truncates
-        // back here so no partial chunk is ever hashed or kept
         let start = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
         let mut attempt = 0;
         loop {
@@ -729,12 +723,10 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
                 PartFetch::Ok => break,
                 PartFetch::NotFound => {
                     if !split && parts <= 1 && index == 0 {
-                        // single file that is actually split server-side
                         let _ = fs::remove_file(dst);
                         split = true;
                         break;
                     } else if split && parts <= 1 && index > 0 {
-                        // probed past the last part - done
                         return hash_file(dst);
                     } else {
                         let _ = fs::remove_file(dst);
@@ -752,9 +744,7 @@ fn download(url: &str, dst: &str, parts: u32) -> String {
                     std::thread::sleep(std::time::Duration::from_secs(wait));
                 }
             }
-            // after a split-mode switch, restart the outer loop for part 000
         }
-        // split-mode switch above removed the file: restart outer loop at part 000
         if split && fs::metadata(dst).is_err() && index == 0 {
             continue;
         }

@@ -1,41 +1,29 @@
 #!/bin/sh
 
-# /usr/bin and /usr/sbin first: real tools shipped there (blkid, tar, zstd,
-# mkfs.vfat, ...) must win over the busybox applet symlinks in /bin
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export TERM="${TERM:-linux}"
 
+mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
-
-mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
 
-# quiet boot (installed system passes quiet on the kernel cmdline): hide
-# informational messages so the screen stays black until the login prompt.
-# Errors are still printed.
 QUIET=""
 for _q in $(cat /proc/cmdline 2>/dev/null); do
 	[ "$_q" = "quiet" ] && QUIET=1 && break
 done
 qecho() { [ -n "$QUIET" ] || echo "$@"; }
 
-# load the drivers/firmware needed to reach the install medium (or real root)
 if [ -f /etc/modules ]; then
-	qecho "Loading kernel modules..."
+	qecho "Loading kernel modules"
 	while read -r mod; do
 		[ -n "$mod" ] && modprobe -q "$mod"
 	done < /etc/modules
 fi
 
-# ---------------------------------------------------------------------------
-# Installed system: the kernel was told where the real root is (root=...), so
-# mount it and hand off to its init. The live ISO passes no root= and falls
-# through to the installer below.
-# ---------------------------------------------------------------------------
 rootarg=""
 for arg in $(cat /proc/cmdline); do
 	case "$arg" in
@@ -48,8 +36,6 @@ case "$rootarg" in
 esac
 
 if [ -n "$rootarg" ]; then
-	# the device may not have shown up yet (slow USB/NVMe controller), so
-	# give it a few seconds to appear and settle before giving up
 	i=0
 	while [ $i -lt 15 ]; do
 		case "$rootarg" in
@@ -62,7 +48,7 @@ if [ -n "$rootarg" ]; then
 		sleep 1
 	done
 	if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
-		qecho "Silen: mounting root $rootarg ($rootdev)"
+		qecho "Silen mounting root $rootarg $rootdev"
 		mkdir -p /newroot
 		if mount -o ro "$rootdev" /newroot 2>/dev/null || mount "$rootdev" /newroot 2>/dev/null; then
 			mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
@@ -70,9 +56,7 @@ if [ -n "$rootarg" ]; then
 			mount --move /sys /newroot/sys 2>/dev/null
 			mount --move /dev /newroot/dev 2>/dev/null
 			mount --move /run /newroot/run 2>/dev/null
-			qecho "Silen: switching to $newroot/sbin/init"
-			# start the real init with a black screen when quiet was
-			# requested (agetty clears again before the login prompt)
+			qecho "Silen switching to $newroot/sbin/init"
 			if [ -n "$QUIET" ]; then
 				clear >/dev/console 2>&1 || printf '\033[H\033[2J' >/dev/console 2>&1 || true
 			fi
@@ -86,11 +70,6 @@ if [ -n "$rootarg" ]; then
 	fi
 fi
 
-# ---------------------------------------------------------------------------
-# Live system
-# ---------------------------------------------------------------------------
-# a failed switch_root may have moved the pseudo-filesystems into /newroot;
-# make sure they are back so the live environment (and installer) works
 mountpoint -q /proc || mount -t proc proc /proc 2>/dev/null
 mountpoint -q /sys  || mount -t sysfs sysfs /sys 2>/dev/null
 mountpoint -q /dev  || mount -t devtmpfs devtmpfs /dev 2>/dev/null
@@ -99,32 +78,25 @@ mountpoint -q /run  || mount -t tmpfs tmpfs /run 2>/dev/null
 
 echo "Welcome to Silen Linux"
 
+ip link set lo up 2>/dev/null || true
 mkdir -p /run/dbus /run/NetworkManager /run/wpa_supplicant /run/user /var/lib/NetworkManager
 chmod 755 /run/user 2>/dev/null || true
-# a soft-blocked radio looks exactly like "no wifi, only lo in nmtui"
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
 fi
-echo "Starting D-Bus..."
+ip link set lo up 2>/dev/null || true
+
+echo "Starting D-Bus"
 dbus-daemon --system --nofork >/dev/null 2>&1 &
 sleep 1
-echo "Starting NetworkManager..."
+echo "Starting NetworkManager"
 NetworkManager --no-daemon >/tmp/NetworkManager.log 2>&1 &
-# give NM a moment to settle, then make sure wifi can actually scan: a
-# soft-blocked or software-disabled radio looks exactly like "no wifi, only
-# lo in nmtui" (drivers loaded late can re-assert the block, e.g. on laptops
-# with airplane-mode keys)
 (sleep 5; rfkill unblock all >/dev/null 2>&1 || true; nmcli radio wifi on >/dev/null 2>&1 || true; nmcli networking on >/dev/null 2>&1 || true) &
-# snapshot the wifi state for diagnosis (card, driver, rfkill, scan state);
-# the installer menu shows it, or run silen-wifi-check by hand
 (sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
 
 echo
-echo "Mounting install medium..."
+echo "Mounting install medium"
 
-# a candidate location is only accepted if it actually carries a Silen
-# tarball, so on a multi-disk machine we don't stop at the target's
-# existing partition
 medium_has_tarball_at() {
 	_dir="$1"
 	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz; do
@@ -143,19 +115,12 @@ find_tarball_at() {
 	return 1
 }
 
-# Ventoy (and similar tools) boots the ISO via GRUB loopback: the kernel and
-# initramfs run, but the tarball is NOT on a directly-mountable filesystem.
-# It sits as a *.iso FILE on the Ventoy exFAT/NTFS partition, so the medium
-# scan below must find that file and loop-mount it. That needs the loop
-# driver plus /dev/loop* nodes.
 modprobe -q loop 2>/dev/null
 for _i in 0 1 2 3 4 5 6 7; do
 	[ -b "/dev/loop$_i" ] || mknod "/dev/loop$_i" b 7 "$_i" 2>/dev/null
 done
 mkdir -p /mnt /run/ventoy /run/scan /iso /tmp
 
-# a Ventoy/GRUB loopback boot may tell us which ISO file we came from
-# (iso-scan/filename=..., findiso=...). Prefer that file when scanning.
 iso_hint=""
 for _arg in $(cat /proc/cmdline 2>/dev/null); do
 	case "$_arg" in
@@ -166,11 +131,6 @@ done
 iso_hint_base=""
 [ -n "$iso_hint" ] && iso_hint_base="$(basename "$iso_hint" 2>/dev/null)"
 
-# enumerate every block device + partition the kernel knows about, so the
-# medium is found regardless of controller or name (SATA/USB/NVMe/mmc/virtio/
-# optical incl. device-mapper entries Ventoy may create, and partitions with
-# more than one digit like sda10 or nvme0n1p10). Loop/RAM devices are never
-# install media, so skip them (otherwise we would try to mount our own loop).
 enumerate_devices() {
 	candidates=""
 	for blk in /sys/block/*; do
@@ -189,7 +149,6 @@ enumerate_devices() {
 			candidates="$candidates /dev/$_pn"
 		done
 	done
-	# device-mapper nodes sometimes have no /sys/block entry yet
 	for _dm in /dev/mapper/*; do
 		[ -e "$_dm" ] || continue
 		case "$candidates" in
@@ -199,10 +158,6 @@ enumerate_devices() {
 	done
 }
 
-# mount a partition/CD at the given mountpoint. A virtual CD (Ventoy exposes
-# the ISO as one) is read-only and some kernels refuse a plain mount on it,
-# so fall back to ro / explicit fstype mounts. exFAT/NTFS cover Ventoy data
-# partitions, iso9660 covers real/virtual CDs.
 mount_candidate() {
 	_dev="$1"
 	_mp="$2"
@@ -216,8 +171,6 @@ mount_candidate() {
 	return 1
 }
 
-# loop-mount an ISO file at the given mountpoint (busybox mount autodetects
-# loop, the losetup fallback covers the rest)
 mount_iso() {
 	_iso="$1"
 	_mp="$2"
@@ -233,9 +186,6 @@ mount_iso() {
 	return 1
 }
 
-# Try ISO files sitting on the partition currently mounted at /run/scan.
-# On success leaves the ISO contents at /mnt and the Ventoy partition at
-# /run/ventoy (the loop needs its backing file), sets stage3, returns 0.
 try_isos_on_scan() {
 	_srcdev="$1"
 	rm -f /tmp/.isolist
@@ -266,7 +216,6 @@ try_isos_on_scan() {
 			if mount --move /run/scan /run/ventoy 2>/dev/null; then
 				:
 			else
-				# no --move support: keep a second mount as backing
 				mount_candidate "$_srcdev" /run/ventoy 2>/dev/null || \
 					mount -o bind /run/scan /run/ventoy 2>/dev/null || true
 			fi
@@ -284,15 +233,12 @@ try_isos_on_scan() {
 				fi
 				umount /iso 2>/dev/null
 			fi
-			# /run/scan may still hold the partition if --move was missing
 			if mountpoint -q /run/scan 2>/dev/null && mountpoint -q /run/ventoy 2>/dev/null; then
 				umount /run/scan 2>/dev/null || true
 			fi
 			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
 			[ -n "$stage3" ] || stage3="/mnt/$(basename "$(find_tarball_at /iso 2>/dev/null)" 2>/dev/null)"
-			echo "  install medium is an ISO file on $_srcdev: $_iso"
-			# remember which disk backs /mnt so the installer can refuse to
-			# wipe it (a loop mount shows as /dev/loopN, hiding the disk)
+			echo "  install medium is an ISO file on $_srcdev $_iso"
 			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
 			echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true
 			return 0
@@ -303,9 +249,6 @@ try_isos_on_scan() {
 	return 1
 }
 
-# on real hardware the medium takes a moment to enumerate (unlike QEMU's
-# instant virtio/IDE drives), so poll for up to 20s instead of scanning once;
-# re-enumerate every pass so a device that appears later is still found
 stage3=""
 seen_devices=""
 mounted_devices=""
@@ -340,17 +283,12 @@ while [ $i -lt 20 ]; do
 			echo "$dev" > /run/silen-medium-dev 2>/dev/null || true
 			break 2
 		fi
-		# Ventoy-style: no tarball directly, but an ISO file may be on here.
-		# Only pay the find()+loop cost once per device per boot.
 		case " $iso_searched " in
 			*" $dev "*) umount /run/scan 2>/dev/null; continue ;;
 		esac
 		if try_isos_on_scan "$dev"; then
 			break 2
 		fi
-		# remember failures too so we don't re-scan the same big partition
-		# 20 times, but forget them after a while in case the user plugs
-		# a USB stick mid-wait (the outer loop re-enumerates anyway)
 		iso_searched="$iso_searched $dev"
 		umount /run/scan 2>/dev/null
 	done
@@ -366,24 +304,20 @@ umount /iso 2>/dev/null || true
 
 if [ -n "$stage3" ]; then
 	echo "  install medium mounted at /mnt"
-	echo "  found Silen tarball: $stage3"
+	echo "  found Silen tarball $stage3"
 else
 	echo "  no Silen tarball found on any device"
-	# print what the scan saw so a failing boot can be diagnosed
-	echo "  debug: block devices seen:$seen_devices"
-	echo "  debug: devices that mounted:$mounted_devices"
-	echo "  debug: ISO files seen:$seen_isos"
+	echo "  debug block devices seen $seen_devices"
+	echo "  debug devices that mounted $mounted_devices"
+	echo "  debug ISO files seen $seen_isos"
 	if [ -n "$iso_hint" ]; then
-		echo "  debug: iso hint from cmdline: $iso_hint"
+		echo "  debug iso hint from cmdline $iso_hint"
 	fi
-	echo "  hint: Ventoy boots the ISO as a FILE - if you used Ventoy,"
-	echo "  hint: this scan loop-mounts silen-*.iso automatically. If it"
-	echo "  hint: still fails, the Ventoy partition may use an unsupported"
-	echo "  hint: filesystem or the ISO name was changed. Most reliable is"
-	echo "  hint: writing the ISO with dd (see installer shell: mount, blkid)."
-	# release the disk so the installer can repartition it (the mounted
-	# SSD/USB disk would otherwise be busy and sfdisk would fail instantly).
-	# Keep /run/ventoy (ISO backing) and a good /mnt, drop anything else.
+	echo "  hint Ventoy boots the ISO as a FILE if you used Ventoy"
+	echo "  hint this scan loop-mounts silen-*.iso automatically If it"
+	echo "  hint still fails the Ventoy partition may use an unsupported"
+	echo "  hint filesystem or the ISO name was changed Most reliable is"
+	echo "  hint writing the ISO with dd see installer shell mount blkid"
 	if medium_has_tarball; then
 		:
 	elif mountpoint -q /mnt 2>/dev/null; then
@@ -395,24 +329,18 @@ fi
 
 echo
 if [ -x /installer/main.sh ]; then
-	echo "Starting the Silen installer..."
-	echo "  (it also lets you open a shell, reboot or power off)"
+	echo "Starting the Silen installer"
+	echo "  it also lets you open a shell reboot or power off"
 	echo
 	/installer/main.sh
 	echo
-	echo "Installer exited, dropping to a shell..."
+	echo "Installer exited dropping to a shell"
 else
-	echo "  installer not found, dropping to a shell..."
+	echo "  installer not found dropping to a shell"
 fi
-# Live power controls: bare reboot/poweroff/halt only SIGNAL pid 1 (this
-# script), which does nothing when pid 1 is a plain shell - so make the
-# live shell force the real syscall instead. Written here (not baked into
-# the image) so it always matches this init.
 mkdir -p /etc 2>/dev/null || true
 if touch /etc/silen-shrc 2>/dev/null; then
 cat > /etc/silen-shrc <<'EOF'
-# Silen live shell: make bare reboot/poweroff/halt actually work (without
-# -f they only signal pid 1, which is a no-op when pid 1 is a shell).
 reboot() { command reboot -f "$@"; }
 poweroff() { command poweroff -f "$@"; }
 halt() { command halt -f "$@"; }
@@ -420,18 +348,14 @@ EOF
 export ENV=/etc/silen-shrc
 fi
 echo
-echo "Silen Linux live shell (type exit to power off, reboot to reboot)"
+echo "Silen Linux live shell type exit to power off reboot to reboot"
 echo
-# This shell must never exit for good: it runs under pid 1 (this script),
-# so an exiting shell panics the kernel. Respawn it, and power the machine
-# off for real when the user leaves - reboot/poweroff -f issue the syscall
-# directly instead of signalling pid 1.
 while true; do
 	/bin/sh
 	echo
-	echo "Shell exited, powering off..."
+	echo "Shell exited powering off"
 	sync 2>/dev/null || true
 	poweroff -f 2>/dev/null || reboot -f 2>/dev/null || true
-	echo "Power off failed, starting a new shell..."
+	echo "Power off failed starting a new shell"
 	sleep 1
 done
