@@ -22,8 +22,8 @@ if [ -z "$KVER" ]; then
     exit 1
 fi
 
-HOST=/usr/lib/modules/$KVER
-DST=rootfs/lib/modules/$KVER
+HOST="/usr/lib/modules/$KVER"
+DST="rootfs/lib/modules/$KVER"
 FW_SRC=/lib/firmware
 FW_DST=rootfs/lib/firmware
 

@@ -396,7 +396,7 @@ fi
 echo
 if [ -x /installer/main.sh ]; then
 	echo "Starting the Silen installer..."
-	echo "  (it also lets you open a shell or reboot)"
+	echo "  (it also lets you open a shell, reboot or power off)"
 	echo
 	/installer/main.sh
 	echo
@@ -404,7 +404,34 @@ if [ -x /installer/main.sh ]; then
 else
 	echo "  installer not found, dropping to a shell..."
 fi
+# Live power controls: bare reboot/poweroff/halt only SIGNAL pid 1 (this
+# script), which does nothing when pid 1 is a plain shell - so make the
+# live shell force the real syscall instead. Written here (not baked into
+# the image) so it always matches this init.
+mkdir -p /etc 2>/dev/null || true
+if touch /etc/silen-shrc 2>/dev/null; then
+cat > /etc/silen-shrc <<'EOF'
+# Silen live shell: make bare reboot/poweroff/halt actually work (without
+# -f they only signal pid 1, which is a no-op when pid 1 is a shell).
+reboot() { command reboot -f "$@"; }
+poweroff() { command poweroff -f "$@"; }
+halt() { command halt -f "$@"; }
+EOF
+export ENV=/etc/silen-shrc
+fi
 echo
-echo "Silen Linux live shell (type exit to power off)"
+echo "Silen Linux live shell (type exit to power off, reboot to reboot)"
 echo
-exec /bin/sh
+# This shell must never exit for good: it runs under pid 1 (this script),
+# so an exiting shell panics the kernel. Respawn it, and power the machine
+# off for real when the user leaves - reboot/poweroff -f issue the syscall
+# directly instead of signalling pid 1.
+while true; do
+	/bin/sh
+	echo
+	echo "Shell exited, powering off..."
+	sync 2>/dev/null || true
+	poweroff -f 2>/dev/null || reboot -f 2>/dev/null || true
+	echo "Power off failed, starting a new shell..."
+	sleep 1
+done

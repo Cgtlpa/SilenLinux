@@ -1,7 +1,4 @@
 #!/bin/bash
-# this is for building my iso 
-# and yes this is written by ai ( some stuff and making it better )
-
 set -e
 
 trap 'echo; echo "!! Build stopped with an error. See the message above."; echo "   Remove build/ if needed: rm -rf build" >&2' ERR
@@ -9,9 +6,6 @@ DEFAULT_KVER="$(ls rootfs/lib/modules 2>/dev/null | grep '^[0-9]' | head -n1)"
 KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.4-zen2-1-zen}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
 MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
-# firmware shipped in the repo (populated by scripts/add-wifi.sh) so the ISO
-# is self-contained and WiFi works from boot without build-time scripts.
-# the host firmware tree is only a fallback for anything not in the repo.
 FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-rootfs/lib/firmware}"
 HOST_FIRMWARE="${HOST_FIRMWARE:-/lib/firmware}"
 BUSYBOX_SOURCE="${BUSYBOX_SOURCE:-rootfs/bin/busybox}"
@@ -29,7 +23,7 @@ MIN_RAM_MB="${MIN_RAM_MB:-2048}"
 MIN_DISK_MB="${MIN_DISK_MB:-500}"             
 
 ALLOW="
-	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common
+	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common vmd
 	mmc_block sdhci sdhci-pci sdhci-acpi
 	virtio_blk virtio_scsi virtio_pci virtio_console virtio_input
 	xhci-pci ehci-pci ohci-pci uhci-hcd usb-storage uas usbhid hid-generic
@@ -109,11 +103,6 @@ echo "== Silen Linux ISO builder =="
 echo "compression: $COMPRESS   auto-detect host modules: $AUTO_HOST   full module tree: $FULL"
 echo
 
-
-# ----------------------------------------------------------------------
-# Step 0: sanity checks (fail fast, loose nothing on the host)
-# ----------------------------------------------------------------------
-
 modules_ok() {
 	[ -d "$1" ] && find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) 2>/dev/null | grep -q .
 }
@@ -156,17 +145,13 @@ if ! command -v grub-mkrescue >/dev/null 2>&1; then
 	exit 1
 fi
 
-AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)"
-if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
+if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
 	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB)."
 	echo "  Close heavy apps first, or rerun with FORCE=1 to try anyway."
 	exit 1
 fi
 
-
-# ----------------------------------------------------------------------
-# Step 1: clean old build (remove the whole build/ folder)
-# ----------------------------------------------------------------------
 
 echo "[1/7] Cleaning old build (removing build/)..."
 
@@ -312,7 +297,6 @@ for applet in $("$BUSYBOX_SOURCE" --list); do
 	ln -sf busybox "$RAMROOT/bin/$applet"
 done
 
-# copy the full (transitive) closure of shared libraries a binary needs
 libs_seen=" "
 copy_libs() {
 	local bin="$1" lib
@@ -329,7 +313,6 @@ copy_libs() {
 	done < <(ldd "$bin" 2>/dev/null | sed -n 's/.*=> \(\/[^ ]*\).*/\1/p')
 }
 
-# copy an app + all the shared libraries it needs (full ldd closure)
 copy_app() {
 	local dest="$1"
 	local src="$2"
@@ -338,9 +321,6 @@ copy_app() {
 	copy_libs "$src"
 }
 
-# whiptail + nmtui/nmcli, with all their runtime libraries (installer +
-# network menus). The nmtui-* names are the same tool under different
-# symlinks on the host, so link them instead of copying the binary 4 times.
 copy_app whiptail /usr/bin/whiptail
 copy_app nmtui /usr/bin/nmtui
 for _nmtui_link in nmtui-connect nmtui-edit nmtui-hostname; do
@@ -481,6 +461,8 @@ cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
 plugins=keyfile
 dhcp=internal
 dns=default
+auth-polkit=false
+wifi.backend=wpa_supplicant
 
 [device]
 # without this some cards stay unmanaged / invisible in nmtui (only lo)
@@ -705,6 +687,10 @@ echo "  modules after strip: $(du -sh "$MODULES_DIR" | cut -f1)"
 echo "  writing /etc/modules..."
 printf '%s\n' "${chosen[@]}" | sort > "$RAMROOT/etc/modules"
 
+# RTL8822CE shows an interface but empty scans with ASPM / deep power-save
+mkdir -p "$RAMROOT/etc/modprobe.d"
+printf 'options rtw88_pci disable_aspm=Y\noptions rtw88_core disable_lps_deep=Y\n' > "$RAMROOT/etc/modprobe.d/silen-rtw88.conf"
+
 echo "  generating modules.dep..."
 
 if [ -x /usr/bin/depmod ]; then
@@ -719,19 +705,23 @@ $DEPMOD -b "$RAMROOT" "$KERNEL_VERSION" || echo "  ! depmod failed (modules.dep 
 
 echo "[6/7] Packing initramfs ($COMPRESS)..."
 
-AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)"
-if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
+if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
 	echo "  ERROR: only ${AVAIL_MB}MB RAM available (need ${MIN_RAM_MB}MB) at compression time."
 	echo "  Rerun with FORCE=1 to try anyway."
 	exit 1
 fi
 
-for cmd in cpio "$COMPRESS"; do
+for cmd in cpio; do
 	if ! command -v "$cmd" >/dev/null 2>&1; then
 		echo "  ERROR: '$cmd' not found - install it (e.g. sudo pacman -S $cmd)"
 		exit 1
 	fi
 done
+if ! command -v "$COMPRESS" >/dev/null 2>&1; then
+	echo "  ERROR: '$COMPRESS' not found - install it (e.g. sudo pacman -S $COMPRESS)"
+	exit 1
+fi
 
 CPIO_FILE="build/initramfs.cpio"
 
@@ -809,7 +799,7 @@ if command -v cargo >/dev/null 2>&1; then
 	if [ -n "$SUDO_USER" ]; then
 		CARGO_ENV+=(RUSTUP_HOME=/home/$SUDO_USER/.rustup CARGO_HOME=/home/$SUDO_USER/.cargo)
 	fi
-	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml 2>/dev/null; then
+	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
 		echo "  copying spk onto the ISO"
 		cp spk/target/release/spk "$ISO_DIR/spk"
 	else
@@ -868,6 +858,14 @@ if [ -d grub-bundle/usr/local ]; then
 else
 	echo "  ! no grub-bundle/ found - installer won't be able to set up GRUB"
 	echo "    build it once with: scripts/make-grub-bundle.sh"
+fi
+
+# Silen branding for the installed system (fastfetch logo)
+if [ -f branding/fastfetch_logo.txt ]; then
+	echo "  adding branding to ISO at branding/"
+	mkdir -p "$ISO_DIR/branding"
+	cp branding/fastfetch_logo.txt "$ISO_DIR/branding/"
+	[ -f branding/info.txt ] && cp branding/info.txt "$ISO_DIR/branding/"
 fi
 
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz"
