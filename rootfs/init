@@ -57,7 +57,7 @@ if [ -n "$rootarg" ]; then
 			mount --move /sys /newroot/sys 2>/dev/null || mount -t sysfs sysfs /newroot/sys 2>/dev/null || true
 			mount --move /dev /newroot/dev 2>/dev/null || mount -t devtmpfs devtmpfs /newroot/dev 2>/dev/null || true
 			mount --move /run /newroot/run 2>/dev/null || mount -t tmpfs tmpfs /newroot/run 2>/dev/null || true
-			qecho "Silen switching to $newroot/sbin/init"
+			qecho "Silen switching to /newroot/sbin/init"
 			if [ -n "$QUIET" ]; then
 				clear >/dev/console 2>&1 || printf '\033[H\033[2J' >/dev/console 2>&1 || true
 			fi
@@ -89,7 +89,7 @@ fi
 
 if command -v dbus-daemon >/dev/null 2>&1; then
 	echo "Starting D-Bus"
-	[ -f /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
+	[ -s /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
 	dbus-daemon --system --nofork >/dev/null 2>&1 &
 	sleep 1
 else

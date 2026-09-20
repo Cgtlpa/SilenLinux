@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
+set -E
+set -o pipefail
 
-trap 'echo; echo "!! Build stopped with an error See the message above"; echo "   Remove build/ if needed rm -rf build" >&2' ERR
+trap 'rc=$?; echo; echo "!! Build stopped with an error (exit $rc at line $LINENO: $BASH_COMMAND) See the message above"; echo "   Remove build/ if needed: sudo rm -rf build" >&2' ERR
 DEFAULT_KVER=""
 for _kv in rootfs/lib/modules/[0-9]*; do
 	[ -d "$_kv" ] || continue
@@ -25,7 +27,7 @@ AUTO_HOST="${AUTO_HOST:-0}"
 FULL="${FULL:-0}"             
 FORCE="${FORCE:-0}"            
 MIN_RAM_MB="${MIN_RAM_MB:-2048}"
-MIN_DISK_MB="${MIN_DISK_MB:-500}"             
+MIN_DISK_MB="${MIN_DISK_MB:-2048}"
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common vmd
@@ -109,13 +111,15 @@ echo "compression $COMPRESS   auto-detect host modules $AUTO_HOST   full module 
 echo
 
 modules_ok() {
-	[ -d "$1" ] && find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) 2>/dev/null | grep -q .
+	[ -d "$1" ] || return 1
+	# -print -quit stops after the first match so no SIGPIPE under pipefail.
+	[ -n "$(find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) -print -quit 2>/dev/null)" ]
 }
 
 if ! modules_ok "$MODULES_SOURCE"; then
 	echo "  kernel module tree not found $MODULES_SOURCE"
 	echo "  auto-detecting host kernel instead"
-	HOST_VER="$(uname -r 2>/dev/null)"
+	HOST_VER="$(uname -r 2>/dev/null || true)"
 	HOST_MODS="/usr/lib/modules/$HOST_VER"
 	if [ -n "$HOST_VER" ] && modules_ok "$HOST_MODS"; then
 		echo "  using host kernel $HOST_VER"
@@ -150,7 +154,7 @@ if ! command -v grub-mkrescue >/dev/null 2>&1; then
 	exit 1
 fi
 
-AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || true)"
 if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
 	echo "  ERROR only ${AVAIL_MB}MB RAM available need ${MIN_RAM_MB}MB"
 	echo "  Close heavy apps first or rerun with FORCE=1 to try anyway"
@@ -442,8 +446,12 @@ fi
 copy_app NetworkManager /usr/sbin/NetworkManager
 copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app wpa_supplicant /usr/sbin/wpa_supplicant
-mkdir -p "$RAMROOT/usr/sbin"
+mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
 ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
+# sbin tools live in /usr/bin in the ramroot; keep absolute /usr/sbin/* working too.
+for _sbin_link in NetworkManager mkfs.ext4 mkfs.vfat blkid; do
+	ln -sf "/usr/bin/$_sbin_link" "$RAMROOT/usr/sbin/$_sbin_link" 2>/dev/null || true
+done
 [ -f /usr/bin/wpa_cli ] && copy_opt wpa_cli /usr/bin/wpa_cli
 [ -f /usr/bin/rfkill ] && copy_opt rfkill /usr/bin/rfkill
 [ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
@@ -482,9 +490,10 @@ while IFS= read -r _nm_plugin; do
 	copy_libs "$_nm_plugin"
 done < <(find "$RAMROOT/usr/lib/NetworkManager" -name '*.so' 2>/dev/null)
 
-mkdir -p "$RAMROOT/var/lib/dbus"
-printf 'deadbeef000000000000000000000001\n' > "$RAMROOT/etc/machine-id"
-cp "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id"
+mkdir -p "$RAMROOT/var/lib/dbus" "$RAMROOT/etc"
+# No static machine-id on purpose: live init runs `dbus-uuidgen --ensure`
+# on every boot so each machine gets a unique ID (clones break D-Bus/DHCP).
+rm -f "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id" 2>/dev/null || true
 
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
 if [ -f /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf ]; then
@@ -539,19 +548,30 @@ for _ti in "l/linux" "x/xterm" "x/xterm-256color" "v/vt100" "s/screen"; do
 	[ -f "/usr/share/terminfo/$_ti" ] && cp "/usr/share/terminfo/$_ti" "$RAMROOT/usr/share/terminfo/$_ti" 2>/dev/null || echo "  ! terminfo $_ti missing"
 done
 
-printf '/lib64\n/usr/lib64\n' > "$RAMROOT/etc/ld.so.conf"
-ldconfig -r "$RAMROOT" 2>/dev/null || echo "  ! ldconfig failed (dynamic apps may not load)"
+printf '/lib64\n/usr/lib64\n/usr/lib\n/lib\n' > "$RAMROOT/etc/ld.so.conf" || { echo "  ERROR cannot write ld.so.conf"; exit 1; }
+# NSS is dlopen()ed by libc (never appears in ldd) - without it live DNS is dead.
+for _nss in /usr/lib/libnss_dns.so.2 /usr/lib/libnss_files.so.2; do
+	[ -e "$_nss" ] || continue
+	cp --dereference "$_nss" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy $_nss (live DNS may fail)"
+done
+# Empty resolv.conf placeholder; NetworkManager populates it via DHCP.
+touch "$RAMROOT/etc/resolv.conf" 2>/dev/null || true
+if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
+	echo "  ERROR ldconfig failed (dynamic apps will not load)"
+	exit 1
+fi
+[ -f "$RAMROOT/etc/ld.so.cache" ] || { echo "  ERROR ldconfig produced no cache"; exit 1; }
 
-mkdir -p "$RAMROOT/installer"
-cp installer/main.sh "$RAMROOT/installer/main.sh"
+mkdir -p "$RAMROOT/installer" || { echo "  ERROR cannot create installer dir"; exit 1; }
+cp installer/main.sh "$RAMROOT/installer/main.sh" || { echo "  ERROR cannot copy installer"; exit 1; }
 chmod 0755 "$RAMROOT/installer/main.sh"
 
 if [ -f scripts/wifi-check.sh ]; then
-	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check"
+	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check" || { echo "  ERROR cannot copy wifi-check"; exit 1; }
 	chmod 0755 "$RAMROOT/usr/bin/silen-wifi-check"
 fi
 
-cp "$INIT_SOURCE" "$RAMROOT/init"
+cp "$INIT_SOURCE" "$RAMROOT/init" || { echo "  ERROR cannot copy init"; exit 1; }
 chmod 0755 "$RAMROOT/init"
 
 echo "  $(du -sh "$RAMROOT/bin" | cut -f1) busybox + applets"
@@ -573,31 +593,31 @@ copy_firmware() {
 			found=1
 			local rel="${f#$src/}"
 			if [ -d "$f" ]; then
-				[ -d "$RAMROOT/lib/firmware/$rel" ] || {
-					mkdir -p "$RAMROOT/lib/firmware/$(dirname "$rel")"
-					cp -a "$f" "$RAMROOT/lib/firmware/$rel"
-				}
+				# Merge per-file so the second source fills gaps instead of
+				# being skipped when the first source already made the dir.
+				mkdir -p "$RAMROOT/lib/firmware/$rel" || { echo "  ERROR cannot create firmware dir $rel"; exit 1; }
+				cp -an "$f"/. "$RAMROOT/lib/firmware/$rel"/ 2>/dev/null || cp -a "$f"/. "$RAMROOT/lib/firmware/$rel"/ || { echo "  ERROR cannot copy firmware dir $rel"; exit 1; }
 			else
 				local target="$RAMROOT/lib/firmware/$rel"
-				mkdir -p "$(dirname "$target")"
-				[ -f "$target" ] || cp "$f" "$target"
+				mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+				[ -f "$target" ] || cp "$f" "$target" || { echo "  ERROR cannot copy firmware $rel"; exit 1; }
 			fi
 		done
 		if [ "$found" = 0 ]; then
-			set -- "$src/$fw.zst"
+			set -- "$src"/$fw.zst
 			for f in "$@"; do
 				[ -e "$f" ] || continue
 				found=1
 				local rel="${f#$src/}"
 				local target="$RAMROOT/lib/firmware/$rel"
-				mkdir -p "$(dirname "$target")"
-				[ -f "$target" ] || cp "$f" "$target"
+				mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+				[ -f "$target" ] || cp "$f" "$target" || { echo "  ERROR cannot copy firmware $rel"; exit 1; }
 			done
 		fi
 		if [ "$found" = 0 ] && [ -f "$src/$fw.zst" ]; then
 			local target="$RAMROOT/lib/firmware/$fw.zst"
-			mkdir -p "$(dirname "$target")"
-			[ -f "$target" ] || cp "$src/$fw.zst" "$target"
+			mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+			[ -f "$target" ] || cp "$src/$fw.zst" "$target" || { echo "  ERROR cannot copy firmware $fw.zst"; exit 1; }
 		fi
 	done
 }
@@ -615,10 +635,10 @@ for name in "${chosen[@]}"; do
 	[ -z "$path" ] && continue
 
 	relative="${path#$MODULES_SOURCE/}"
-	mkdir -p "$MODULES_DIR/$(dirname "$relative")"
-	cp "$path" "$MODULES_DIR/$relative"
+	mkdir -p "$MODULES_DIR/$(dirname "$relative")" || { echo "  ERROR cannot create $MODULES_DIR/$(dirname "$relative")"; exit 1; }
+	cp "$path" "$MODULES_DIR/$relative" || { echo "  ERROR cannot copy module $name (disk full?)"; exit 1; }
 	if [ "${relative##*.}" = "zst" ]; then
-		zstd -d -f -q "$MODULES_DIR/$relative"
+		zstd -d -f -q "$MODULES_DIR/$relative" || { echo "  ERROR cannot decompress module $name"; exit 1; }
 		rm "$MODULES_DIR/$relative"
 	fi
 
@@ -700,8 +720,8 @@ fi
 
 if [ -d "$FIRMWARE_SOURCE" ]; then
 	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO"
-	mkdir -p "$RAMROOT/lib/firmware"
-	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" 2>/dev/null || true
+	mkdir -p "$RAMROOT/lib/firmware" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
 fi
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
@@ -739,19 +759,23 @@ elif [ -x /sbin/depmod ]; then
 else
 	DEPMOD=depmod
 fi
-$DEPMOD -b "$RAMROOT" "$KERNEL_VERSION" || echo "  ! depmod failed modules dep may be missing"
+if ! "$DEPMOD" -b "$RAMROOT" "$KERNEL_VERSION"; then
+	echo "  ERROR depmod failed (modules will not load)"
+	exit 1
+fi
+[ -f "$MODULES_DIR/modules.dep" ] || [ -f "$MODULES_DIR/modules.dep.bin" ] || { echo "  ERROR depmod produced no modules.dep"; exit 1; }
 
 
 echo "[6/7] Packing initramfs ($COMPRESS)"
 
-AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)"
+AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || true)"
 if [ -n "$AVAIL_MB" ] && [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt "$MIN_RAM_MB" ] && [ "$FORCE" != "1" ]; then
 	echo "  ERROR only ${AVAIL_MB}MB RAM available need ${MIN_RAM_MB}MB at compression time"
 	echo "  Rerun with FORCE=1 to try anyway"
 	exit 1
 fi
 
-for cmd in cpio; do
+for cmd in cpio tar modinfo ldd depmod ldconfig du strip; do
 	if ! command -v "$cmd" >/dev/null 2>&1; then
 		echo "  ERROR $cmd not found install it e.g. sudo pacman -S $cmd"
 		exit 1
@@ -839,12 +863,57 @@ fi
 if command -v cargo >/dev/null 2>&1; then
 	echo "  building spk spk/src/get.rs"
 	CARGO_ENV=()
-	if [ -n "$SUDO_USER" ]; then
-		CARGO_ENV+=(RUSTUP_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)/.rustup CARGO_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)/.cargo)
+	CARGO_AS_USER=""
+	if [ -n "${SUDO_USER:-}" ]; then
+		_SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+		if [ -n "$_SUDO_HOME" ]; then
+			CARGO_ENV+=(RUSTUP_HOME="$_SUDO_HOME/.rustup" CARGO_HOME="$_SUDO_HOME/.cargo")
+			if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
+				CARGO_AS_USER="$SUDO_USER"
+			fi
+		fi
 	fi
-	if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
-		echo "  copying spk onto the ISO"
+	_CARGO_OK=0
+	if [ -n "$CARGO_AS_USER" ]; then
+		# Build as the invoking user so root never poisons ~/.cargo.
+		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
+			_CARGO_OK=1
+		fi
+	else
+		if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
+			_CARGO_OK=1
+		fi
+	fi
+	if [ "$_CARGO_OK" = "1" ]; then
+		echo "  copying spk onto the ISO and into the live initramfs"
 		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
+		if [ -f spk/target/release/spk ]; then
+			mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
+			cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs (live spk will rely on /mnt/spk)"
+			chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
+		fi
+		# cargo runs after [6/7] packed the initramfs, so re-pack to include
+		# /usr/bin/spk in the live env (the later ISO copy picks this up).
+		if [ -f "$RAMROOT/usr/bin/spk" ] && [ -f "build/$INITRAMFS" ]; then
+			echo "  re-packing initramfs to include spk"
+			copy_libs "$RAMROOT/usr/bin/spk"
+			if ! (
+				cd "$RAMROOT"
+				find . -print0 | cpio --null -o --format=newc --owner=0:0
+			) > "$CPIO_FILE"; then
+				echo "  ERROR cpio re-pack failed"
+				exit 1
+			fi
+			if [ "$COMPRESS" = "zstd" ]; then
+				zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd re-pack failed"; exit 1; }
+			elif [ "$COMPRESS" = "gzip" ]; then
+				gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR gzip re-pack failed"; exit 1; }
+			else
+				xz -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR xz re-pack failed"; exit 1; }
+			fi
+			rm -f "$CPIO_FILE"
+			echo "  initramfs: $(du -h "build/$INITRAMFS" | cut -f1)"
+		fi
 	else
 		echo "  ! spk build failed installer will try to fetch it another way"
 	fi
@@ -944,5 +1013,10 @@ echo "modules    $(du -sh "$MODULES_DIR" | cut -f1)"
 echo "firmware   $(du -sh "$RAMROOT/lib/firmware" 2>/dev/null | cut -f1)"
 
 if [ -n "${SUDO_USER:-}" ]; then
-	chown -R "$SUDO_USER" build 2>/dev/null || true
+	_SUDO_GRP="$(id -gn "$SUDO_USER" 2>/dev/null || true)"
+	if [ -n "$_SUDO_GRP" ]; then
+		chown -R "$SUDO_USER:$_SUDO_GRP" build 2>/dev/null || chown -R "$SUDO_USER" build 2>/dev/null || true
+	else
+		chown -R "$SUDO_USER" build 2>/dev/null || true
+	fi
 fi

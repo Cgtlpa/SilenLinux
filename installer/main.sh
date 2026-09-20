@@ -14,8 +14,12 @@ cleanup() {
 
 medium_has_tarball_at() {
     _d="$1"
-    for f in "$_d"/stage3-*.tar.* "$_d"/tarball-*.tar.* "$_d"/tarball-*.xz "$_d"/*.tar.xz; do
-        [ -f "$f" ] && return 0
+    for f in "$_d"/stage3-*.tar.* "$_d"/tarball-*.tar.* "$_d"/tarball-*.xz "$_d"/*.tar.xz "$_d"/*.tar.zst; do
+        [ -f "$f" ] || continue
+        case "$(basename "$f")" in
+            kernel-*.tar.*|network.tar.*|spk.tar.*) continue ;;
+        esac
+        return 0
     done
     return 1
 }
@@ -64,13 +68,13 @@ medium_on_disk() {
         _rec="$(cat /run/silen-medium-dev 2>/dev/null)"
         if [ -n "$_rec" ]; then
             case "$_rec" in
-                "$_disk"*|"$_disk") return 0 ;;
+                "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
             esac
         fi
     fi
     _mntsrc="$(mount 2>/dev/null | awk '$3 == "/mnt" {print $1}')"
     case "$_mntsrc" in
-        "$_disk"*) return 0 ;;
+        "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
     esac
     case "$_mntsrc" in
         /dev/loop*)
@@ -83,23 +87,23 @@ medium_on_disk() {
             if [ -n "$_backing" ]; then
                 _ventrysrc="$(mount 2>/dev/null | awk '$3 == "/run/ventoy" {print $1}')"
                 case "$_ventrysrc" in
-                    "$_disk"*) return 0 ;;
+                    "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
                 esac
                 if command -v df >/dev/null 2>&1; then
                     _backmnt="$(df "$_backing" 2>/dev/null | awk 'NR==2 {print $1}')"
                     case "$_backmnt" in
-                        "$_disk"*) return 0 ;;
+                        "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
                     esac
                 fi
                 case "$_backing" in
-                    "$_disk"*) return 0 ;;
+                    "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
                 esac
             fi
             ;;
     esac
     _ventrysrc="$(mount 2>/dev/null | awk '$3 == "/run/ventoy" {print $1}')"
     case "$_ventrysrc" in
-        "$_disk"*) return 0 ;;
+        "$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;
     esac
     return 1
 }
@@ -227,7 +231,13 @@ ensure_medium() {
     return 1
 }
 
-trap cleanup INT TERM EXIT
+on_int_term() {
+    cleanup
+    echo "Interrupted." >&2
+    exit 130
+}
+trap cleanup EXIT
+trap on_int_term INT TERM
 
 [ "$(id -u)" = "0" ] || {
     whiptail --msgbox --title "$title" "root perms needed" 8 40 2>/dev/null || true
@@ -384,7 +394,7 @@ partitioning() {
     done
     ask-install-settings
 
-    for part in $(mount 2>/dev/null | awk -v d="$disk" 'index($1,d)==1 {print $1}' || true); do
+    for part in $(mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9]") || $1 ~ ("^" d "p[0-9]")) {print $1}' || true); do
         [ -n "$part" ] || continue
         umount "$part" 2>/dev/null || true
     done
@@ -410,7 +420,7 @@ label: gpt
 , , L
 EOF
         then
-            if mount 2>/dev/null | awk -v d="$disk" 'index($1,d)==1 {f=1} END {exit !f}'; then
+            if mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9]") || $1 ~ ("^" d "p[0-9]")) {f=1} END {exit !f}'; then
                 whiptail --msgbox --title "$title" "couldn't write partition table to $disk: it is still in use (something is mounted on it). Open the shell and check 'mount'." 10 60 || true
             else
                 whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40 || true
@@ -469,8 +479,12 @@ install-base() {
     fi
 
     stage3=""
-    for s in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz; do
-        [ -f "$s" ] && stage3="$s" && break
+    for s in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz /mnt/*.tar.zst; do
+        [ -f "$s" ] || continue
+        case "$(basename "$s")" in
+            kernel-*.tar.*|network.tar.*|spk.tar.*) continue ;;
+        esac
+        stage3="$s" && break
     done || true
     if [ -z "$stage3" ]; then
         whiptail --msgbox --title "$title" "no Silen tarball found on the install medium" 8 40 || true
@@ -478,7 +492,7 @@ install-base() {
         return
     fi
     whiptail --infobox "Installing the system files, this might take a while...\n(extracting $(basename "$stage3"))" 8 60 2>/dev/null || true
-    if [ "$(tar -tf "$stage3" 2>/dev/null | awk -F/ 'NF>1 {print $1}' | sort -u | wc -l)" = "1" ]; then
+    if [ "$(tar -tf "$stage3" 2>/dev/null | sed 's|^\./||' | awk -F/ 'NF>1 {print $1}' | sort -u | wc -l)" = "1" ]; then
         if ! tar -xpf "$stage3" -C "$root" --strip-components=1 --no-same-owner --numeric-owner --xattrs-include='*.*'; then
             whiptail --msgbox --title "$title" "failed to unpack the system tarball" 8 50 || true
             cleanup
@@ -495,18 +509,22 @@ install-base() {
     whiptail --infobox "Installing this might take a while...\n" 8 60 2>/dev/null || true
     fix-permissions
 
-    mkdir -p "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/etc "$root"/usr/share/zoneinfo
-    mount -t proc proc "$root"/proc
-    mount -t sysfs sysfs "$root"/sys
-    mount --rbind /dev "$root"/dev
-    mount --rbind /run "$root"/run
+    if ! mkdir -p "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/etc "$root"/usr/share/zoneinfo; then
+        whiptail --msgbox --title "$title" "failed to prepare $root (disk full?)" 8 40 || true
+        cleanup
+        return
+    fi
+    mount -t proc proc "$root"/proc 2>/dev/null || whiptail --msgbox --title "$title" "couldn't mount proc in target - install continues but GRUB may fail" 8 60 || true
+    mount -t sysfs sysfs "$root"/sys 2>/dev/null || whiptail --msgbox --title "$title" "couldn't mount sys in target - install continues but GRUB may fail" 8 60 || true
+    mount --rbind /dev "$root"/dev 2>/dev/null || whiptail --msgbox --title "$title" "couldn't bind /dev in target - install continues but GRUB may fail" 8 60 || true
+    mount --rbind /run "$root"/run 2>/dev/null || true
 
     if [ -f /etc/resolv.conf ]; then
-        cp /etc/resolv.conf "$root"/etc/resolv.conf
+        cp /etc/resolv.conf "$root"/etc/resolv.conf 2>/dev/null || echo "nameserver 1.1.1.1" > "$root"/etc/resolv.conf
     else
         echo "nameserver 1.1.1.1" > "$root"/etc/resolv.conf
     fi
-    echo "$hostnm" > "$root"/etc/hostname
+    echo "$hostnm" > "$root"/etc/hostname || { whiptail --msgbox --title "$title" "failed to write hostname (disk full?)" 8 40 || true; cleanup; return; }
     if [ -f "$root"/etc/conf.d/hostname ]; then
         if grep -q '^hostname=' "$root"/etc/conf.d/hostname 2>/dev/null; then
             sed -i "s/^hostname=.*/hostname=\"$hostnm\"/" "$root"/etc/conf.d/hostname 2>/dev/null || true
@@ -564,7 +582,13 @@ EOF
         whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
     fi
     setup-quiet-boot
-    setup-grub
+    if ! setup-grub; then
+        sync 2>/dev/null || true
+        cleanup
+        whiptail --msgbox --title "$title" "Install finished but GRUB setup failed - system may not boot. See /tmp/grub-install.log" 8 60 || true
+        main_screen
+        return
+    fi
 
     sync 2>/dev/null || true
     cleanup
@@ -579,6 +603,9 @@ ask-install-settings() {
     esac
     hostnm=$(whiptail --title "$title" --inputbox "Set the hostname" 8 40 "$hostnm" 3>&1 1>&2 2>&3 || true)
     [ -z "$hostnm" ] && hostnm="silen"
+    # Sanitize: lowercase, keep [a-z0-9-], fall back to silen if empty.
+    hostnm="$(printf '%s' "$hostnm" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed -e 's/^-*//' -e 's/-*$//')"
+    [ -z "$hostnm" ] && hostnm="silen"
 
     rootpass=""
     while :; do
@@ -586,8 +613,15 @@ ask-install-settings() {
             main_screen
             return
         fi
-        [ -n "$rootpass" ] && break
-        whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
+        [ -n "$rootpass" ] || { whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true; continue; }
+        case "$rootpass" in
+            *:*|*$'\n'* )
+                whiptail --msgbox --title "$title" "password can't contain : or newline, try again" 8 50 || true
+                rootpass=""
+                continue
+                ;;
+        esac
+        break
     done
 
     newuser=""
@@ -630,8 +664,15 @@ ask-install-settings() {
                 userpass=""
                 break
             fi
-            [ -n "$userpass" ] && break
-            whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true
+            [ -n "$userpass" ] || { whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true; continue; }
+            case "$userpass" in
+                *:*|*$'\n'* )
+                    whiptail --msgbox --title "$title" "password can't contain : or newline, try again" 8 50 || true
+                    userpass=""
+                    continue
+                    ;;
+            esac
+            break
         done || true
     fi
 
@@ -770,7 +811,12 @@ fix-user-session() {
 }
 
 apply-settings() {
-    ln -sf /usr/share/zoneinfo/$zone "$root"/etc/localtime
+    if [ -f "$root/usr/share/zoneinfo/$zone" ]; then
+        ln -sf "/usr/share/zoneinfo/$zone" "$root"/etc/localtime
+    else
+        whiptail --msgbox --title "$title" "timezone $zone missing in target, time may be UTC until tzdata is installed" 8 60 || true
+        ln -sf "/usr/share/zoneinfo/$zone" "$root"/etc/localtime
+    fi
 
     mkdir -p "$root"/etc/conf.d
     echo "keymap=\"$keymap\"" > "$root"/etc/conf.d/keymaps
@@ -925,23 +971,34 @@ install-spk() {
         [ -f "$f" ] && spk_src="$f" && break
     done || true
     if [ -n "$spk_src" ]; then
-        tar -xpf "$spk_src" -C "$root"/usr/bin
-        return
+        if tar -xpf "$spk_src" -C "$root"/usr/bin --no-same-owner --numeric-owner 2>/dev/null; then
+            return
+        fi
+        whiptail --msgbox --title "$title" "couldn't unpack $spk_src, trying other spk sources" 8 60 || true
+        spk_src=""
     fi
     if [ -f /usr/bin/spk ]; then
-        cp /usr/bin/spk "$root"/usr/bin/spk
-        return
+        if cp /usr/bin/spk "$root"/usr/bin/spk 2>/dev/null; then
+            return
+        fi
+        whiptail --msgbox --title "$title" "couldn't install live spk, trying other sources" 8 60 || true
     fi
     if [ -f /mnt/spk ]; then
-        cp /mnt/spk "$root"/usr/bin/spk
-        return
+        if cp /mnt/spk "$root"/usr/bin/spk 2>/dev/null; then
+            return
+        fi
+        whiptail --msgbox --title "$title" "couldn't install spk from medium, trying other sources" 8 60 || true
     fi
     if [ -d /mnt/spk ]; then
-        cp -r /mnt/spk "$root"/usr/bin/spk 2>/dev/null && return
+        if [ -f /mnt/spk/spk ]; then
+            cp /mnt/spk/spk "$root"/usr/bin/spk 2>/dev/null && return
+        fi
+        whiptail --msgbox --title "$title" "/mnt/spk is a directory, skipping it" 8 50 || true
     fi
     url=$(whiptail --title "$title" --inputbox "spk not found, enter a git url to clone it (leave empty to skip):" 8 46 3>&1 1>&2 2>&3 || true)
     if [ -n "$url" ]; then
-        if ! git clone "$url" /tmp/spk 2>/dev/null; then
+        rm -rf /tmp/spk 2>/dev/null || true
+        if ! git clone -- "$url" /tmp/spk 2>/dev/null; then
             whiptail --msgbox --title "$title" "couldn't clone spk" 8 40 || true
             return
         fi
@@ -996,15 +1053,31 @@ install-network-from-live() {
         [ -z "$_src" ] && continue
         cp -a "$_src" "$root"/usr/bin/ 2>/dev/null || true
     done || true
-    for _lib in /usr/lib64/*; do
-        [ -e "$_lib" ] || [ -L "$_lib" ] || continue
-        [ -f "$_lib" ] || [ -L "$_lib" ] || continue
-        _bn="$(basename "$_lib")"
-        if [ -e "$root/usr/lib64/$_bn" ] || [ -e "$root/usr/lib/$_bn" ]; then
-            continue
-        fi
-        cp -a "$_lib" "$root"/usr/lib64/ 2>/dev/null || true
-    done || true
+    # Copy only the libs the installed binaries actually need (ldd), not the
+    # whole live /usr/lib64, to avoid bloat and version skew with the tarball.
+    if command -v ldd >/dev/null 2>&1; then
+        for _b in "$root"/usr/bin/*; do
+            [ -f "$_b" ] || [ -L "$_b" ] || continue
+            for _lib in $(ldd "$_b" 2>/dev/null | grep -o '/[^ ()]*' | sort -u || true); do
+                [ -e "$_lib" ] || continue
+                _bn="$(basename "$_lib")"
+                if [ -e "$root/usr/lib64/$_bn" ] || [ -e "$root/usr/lib/$_bn" ]; then
+                    continue
+                fi
+                cp -a "$_lib" "$root"/usr/lib64/ 2>/dev/null || true
+            done || true
+        done || true
+    else
+        for _lib in /usr/lib64/*; do
+            [ -e "$_lib" ] || [ -L "$_lib" ] || continue
+            [ -f "$_lib" ] || [ -L "$_lib" ] || continue
+            _bn="$(basename "$_lib")"
+            if [ -e "$root/usr/lib64/$_bn" ] || [ -e "$root/usr/lib/$_bn" ]; then
+                continue
+            fi
+            cp -a "$_lib" "$root"/usr/lib64/ 2>/dev/null || true
+        done || true
+    fi
     if [ -d /usr/lib/NetworkManager ]; then
         mkdir -p "$root"/usr/lib/NetworkManager
         cp -a /usr/lib/NetworkManager/. "$root"/usr/lib/NetworkManager/ 2>/dev/null || true
@@ -1232,6 +1305,7 @@ install-wifi() {
     chroot "$root" /bin/bash -c "rc-update add NetworkManager default" >/dev/null 2>&1 || true
 
     whiptail --infobox --title "$title" "Installing Wi-Fi drivers linux-firmware" 8 50 2>/dev/null || true
+    mkdir -p "$root/tmp" 2>/dev/null || true
     chroot "$root" /bin/bash -c "spk get linux-firmware" 2>"$root/tmp/spk-wifi-install.log" || \
         whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Check /tmp/spk-wifi-install.log after reboot." 8 60 || true
 
@@ -1461,24 +1535,28 @@ setup-grub() {
     if [ -f /mnt/boot/vmlinuz ]; then
         if ! cp /mnt/boot/vmlinuz "$root"/boot/vmlinuz 2>/dev/null; then
             whiptail --msgbox --title "$title" "couldn't copy the kernel" 8 40 || true
-            return
+            return 1
         fi
     else
         whiptail --msgbox --title "$title" "no kernel found on the install medium" 8 40 || true
-        return
+        return 1
     fi
     initramfs_name=""
     for i in /mnt/boot/initramfs.*; do
-        [ -f "$i" ] && initramfs_name="$(basename "$i")" && cp "$i" "$root"/boot/ && break
+        [ -f "$i" ] || continue
+        if cp "$i" "$root"/boot/ 2>/dev/null; then
+            initramfs_name="$(basename "$i")"
+            break
+        fi
     done || true
     if [ -z "$initramfs_name" ]; then
         whiptail --msgbox --title "$title" "no initramfs found in the install ISO" 8 40 || true
-        return
+        return 1
     fi
 
     if [ ! -d /sys/firmware/efi ]; then
         whiptail --msgbox --title "$title" "this machine booted in legacy mode, but Silen can currently only install an EFI bootloader. Boot the iso in UEFI mode and try again." 10 60 || true
-        return
+        return 1
     fi
 
     if [ -d /mnt/grub/usr/local ]; then
@@ -1527,7 +1605,9 @@ menuentry "Silen Linux" {
 EOF
         whiptail --msgbox --title "$title" "GRUB is installed" 8 40 || true
     else
+        cp "$root/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
         whiptail --msgbox --title "$title" "grub-install failed, see /tmp/grub-install.log for errors" 8 40 || true
+        return 1
     fi
 }
 
