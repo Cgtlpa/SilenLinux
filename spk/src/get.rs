@@ -1,3 +1,4 @@
+pub mod find;
 pub mod remove;
 
 use std::collections::HashSet;
@@ -80,6 +81,12 @@ fn main() {
         }
         let layout = layout_for(&root, user_mode, &positional[0]);
         get(&positional[0], &layout);
+    } else if args[1] == "find" || args[1] == "search" {
+        if positional.is_empty() {
+            fail("usage: spk find <pattern> [--root DIR] [--user]");
+        }
+        let layout = layout_for(&root, user_mode, "");
+        find::find_packages(&positional[0], &layout);
     } else {
         usage();
     }
@@ -89,6 +96,7 @@ fn usage() {
     eprintln!("usage:");
     eprintln!("  spk get <package> [--root DIR] [--user]");
     eprintln!("  spk rm <package> [--root DIR] [--user]");
+    eprintln!("  spk find <pattern> [--root DIR] [--user]");
     eprintln!("  spk list [--root DIR] [--user]");
 }
 
