@@ -1840,8 +1840,8 @@ if loadfont \$prefix/fonts/unicode.pf2; then
 fi
 # console fallback: if gfxterm dies the menu is still usable (never black).
 terminal_output gfxterm console
-# No `set gfxpayload` here on purpose: `text` is rejected on UEFI
-# ("invalid video mode specification `text'", blind mode) and the GRUB
+# No 'set gfxpayload' here on purpose: 'text' is rejected on UEFI
+# ('invalid video mode specification', blind mode) and the GRUB
 # default (keep GOP for the kernel) is correct — see comment in setup-grub.
 search --no-floppy --fs-uuid --set=root $bootuuid
 

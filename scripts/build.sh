@@ -1026,8 +1026,8 @@ fi
 # FIX 2026-09-21 BLACK-SCREEN — console fallback (see installer
 # setup-grub): a failed modeset must never freeze a black GOP frame on
 # screen. Verbose default so live-boot failures are visible. NOTE: no
-# `set gfxpayload` line — `text` is invalid on UEFI ("invalid video mode
-# specification `text'", blind mode, LP#1711452); the GRUB default is correct.
+# 'set gfxpayload' line — 'text' is invalid on UEFI ('invalid video mode
+# specification', blind mode, LP#1711452); the GRUB default is correct.
 terminal_output gfxterm console
 
 menuentry "Silen Linux" {
