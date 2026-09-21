@@ -562,8 +562,9 @@ if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
 fi
 [ -f "$RAMROOT/etc/ld.so.cache" ] || { echo "  ERROR ldconfig produced no cache"; exit 1; }
 
-mkdir -p "$RAMROOT/installer" || { echo "  ERROR cannot create installer dir"; exit 1; }
+mkdir -p "$RAMROOT/installer/lib" || { echo "  ERROR cannot create installer dir"; exit 1; }
 cp installer/main.sh "$RAMROOT/installer/main.sh" || { echo "  ERROR cannot copy installer"; exit 1; }
+cp -a installer/lib/. "$RAMROOT/installer/lib/" || { echo "  ERROR cannot copy installer libs"; exit 1; }
 chmod 0755 "$RAMROOT/installer/main.sh"
 
 if [ -f scripts/wifi-check.sh ]; then

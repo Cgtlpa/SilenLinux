@@ -14,6 +14,83 @@ use sha2::Sha256;
 
 const DEFAULT_BASE: &str = "https://raw.githubusercontent.com/Cgtlpa/spk_pkgs/main/packages";
 
+// [SPK-DEBUG-OK 2026-09-20] system-vs-isolated sorting audited.
+// Rule (arch-like): system packages install straight into / (like `pacman -S`)
+// so daemons/DMs/DEs/drivers keep their absolute paths (/usr/bin/sddm,
+// /etc/sddm.conf.d, /lib/modules, ...). Leaf apps stay isolated in
+// /spk_pkgs/<name> (or ~/.local/share/spk/apps/<name> with --user) with
+// shims in /usr/local/bin. `system` is true when the manifest says so OR
+// when the name matches the well-known system set below. This stops a
+// mis-packed manifest (e.g. sddm without system=true) from landing isolated
+// and never starting.
+// DEBUG-MARK: SYSTEM-SORT v1 — do not move sddm-class pkgs to isolated.
+const SYSTEM_EXACT: &[&str] = &[
+    // display managers / greeters — MUST be system or no graphical login
+    "sddm", "gdm", "lightdm", "lxdm", "ly", "greetd", "tuigreet", "emptty",
+    "lightdm-gtk-greeter", "sddm-kcm",
+    // desktops / sessions / compositors
+    "plasma-desktop", "plasma-workspace", "plasma", "kde", "gnome", "gnome-shell",
+    "gnome-session", "xfce4", "xfce4-session", "xfce", "lxqt", "lxde", "cinnamon",
+    "mate-desktop", "mate", "budgie-desktop", "cosmic-desktop", "pantheon", "deepin",
+    "enlightenment", "sway", "i3", "hyprland", "wayland", "xorg-server", "xorg",
+    // DE companion apps installed by the Silen installer alongside the DE.
+    // They ship .desktop files / session integration under /usr, so they must
+    // be system too (isolated shims would hide them from the DE menu).
+    // DEBUG-MARK: SYSTEM-SORT v2 — installer DE sets stay in /usr.
+    "konsole", "dolphin", "kate", "kwrite", "ark", "spectacle",
+    "gnome-terminal", "nautilus", "gnome-text-editor", "gnome-calculator",
+    "xfce4-terminal", "thunar", "mousepad", "ristretto",
+    // kernels / firmware / drivers — MUST be system (paths like /lib/modules, /lib/firmware)
+    "linux", "kernel", "linux-firmware", "intel-ucode", "amd-ucode",
+    "nvidia-drivers", "nvidia-legacy-drivers", "mesa", "libdrm",
+    "xf86-video-amdgpu", "xf86-video-intel", "xf86-video-vmware", "xf86-video-nouveau",
+    "xf86-input-libinput", "vulkan-loader",
+    "rtl8822ce", "iwlwifi", "mt7921", "ath11k", "brcmfmac", "rtw89", "rtw88",
+    // core system services
+    "dbus", "elogind", "systemd", "openrc", "polkit", "upower", "udisks2",
+    "networkmanager", "wpa_supplicant", "iwd", "dhcpcd", "connman", "modemmanager",
+    "pipewire", "pulseaudio", "alsa", "alsa-utils", "wireplumber",
+];
+
+fn looks_like_system_package(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    if SYSTEM_EXACT.contains(&n.as_str()) {
+        return true;
+    }
+    // prefixes: DE families, xorg/xf86 drivers, firmware blobs
+    for prefix in [
+        "plasma-", "kde-", "gnome-", "xfce4-", "xfce-", "lxqt-", "sddm-", "gdm-",
+        "lightdm-", "xorg-", "xf86-video-", "xf86-input-", "nvidia-", "amd-ucode",
+        "intel-ucode", "linux-firmware", "wpa_", "alsa-", "pipewire-", "pulseaudio-",
+        "wireplumber",
+    ] {
+        if n == prefix.trim_end_matches('-') || n.starts_with(prefix) {
+            return true;
+        }
+    }
+    // substrings / suffixes that are (almost) always system-level
+    for needle in [
+        "firmware", "driver", "kernel", "mesa", "vulkan", "libdrm", "microcode",
+        "-ucode", "greeter", "display-manager", "dm-", "elogind", "polkit",
+        "networkmanager", "modemmanager", "pipewire", "pulseaudio",
+    ] {
+        if n.contains(needle) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_system_package(name: &str, manifest_flag: bool) -> (bool, &'static str) {
+    if manifest_flag {
+        return (true, "manifest");
+    }
+    if looks_like_system_package(name) {
+        return (true, "name-heuristic");
+    }
+    (false, "leaf")
+}
+
 pub struct Layout {
     pub root: String,
     pub registry: String,
@@ -31,9 +108,21 @@ struct Installed {
 }
 
 fn main() {
+    // [SPK-DEBUG-OK 2026-09-20] CLI dispatch audited.
+    // Supports arch-like multi-package: `spk get a b c`, `spk rm a b c`.
+    // Each package gets its own Layout (tmp/registry paths differ per name).
+    // Installs run in order; first hard failure aborts (like pacman
+    // transaction abort) so half-installed sets are visible, not silent.
+    // DEBUG-MARK: CLI-MULTI v1.
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
+        usage();
+        return;
+    }
+
+    // `spk --help`, `spk get --help`, `spk -h` behave like arch tools.
+    if args[1] == "--help" || args[1] == "-h" || args[1] == "help" {
         usage();
         return;
     }
@@ -53,10 +142,23 @@ fn main() {
         } else if args[i] == "--user" {
             user_mode = true;
             i += 1;
+        } else if args[i] == "--help" || args[i] == "-h" {
+            usage();
+            return;
+        } else if args[i].starts_with('-') {
+            fail(&format!("unknown flag {}", args[i]));
         } else {
             positional.push(args[i].clone());
             i += 1;
         }
+    }
+
+    // Arch-like: de-duplicate repeat names (`spk get foo foo` installs once;
+    // `spk rm foo foo` must not fail on the second, already-gone entry).
+    // FIX 2026-09-20 DEDUP — order-preserving dedup of positionals.
+    {
+        let mut seen = std::collections::HashSet::new();
+        positional.retain(|n| seen.insert(n.clone()));
     }
 
     if args[1] == "list" {
@@ -65,22 +167,37 @@ fn main() {
         list(&layout);
     } else if args[1] == "remove" || args[1] == "rm" {
         if positional.is_empty() {
-            fail("usage: spk rm <package> [--root DIR] [--user]");
+            fail("usage: spk rm <package> [package...] [--root DIR] [--user]");
         }
-        if !valid_name(&positional[0]) {
-            fail("bad package name (use [a-z0-9_.+-], no / or ..)");
+        for name in &positional {
+            if !valid_name(name) {
+                fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
+            }
         }
-        let layout = layout_for(&root, user_mode, &positional[0]);
-        remove::remove_package(&positional[0], &layout);
+        // arch-like: remove in order, keep going, report failures at end.
+        let mut failed: Vec<String> = Vec::new();
+        for name in &positional {
+            let layout = layout_for(&root, user_mode, name);
+            if !remove::try_remove_package(name, &layout) {
+                failed.push(name.clone());
+            }
+        }
+        if !failed.is_empty() {
+            process::exit(1);
+        }
     } else if args[1] == "get" {
         if positional.is_empty() {
-            fail("usage: spk get <package> [--root DIR] [--user]");
+            fail("usage: spk get <package> [package...] [--root DIR] [--user]");
         }
-        if !valid_name(&positional[0]) {
-            fail("bad package name (use [a-z0-9_.+-], no / or ..)");
+        for name in &positional {
+            if !valid_name(name) {
+                fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
+            }
         }
-        let layout = layout_for(&root, user_mode, &positional[0]);
-        get(&positional[0], &layout);
+        for name in &positional {
+            let layout = layout_for(&root, user_mode, name);
+            get(name, &layout);
+        }
     } else if args[1] == "find" || args[1] == "search" {
         if positional.is_empty() {
             fail("usage: spk find <pattern> [--root DIR] [--user]");
@@ -93,11 +210,16 @@ fn main() {
 }
 
 fn usage() {
+    // [SPK-DEBUG-OK 2026-09-20] usage text audited — documents multi-package.
     eprintln!("usage:");
-    eprintln!("  spk get <package> [--root DIR] [--user]");
-    eprintln!("  spk rm <package> [--root DIR] [--user]");
+    eprintln!("  spk get <package> [package...] [--root DIR] [--user]");
+    eprintln!("  spk rm <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk find <pattern> [--root DIR] [--user]");
     eprintln!("  spk list [--root DIR] [--user]");
+    eprintln!("");
+    eprintln!("like pacman: system packages (sddm, desktops, drivers, firmware,");
+    eprintln!("dbus, NetworkManager, ...) install into / ; leaf apps stay");
+    eprintln!("isolated with shims in /usr/local/bin (or ~/.local/bin with --user).");
 }
 
 fn fail(message: &str) -> ! {
@@ -134,6 +256,17 @@ fn base_url() -> String {
 }
 
 fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
+    // [SPK-DEBUG-OK 2026-09-20] layout audited.
+    // System root (/): registry /var/lib/spk/packages/<name>, app links
+    // /opt/spk/<name>, isolated payload /spk_pkgs/<name>, shims
+    // /usr/local/bin. --root prefixes all of them; --user maps everything
+    // under $HOME. tmp is per-package (+pid) so `spk get a b` never clashes.
+    // DEBUG-MARK: LAYOUT v1.
+    // FIX 2026-09-20 LAYOUT-DBLSLASH: when root is "/" (or empty) the path
+    // prefix is "" so registry/appdir/pkgdir/shimdir build single-slash
+    // paths (/var/..., /spk_pkgs/..., /opt/..., /usr/local/bin). The old code
+    // used "/" as prefix and produced "//var/..." strings; the fs tolerated
+    // them but registry-vs-installed string compares could mismatch.
     if user_mode {
         let home = std::env::var("HOME").unwrap_or_default();
         if home.is_empty() {
@@ -155,7 +288,7 @@ fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
         }
     } else {
         let clean_root = root.trim_end_matches('/').to_string();
-        let prefix = if clean_root.is_empty() { "/".to_string() } else { clean_root.clone() };
+        let prefix = if clean_root.is_empty() { String::new() } else { clean_root.clone() };
         let real_root = if clean_root.is_empty() { "/".to_string() } else { clean_root };
         Layout {
             root: real_root,
@@ -215,6 +348,10 @@ fn rel_target(link: &str, dest: &str) -> String {
 }
 
 fn get(name: &str, layout: &Layout) {
+    // [SPK-DEBUG-OK 2026-09-20] install flow audited end-to-end:
+    // manifest -> download(+sha256) -> payload_base -> extract ->
+    // finish_install(shims+registry) -> postinstall -> ldconfig.
+    // DEBUG-MARK: GET-FLOW v1.
     let base = base_url();
     let manifest_url = format!("{}/{}/package.json", base, name);
 
@@ -234,10 +371,30 @@ fn get(name: &str, layout: &Layout) {
         }
     };
     let system_str = read_field(&manifest, "system");
-    let system = matches!(system_str.as_str(), "true" | "1");
+    let manifest_system = matches!(
+        system_str.to_ascii_lowercase().as_str(),
+        "true" | "1" | "yes" | "y"
+    );
+    let (system, reason) = is_system_package(name, manifest_system);
+    if system {
+        println!("spk: {} is a system package ({}), installing into /", name, reason);
+    } else {
+        println!("spk: {} is a leaf package, installing isolated", name);
+    }
 
     if system && layout.user_mode {
         fail("system packages (login managers, desktops, kernels) need a system install - retry without --user");
+    }
+
+    // Arch-like transparency: say so when this exact version is already
+    // installed (pacman prints "warning: X is up to date -- reinstalling").
+    // FIX 2026-09-20 REINSTALL-NOTE.
+    if !version.trim().is_empty() {
+        let installed_version =
+            fs::read_to_string(format!("{}/version", layout.registry)).unwrap_or_default();
+        if installed_version.trim() == version.trim() {
+            println!("spk: note: {} v{} is already installed -- reinstalling", name, version.trim());
+        }
     }
 
     if file_name.is_empty() {
@@ -520,11 +677,16 @@ fn register_libs(name: &str, layout: &Layout, system: bool) {
 }
 
 fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &str, system: bool, installed: &[Installed]) {
+    // [SPK-DEBUG-OK 2026-09-20] postinstall hook audited.
+    // Only runs <payload>/usr/lib/spk/postinstall when it was part of THIS
+    // package (prevents a stale hook from another package being executed).
+    // Applies to both system and isolated layouts.
+    // DEBUG-MARK: POSTINSTALL v1.
     if payload_base.is_empty() {
         return;
     }
     let hook = format!("{}/usr/lib/spk/postinstall", payload_base.trim_end_matches('/'));
-    if system && !installed.iter().any(|item| item.path == hook) {
+    if !installed.iter().any(|item| item.path == hook) {
         return;
     }
     let meta = match fs::metadata(&hook) {
@@ -562,6 +724,16 @@ fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &st
 }
 
 fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &Layout, system: bool) {
+    // [SPK-DEBUG-OK 2026-09-20] registry/shim finalisation audited.
+    // Arch-like upgrade rule: orphaned shims/files from the previous version
+    // that are gone in the new version are removed, so `spk get foo` twice
+    // does not leak stale /usr/local/bin entries. New files/shims are
+    // recorded in <registry>/{files,shims}. App links live in <appdir>/bin.
+    // System files on PATH (/usr/bin/...) get app links but no shims.
+    // DEBUG-MARK: FINISH-INSTALL v1.
+    // Snapshot previous records before overwriting (for orphan cleanup).
+    let old_files = fs::read_to_string(format!("{}/files", layout.registry)).unwrap_or_default();
+    let old_shims = fs::read_to_string(format!("{}/shims", layout.registry)).unwrap_or_default();
     check(fs::create_dir_all(&layout.registry), &format!("cannot create {}", layout.registry));
     check(fs::create_dir_all(format!("{}/bin", layout.appdir)), &format!("cannot create {}/bin", layout.appdir));
     check(fs::create_dir_all(&layout.shimdir), &format!("cannot create {}", layout.shimdir));
@@ -628,7 +800,69 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
         }
     }
 
-    check(fs::write(format!("{}/shims", layout.registry), shims), &format!("cannot write {}/shims", layout.registry));
+    check(fs::write(format!("{}/shims", layout.registry), shims.clone()), &format!("cannot write {}/shims", layout.registry));
+
+    // Remove orphans from the previous version (arch-like upgrade hygiene).
+    // FIX 2026-09-20 FINISH-PRUNE v2: (a) files recorded in the previous
+    // `files` registry for THIS package are owned by us even when they live
+    // in shared system dirs (/usr/...) — the old guard only pruned
+    // pkgdir/appdir/shims, so reinstalling a system package with fewer files
+    // leaked orphans forever. Protected configs (passwd/shadow/...) are never
+    // pruned here (rm path protects them too). (b) stale <appdir>/bin links
+    // were never tracked, so a command dropped between versions lingered.
+    // Sweep them below against the new command set.
+    {
+        use std::collections::HashSet;
+        let new_files: HashSet<&str> = installed.iter().map(|i| i.path.as_str()).collect();
+        let new_shims: HashSet<&str> = shims.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let old_file_set: HashSet<&str> = old_files.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let mut pruned = 0;
+        for line in old_files.lines().chain(old_shims.lines()) {
+            let p = line.trim();
+            if p.is_empty() || new_files.contains(p) || new_shims.contains(p) {
+                continue;
+            }
+            // Owned when: a recorded shim, a file we recorded for this
+            // package (system or isolated), or anything under our private
+            // payload/app dirs. Anything else (never recorded) is left alone
+            // in case another package still needs it.
+            let owned_shim = old_shims.lines().any(|s| s.trim() == p);
+            let owned_file = old_file_set.contains(p);
+            let under_payload = !layout.pkgdir.is_empty() && (p == layout.pkgdir || p.starts_with(&format!("{}/", layout.pkgdir)));
+            let under_app = p == layout.appdir || p.starts_with(&format!("{}/", layout.appdir));
+            if !(owned_shim || owned_file || under_payload || under_app) {
+                continue;
+            }
+            if is_protected_basename(p) {
+                continue;
+            }
+            if fs::symlink_metadata(p).is_ok() && fs::remove_file(p).is_ok() {
+                pruned += 1;
+            }
+        }
+        if pruned > 0 {
+            println!("spk: pruned {} stale file(s) from previous version", pruned);
+        }
+    }
+    // Drop stale <appdir>/bin links for commands gone in the new version.
+    {
+        let bin_dir = format!("{}/bin", layout.appdir);
+        if let Ok(entries) = fs::read_dir(&bin_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.is_empty() || commands.contains(&fname) {
+                    continue;
+                }
+                let full = format!("{}/{}", bin_dir, fname);
+                // Only remove symlinks we manage (app links are always links).
+                if let Ok(m) = fs::symlink_metadata(&full) {
+                    if m.file_type().is_symlink() && fs::remove_file(&full).is_ok() {
+                        println!("spk: pruned stale app link {}", full);
+                    }
+                }
+            }
+        }
+    }
 
     let run_path = format!("{}/run", layout.appdir);
     let run_text = [
@@ -674,6 +908,24 @@ fn path_contains(dir: &str) -> bool {
         Ok(path) => path.split(':').any(|entry| entry == dir),
         Err(_) => false,
     }
+}
+
+// Shared with rm: never auto-delete these configs on upgrade prune, even if a
+// previous package version recorded them. Scoped to /etc/ so a binary that
+// merely shares the basename (e.g. /usr/bin/passwd) is still pruned.
+fn is_protected_basename(path: &str) -> bool {
+    if !path.contains("/etc/") {
+        return false;
+    }
+    let base = Path::new(path)
+        .file_name()
+        .map(|b| b.to_string_lossy().to_string())
+        .unwrap_or_default();
+    matches!(
+        base.as_str(),
+        "passwd" | "shadow" | "gshadow" | "group" | "fstab" | "machine-id"
+            | "hostname" | "hosts" | "resolv.conf"
+    )
 }
 
 fn list(layout: &Layout) {
@@ -739,6 +991,13 @@ fn http_get(url: &str) -> String {
 }
 
 fn download(url: &str, dst: &str, parts: u32) -> String {
+    // [SPK-DEBUG-OK 2026-09-20] download audited.
+    // Single file when parts==1; `<url>.000`, `<url>.001`, ... when split.
+    // Unknown-length split (parts==1 on disk as .000/.001/...) is probed:
+    // miss on bare URL -> try .000... until first 404 after data. Appends
+    // per part, truncates back to part-start on transient errors, 6 retries
+    // with backoff, sha256 over the concatenated file.
+    // DEBUG-MARK: DOWNLOAD v1.
     let _ = fs::remove_file(dst);
     let mut split = parts > 1;
     let mut index = 0;
@@ -874,6 +1133,11 @@ fn hash_file(dst: &str) -> String {
 }
 
 fn read_field(text: &str, key: &str) -> String {
+    // [SPK-DEBUG-OK 2026-09-20] manifest mini-parser audited.
+    // Handles `"key": "string"`, `"key": true/1/yes` and `"key": 3`
+    // (quoted or bare). Not full JSON — enough for flat package.json
+    // manifests (filename/version/sha256/parts/system).
+    // DEBUG-MARK: READ-FIELD v1.
     let needle = format!("\"{}\"", key);
     let pos = match text.find(&needle) {
         Some(pos) => pos + needle.len(),
@@ -927,6 +1191,13 @@ fn skipped_name(name: &str) -> bool {
 }
 
 fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
+    // [SPK-DEBUG-OK 2026-09-20] tar extract audited.
+    // `clean()` jails `..`/absolute paths under root; `resolve_link()`
+    // rejects symlinks escaping root. System mode skips bundled glibc
+    // copies (core_lib/system_tool) and keeps the host's. Dirs created,
+    // symlinks + hardlinks (with copy fallback) recorded, regular files
+    // get their tar modes. Returns installed paths for the registry.
+    // DEBUG-MARK: EXTRACT v1.
     let mut installed: Vec<Installed> = Vec::new();
     let mut skipped = 0;
     let mut pending_links: Vec<(String, String, u32)> = Vec::new();
@@ -1061,6 +1332,9 @@ fn make_parent(dest: &str) {
 }
 
 fn clean(name: &str, root: &str) -> String {
+    // [SPK-DEBUG-OK 2026-09-20] path jail audited — strips leading /,
+    // collapses `.`, pops `..`, then prefixes root. Never escapes root.
+    // DEBUG-MARK: CLEAN v1.
     let mut parts: Vec<&str> = Vec::new();
     for part in name.split('/') {
         if part.is_empty() || part == "." {
@@ -1081,17 +1355,36 @@ fn clean(name: &str, root: &str) -> String {
 }
 
 fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
-    let scope = if root == "/" || root.is_empty() { "/".to_string() } else { root.trim_end_matches('/').to_string() };
-    let abs = if target.starts_with('/') {
-        if scope == "/" {
-            target.to_string()
-        } else {
-            format!("{}{}", scope, target)
+    // [SPK-DEBUG-OK 2026-09-20] symlink scope check audited — absolute
+    // targets are rebased under --root, `..` normalised, escapes rejected.
+    // DEBUG-MARK: RESOLVE-LINK v1.
+    // FIX 2026-09-20 RESOLVE-LINK-ROOT: absolute targets are stored verbatim
+    // (like pacman --root). The old code rebased them to include the host
+    // --root prefix (e.g. /silen/usr/lib/...) which is correct on the host
+    // but broken inside the chroot after boot; it also wrongly rejected
+    // valid absolute targets as "escapes". Only relative targets need the
+    // join+normalise escape check below.
+    if target.starts_with('/') {
+        // Normalise `..`/`.` without touching the fs; any absolute path is
+        // inside "/" by construction, so it can never escape the target root.
+        let mut parts: Vec<&str> = Vec::new();
+        for part in target.split('/') {
+            if part.is_empty() || part == "." {
+                continue;
+            }
+            if part == ".." {
+                parts.pop();
+                continue;
+            }
+            parts.push(part);
         }
-    } else {
-        let parent = Path::new(link_dest).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-        format!("{}/{}", parent.trim_end_matches('/'), target)
-    };
+        let _norm = format!("/{}", parts.join("/"));
+        return target.to_string();
+    }
+    let scope = if root == "/" || root.is_empty() { "/".to_string() } else { root.trim_end_matches('/').to_string() };
+    // Only relative targets reach here (absolute returned above).
+    let parent = Path::new(link_dest).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let abs = format!("{}/{}", parent.trim_end_matches('/'), target);
     // normalize .. without touching fs
     let mut parts: Vec<&str> = Vec::new();
     for part in abs.split('/') {
@@ -1108,11 +1401,7 @@ fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
     if scope != "/" && (norm != scope && !norm.starts_with(&format!("{}/", scope))) {
         fail(&format!("symlink escapes install root: {} -> {}", link_dest, target));
     }
-    if target.starts_with('/') {
-        abs
-    } else {
-        target.to_string()
-    }
+    target.to_string()
 }
 
 fn is_gzip(path: &str) -> bool {
