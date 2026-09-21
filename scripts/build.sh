@@ -724,6 +724,26 @@ if [ -d "$FIRMWARE_SOURCE" ]; then
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
 fi
 
+# FIX 2026-09-21 BLACK-SCREEN — GPU firmware (amdgpu/i915/...).
+# The repo firmware tree only carries Wi-Fi blobs, so without this the live
+# initramfs and the ISO firmware dir (which offline installs copy into the
+# target via install-modules) have NO graphics firmware. amdgpu/i915 then
+# refuse to modeset after GRUB and the screen stays black. Merge whatever
+# GPU blobs the firmware sources have (host /lib/firmware usually ships
+# linux-firmware); missing dirs are fine - skip silently.
+# SIZE 2026-09-22 — `nvidia` is deliberately NOT in this list: it alone is
+# ~200M of blobs that only work with the proprietary NVIDIA driver (which
+# the ISO installs later via spk on online installs), and shipping it would
+# push the ISO over 1.5GB. amdgpu+i915+xe+radeon are ~45M combined.
+for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
+	for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
+		[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
+		mkdir -p "$RAMROOT/lib/firmware/$_gpu_fw" || { echo "  ERROR cannot create firmware dir $_gpu_fw"; exit 1; }
+		cp -an "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ 2>/dev/null || \
+		cp -a "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw"; exit 1; }
+	done
+done
+
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
@@ -840,6 +860,19 @@ fi
 if [ -d rootfs/lib/firmware ]; then
 	echo "  adding firmware to ISO at firmware"
 	cp -a rootfs/lib/firmware "$ISO_DIR/firmware" || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
+	# FIX 2026-09-21 BLACK-SCREEN — same GPU-firmware merge as the initramfs
+	# above: offline installs copy /mnt/firmware into the target, so the ISO
+	# must carry graphics blobs too (repo tree only has Wi-Fi ones).
+	# SIZE 2026-09-22 — no `nvidia` here either (~200M, proprietary-driver
+	# only, would push the ISO over 1.5GB).
+	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
+		for _fwsrc in rootfs/lib/firmware "$HOST_FIRMWARE"; do
+			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
+			[ -e "$ISO_DIR/firmware/$_gpu_fw" ] && continue
+			mkdir -p "$ISO_DIR/firmware" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
+			cp -a "$_fwsrc/$_gpu_fw" "$ISO_DIR/firmware/" || { echo "  ERROR cannot copy GPU firmware $_gpu_fw to ISO"; exit 1; }
+		done
+	done
 fi
 
 STAGE3_TARBALL=""
@@ -976,7 +1009,7 @@ cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS" || { echo "  ERROR cannot copy 
 
 cat > "$ISO_DIR/boot/grub/grub.cfg" <<EOF
 set default=0
-set timeout=5
+set timeout=10
 
 insmod part_gpt
 insmod part_msdos
@@ -990,12 +1023,22 @@ insmod efi_uga
 if loadfont \$prefix/fonts/unicode.pf2; then
 	set gfxmode=auto
 fi
-terminal_output gfxterm
-set gfxpayload=keep
+# FIX 2026-09-21 BLACK-SCREEN — console fallback (see installer
+# setup-grub): a failed modeset must never freeze a black GOP frame on
+# screen. Verbose default so live-boot failures are visible. NOTE: no
+# `set gfxpayload` line — `text` is invalid on UEFI ("invalid video mode
+# specification `text'", blind mode, LP#1711452); the GRUB default is correct.
+terminal_output gfxterm console
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"
-	linux /boot/vmlinuz quiet loglevel=3
+	linux /boot/vmlinuz loglevel=4 console=tty0
+	initrd /boot/$INITRAMFS
+}
+
+menuentry "Silen Linux (fallback, nomodeset)" {
+	echo "Booting Silen (no KMS)"
+	linux /boot/vmlinuz nomodeset loglevel=4 console=tty0
 	initrd /boot/$INITRAMFS
 }
 EOF

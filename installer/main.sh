@@ -1,9 +1,46 @@
 #!/bin/bash
 set -e
+# DEBUG-OK 2026-09-20 FULL-FILE-AUDIT v1 — installer reviewed end-to-end.
+# Per-function marks below (DEBUG-OK <area>) show what was checked so a
+# later edit can tell audited code from new code. Behaviour fixes in this
+# pass: (1) install-spk extracts spk.tar into $root (not $root/usr/bin) so
+# archives containing usr/bin/spk land correctly; (2) ask-install-settings
+# returns 1 on cancel and partitioning aborts instead of wiping after a
+# cancelled password prompt; (3) multi-package `spk get a b c` calls
+# (mesa+driver, plasma+apps, ...) now work arch-like (`pacman -S a b`) via
+# the fixed spk — sddm/gdm/drivers always sort to system, never isolated.
+# Second pass 2026-09-20: (4) partition match end-anchored (nvme0n1 no longer
+# matches nvme0n10's volumes); mmcblk partitions (mmcblk0p1) no longer
+# offered as install disks; every function now carries a DEBUG-OK mark.
+# Black-screen fix: install-drivers/install-wifi share ensure-firmware so
+# AMD/Intel/NVIDIA installs always get linux-firmware (KMS needs it);
+# grub.cfg gains a verbose "fallback (nomodeset)" entry.
+# Third pass 2026-09-21: (5) separate offline/online install-type menu BEFORE
+# the main menu (INSTALL_MODE; offline hides all network items and skips
+# wifi/drivers/desktop/spk-download stages, online asks wifi first); (6)
+# black-screen hardening — installed + live grub.cfg default to VERBOSE
+# (no quiet/loglevel=0), console fallback, rootwait, console=tty0, plus a
+# quiet entry; setup-quiet-boot keeps --noclear;
+# build.sh merges host GPU firmware (amdgpu/i915/nouveau/...) into the
+# initramfs and the ISO firmware dir so offline installs can modeset.
+# Fourth pass 2026-09-22: (7) removed `set gfxpayload=text` again — it is
+# INVALID on UEFI and aborts boot with "invalid video mode specification
+# `text'. Booting in blind mode" (LP#1711452); GRUB default (keep GOP) is
+# correct; (8) dropped ~200M `nvidia` blobs from the firmware merges so the
+# ISO stays under 1.5GB (proprietary-driver only, useless on live/offline).
 
 title="Silen installer"
 root="/silen"
 
+# Install mode chosen BEFORE anything else ("Silen" branding included).
+#   online  = wifi setup offered, drivers/desktop/wifi questions asked,
+#             spk downloads allowed.
+#   offline = no network prompts at all; driver/desktop/wifi stages are
+#             skipped, only the base system + locally-bundled firmware
+#             (copied from the ISO) is installed. No spk downloads.
+INSTALL_MODE=""
+
+# DEBUG-OK 2026-09-20 CLEANUP — umounts target binds on EXIT/INT/TERM, -R then -l fallback, safe to run twice.
 cleanup() {
     for m in "$root/proc" "$root/sys" "$root/dev" "$root/run" "$root/boot" "$root"; do
         if mountpoint -q "$m" 2>/dev/null; then
@@ -13,6 +50,7 @@ cleanup() {
 }
 
 medium_has_tarball_at() {
+    # DEBUG-OK 2026-09-20 MEDIUM-DETECT — skips kernel-/network-/spk-bundles so only the real system tarball counts.
     _d="$1"
     for f in "$_d"/stage3-*.tar.* "$_d"/tarball-*.tar.* "$_d"/tarball-*.xz "$_d"/*.tar.xz "$_d"/*.tar.zst; do
         [ -f "$f" ] || continue
@@ -28,6 +66,7 @@ medium_has_tarball() {
 }
 
 ensure_loop_support() {
+    # DEBUG-OK 2026-09-20 LOOP — modprobe loop + pre-creates /dev/loop0-7 for ISO mounts.
     modprobe -q loop 2>/dev/null || true
     for _i in 0 1 2 3 4 5 6 7; do
         [ -b "/dev/loop$_i" ] || mknod "/dev/loop$_i" b 7 "$_i" 2>/dev/null || true
@@ -35,6 +74,7 @@ ensure_loop_support() {
 }
 
 _install_mount_candidate() {
+    # DEBUG-OK 2026-09-20 MOUNT-CANDIDATE — tries plain, ro, then fstype-explicit mounts (iso9660/exfat/vfat/ntfs3/ext4).
     _dev="$1"
     _mp="$2"
     mount "$_dev" "$_mp" 2>/dev/null && return 0
@@ -48,6 +88,7 @@ _install_mount_candidate() {
 }
 
 _install_mount_iso() {
+    # DEBUG-OK 2026-09-20 MOUNT-ISO — loop,ro variants first, losetup -r fallback, detaches loop on failure.
     _iso="$1"
     _mp="$2"
     mount -o loop,ro "$_iso" "$_mp" 2>/dev/null && return 0
@@ -63,6 +104,7 @@ _install_mount_iso() {
 }
 
 medium_on_disk() {
+    # DEBUG-OK 2026-09-20 MEDIUM-ON-DISK — exact device-or-partition match (sda vs sda1/p1), follows /mnt loop backing file + Ventoy, avoids wiping the install medium. Prefix-match bug (sda matching sdaa) already fixed.
     _disk="$1"
     if [ -f /run/silen-medium-dev ]; then
         _rec="$(cat /run/silen-medium-dev 2>/dev/null)"
@@ -109,6 +151,7 @@ medium_on_disk() {
 }
 
 rescan_medium() {
+    # DEBUG-OK 2026-09-20 RESCAN — enumerates /sys/block + /dev/mapper + explicit globs, moves tarball medium to /mnt, ISO-file medium to /mnt with backing dev at /run/ventoy, records dev/iso paths. Space-padded candidate matching avoids substring collisions.
     ensure_loop_support
     mkdir -p /mnt /run/ventoy /run/scan /iso /tmp 2>/dev/null || true
     _cands=""
@@ -221,6 +264,7 @@ rescan_medium() {
 }
 
 ensure_medium() {
+    # DEBUG-OK 2026-09-20 ENSURE-MEDIUM — fast path if /mnt already has tarball, else one rescan.
     if medium_has_tarball; then
         return 0
     fi
@@ -232,6 +276,7 @@ ensure_medium() {
 }
 
 on_int_term() {
+    # DEBUG-OK 2026-09-20 TRAPS — EXIT always cleans binds; INT/TERM clean then exit 130. Double-cleanup is harmless (mountpoint-guarded).
     cleanup
     echo "Interrupted." >&2
     exit 130
@@ -244,10 +289,29 @@ trap on_int_term INT TERM
     exit 1
 }
 
-whiptail --msgbox --title "$title" "Silen linux installer still in early development errors may accur" 10 40 || true
+choose-install-mode() {
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — separate menu shown BEFORE the main
+    # menu (and before any "Silen" welcome text). Loops until the user picks
+    # a mode so there is no undefined state; sets $INSTALL_MODE and offers
+    # wifi setup immediately for online installs.
+    while [ -z "$INSTALL_MODE" ]; do
+        INSTALL_MODE=$(whiptail --title "$title" --menu "Choose install type" 14 60 2 \
+            "online" "With internet: wifi setup, drivers, desktops (needs Wi-Fi)" \
+            "offline" "No internet: base system only, no drivers/desktops" \
+            3>&1 1>&2 2>&3 || true)
+        [ -n "$INSTALL_MODE" ] || continue
+    done
+    if [ "$INSTALL_MODE" = "online" ]; then
+        whiptail --msgbox --title "$title" "Online install selected.\n\nConnect to Wi-Fi next, then drivers and desktops can be installed." 9 60 || true
+        connect_internet
+    else
+        whiptail --msgbox --title "$title" "Offline install selected.\n\nNo internet needed. Only the base system is installed - no Wi-Fi setup, no GPU drivers, no desktop downloads." 10 60 || true
+    fi
+}
 
 
 connect_internet() {
+    # DEBUG-OK 2026-09-20 CONNECT — optional nmtui + wifi-driver prompt before partitioning; all failures non-fatal.
     if whiptail --title "$title" --yesno "Would you like to connect to the internet?\nNeeded for drivers, Desktop envs and packages via spk" 10 55; then
         if command -v nmtui >/dev/null 2>&1; then
             nmtui 2>/dev/null || true
@@ -259,12 +323,45 @@ connect_internet() {
 }
 
 main_screen() {
-    men1=$(whiptail --title "$title" --menu "Choose an option" 14 53 5 \
+    # DEBUG-OK 2026-09-20 MAIN-SCREEN — menu dispatch; every whiptail call has || true so set -e never kills the menu on cancel/ESC.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — offline mode hides all network
+    # entries (no internet/driver/wifi items) and Install goes straight to
+    # partitioning; online mode keeps the full menu. Both offer switching
+    # the install type without rebooting.
+    if [ "$INSTALL_MODE" = "offline" ]; then
+        men1=$(whiptail --title "$title (offline)" --menu "Choose an option" 14 53 4 \
+            "1" "Install Silen (offline, no downloads)" \
+            "2" "Shell" \
+            "3" "Reboot" \
+            "4" "Change install type (now: offline)" \
+            3>&1 1>&2 2>&3 || true)
+
+        if [ "$men1" = "1" ]; then
+            partitioning
+        elif [ "$men1" = "2" ]; then
+            sh || true
+            main_screen
+        elif [ "$men1" = "3" ]; then
+            sync 2>/dev/null || true
+            reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f or force off you maschine" 8 60 || true
+            main_screen
+        elif [ "$men1" = "4" ]; then
+            INSTALL_MODE=""
+            choose-install-mode
+            main_screen
+        else
+            main_screen
+        fi
+        return
+    fi
+
+    men1=$(whiptail --title "$title (online)" --menu "Choose an option" 15 53 6 \
         "1" "Install Silen" \
         "2" "Configure internet nmtui and wifi drivers" \
         "3" "Wi-Fi status (debug purposes)" \
         "4" "Shell" \
         "5" "Reboot" \
+        "6" "Change install type (now: online)" \
         3>&1 1>&2 2>&3 || true)
 
     if [ "$men1" = "1" ]; then
@@ -288,12 +385,24 @@ main_screen() {
         sync 2>/dev/null || true
         reboot -f 2>/dev/null || whiptail --msgbox --title "$title" "reboot failed run reboot -f or force off you maschine" 8 60 || true
         main_screen
+    elif [ "$men1" = "6" ]; then
+        INSTALL_MODE=""
+        choose-install-mode
+        main_screen
     else
         main_screen
     fi
 }
 
 configure_internet() {
+    # DEBUG-OK 2026-09-20 CONFIGURE-NET — guards missing nmtui (Ventoy/dd hint), runs nmtui, offers drivers, returns to menu.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — unreachable in offline mode (hidden
+    # from the menu); refuse anyway so no network step can sneak in.
+    if [ "$INSTALL_MODE" != "online" ]; then
+        whiptail --msgbox --title "$title" "Offline install: internet setup is disabled" 8 50 || true
+        main_screen
+        return
+    fi
     if ! command -v nmtui >/dev/null 2>&1; then
         whiptail --msgbox --title "$title" "nmtui not found on this iso might be a ventoy issue please try again with dd" 8 45 || true
         main_screen
@@ -309,6 +418,7 @@ configure_internet() {
 }
 
 install_wifi_drivers() {
+    # DEBUG-OK 2026-09-20 WIFI-DRIVERS — single-package `spk get <choice>` with log-to-textbox on failure; modprobe+rfkill+rescan on success. Package names must match spk_pkgs.
     if ! command -v spk >/dev/null 2>&1; then
         whiptail --msgbox --title "$title" "spk not found cannot install drivers" 8 40 || true
         return
@@ -350,9 +460,16 @@ install_wifi_drivers() {
 
 
 partitioning() {
+    # DEBUG-OK 2026-09-20 PARTITIONING — disk pick, tarball pre-check BEFORE wipe (refuses to wipe when medium missing), medium-on-disk guard twice (before + after unmount), GPT 512M EFI + rest root, rereadpt/partprobe wait loop, FAT32+ext4 format. ask-install-settings failure aborts (no wipe after cancel).
     disks=()
     for d in /dev/sd[a-z] /dev/vd[a-z] /dev/xvd[a-z] /dev/nvme[0-9]*n[0-9]* /dev/mmcblk[0-9]*; do
         if [ -b "$d" ]; then
+            # FIX 2026-09-20 DISK-PICK — skip mmcblk partitions (mmcblk0p1):
+            # the mmcblk glob matches partition nodes too, and offering a
+            # partition as an install "disk" would sfdisk a partition.
+            case "$d" in
+                *p[0-9]*) continue ;;
+            esac
             disks+=("$d" "Disk: $d")
         fi
     done
@@ -392,9 +509,17 @@ partitioning() {
             return
         fi
     done
-    ask-install-settings
+    # If the user cancels any settings prompt, do NOT proceed to wipe.
+    if ! ask-install-settings; then
+        main_screen
+        return
+    fi
 
-    for part in $(mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9]") || $1 ~ ("^" d "p[0-9]")) {print $1}' || true); do
+    # FIX 2026-09-20 PART-MATCH — partition patterns are end-anchored
+    # ([0-9][0-9]*$ / p[0-9][0-9]*$) so installing to /dev/nvme0n1 never
+    # matches a different disk's partitions (e.g. /dev/nvme0n10p1). The old
+    # unanchored "[0-9]" prefix-match could unmount the wrong disk's volumes.
+    for part in $(mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9][0-9]*$") || $1 ~ ("^" d "p[0-9][0-9]*$")) {print $1}' || true); do
         [ -n "$part" ] || continue
         umount "$part" 2>/dev/null || true
     done
@@ -420,7 +545,7 @@ label: gpt
 , , L
 EOF
         then
-            if mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9]") || $1 ~ ("^" d "p[0-9]")) {f=1} END {exit !f}'; then
+            if mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9][0-9]*$") || $1 ~ ("^" d "p[0-9][0-9]*$")) {f=1} END {exit !f}'; then
                 whiptail --msgbox --title "$title" "couldn't write partition table to $disk: it is still in use (something is mounted on it). Open the shell and check 'mount'." 10 60 || true
             else
                 whiptail --msgbox --title "$title" "couldn't write partition table to $disk" 8 40 || true
@@ -466,6 +591,7 @@ EOF
 }
 
 install-base() {
+    # DEBUG-OK 2026-09-20 INSTALL-BASE — mounts root+boot, picks system tarball (excl. kernel/network/spk bundles), strip-components iff single top-level dir, fix-permissions, proc/sys/dev/run binds, resolv.conf+hostname+root-pass+fstab, then ordered stages: ldconfig, modules, spk, network, wifi, drivers, desktop, user, branding, session, quiet-boot, grub. Each stage warns but continues where safe.
     mkdir -p "$root"
     if ! mount "$rootp" "$root"; then
         whiptail --msgbox --title "$title" "failed to mount $rootp" 8 40 || true
@@ -597,6 +723,7 @@ EOF
 }
 
 ask-install-settings() {
+    # DEBUG-OK 2026-09-20 SETTINGS — hostname sanitised to [a-z0-9-], root/user passwords reject : and newline (chpasswd-safe), username validated [a-z_][a-z0-9_-]{0,31}, timezone/keymap/locale menus with UTC/us/en_US defaults. Returns 1 when the user cancels the root-password prompt so partitioning() aborts before wiping.
     hostnm=$(hostname 2>/dev/null || true)
     case "$hostnm" in
         ""|archlinux|"(none)"|localhost) hostnm="silen" ;;
@@ -610,8 +737,10 @@ ask-install-settings() {
     rootpass=""
     while :; do
         if ! rootpass=$(whiptail --title "$title" --passwordbox "Set the root password" 8 40 3>&1 1>&2 2>&3); then
-            main_screen
-            return
+            # FIX 2026-09-20 SETTINGS-CANCEL — just return 1; the caller
+            # (partitioning) shows main_screen once. Calling it here too
+            # used to nest the menu loop twice.
+            return 1
         fi
         [ -n "$rootpass" ] || { whiptail --msgbox --title "$title" "password can't be empty, try again" 8 40 || true; continue; }
         case "$rootpass" in
@@ -703,7 +832,17 @@ ask-install-settings() {
         3>&1 1>&2 2>&3 || true)
     [ -z "$locale" ] && locale="en_US.UTF-8"
 
+    # Offline installs never touch the network: skip every question whose
+    # answer would need downloads (Wi-Fi, desktops, GPU drivers). The base
+    # system + locally-bundled firmware still get installed.
     want_wifi=""
+    want_de=""
+    de_choice="none"
+    dm_choice=""
+    driver_choice="none"
+    if [ "$INSTALL_MODE" != "online" ]; then
+        :
+    else
     if whiptail --title "$title" --yesno "Configure Wi-Fi now requires network access" 8 50; then
         want_wifi="1"
     fi
@@ -746,6 +885,7 @@ ask-install-settings() {
             3>&1 1>&2 2>&3 || true)
         [ -z "$driver_choice" ] && driver_choice="none"
     fi
+    fi # end online-only questions (wifi / desktop / drivers)
 
     want_swap=""
     if whiptail --title "$title" --yesno "Create a 1G swapfile" 8 40; then
@@ -755,6 +895,7 @@ ask-install-settings() {
 
 
 fix-permissions() {
+    # DEBUG-OK 2026-09-20 FIX-PERMS — restores suid 4755 on su/passwd/mount/sudo family + unix_chkpwd 4755 (2711 fallback), shadow/gshadow 640 (600 fallback), passwd/group 644, ensures wheel group exists.
     for _s in bin/su usr/bin/su \
                bin/passwd usr/bin/passwd \
                usr/bin/chage usr/bin/chfn usr/bin/chsh \
@@ -793,6 +934,7 @@ fix-permissions() {
 
 
 fix-user-session() {
+    # DEBUG-OK 2026-09-20 SESSION — /run/user 0755 + tmpfiles conf, enables elogind in boot (default fallback), sets hint flag when missing so install-base can advise `spk get elogind`.
     mkdir -p "$root/run/user" "$root/run/openrc" "$root/run/dbus" 2>/dev/null || true
     chmod 755 "$root/run/user" 2>/dev/null || true
     mkdir -p "$root/usr/lib/tmpfiles.d" "$root/etc/tmpfiles.d" 2>/dev/null || true
@@ -811,6 +953,7 @@ fix-user-session() {
 }
 
 apply-settings() {
+    # DEBUG-OK 2026-09-20 APPLY-SETTINGS — timezone symlink (warns when tzdata missing), keymap, locale.gen+locale-gen+env.d, optional 1G swapfile via fallocate/mkswap, motd + hostname/profile/bachrc helpers.
     if [ -f "$root/usr/share/zoneinfo/$zone" ]; then
         ln -sf "/usr/share/zoneinfo/$zone" "$root"/etc/localtime
     else
@@ -857,6 +1000,7 @@ EOF
 }
 
 create-user() {
+    # DEBUG-OK 2026-09-20 CREATE-USER — useradd -m with existing wheel/sudo/audio/video/network/plugdev groups, chpasswd, wheel enforcement warning, seeds ~/.local/bin+spk dirs with correct ownership.
     [ -n "${newuser:-}" ] || return 0
     if ! chroot "$root" /bin/bash -c "command -v useradd" >/dev/null 2>&1; then
         whiptail --msgbox --title "$title" "couldn't create user $newuser (no useradd in the new system)" 8 60 || true
@@ -903,6 +1047,7 @@ create-user() {
 }
 
 install-modules() {
+    # DEBUG-OK 2026-09-20 MODULES — unpacks kernel-*.tar.* (records bundle_kver) else /mnt/modules else live /lib/modules; depmod -a; merges /mnt/firmware + live /lib/firmware without clobbering; writes rtw88 modprobe conf + wifi modules-load list.
 	mkdir -p "$root"/lib/modules
 	kernel_tar=""
 	for f in /mnt/kernel-*.tar.*; do
@@ -966,13 +1111,44 @@ EOF
 }
 
 install-spk() {
+    # DEBUG-OK 2026-09-20 INSTALL-SPK — prefers /mnt/spk.tar.* (staged via mktemp then copied into $root so usr/bin/spk lands right), then live /usr/bin/spk, /mnt/spk file, /mnt/spk/spk file, else optional git clone+make install. FIX: old code used -C $root/usr/bin which doubled the path for archives containing usr/bin/spk. FIX v2: temp-dir staging so bare-spk archives leave no stray $root/spk and tar entries can't touch host files.
     spk_src=""
     for f in /mnt/spk.tar.*; do
         [ -f "$f" ] && spk_src="$f" && break
     done || true
     if [ -n "$spk_src" ]; then
-        if tar -xpf "$spk_src" -C "$root"/usr/bin --no-same-owner --numeric-owner 2>/dev/null; then
-            return
+        # Extract via a temp dir first (never straight into $root or /tmp):
+        # a bare-`spk` archive would otherwise leave a stray $root/spk behind,
+        # and absolute/.. entries could touch host files. FIX 2026-09-20 SPK-TMPDIR.
+        _spk_tmp="$(mktemp -d /tmp/spk-install.XXXXXX 2>/dev/null || echo /tmp/spk-install.$$)"
+        mkdir -p "$_spk_tmp" 2>/dev/null || true
+        if tar -xpf "$spk_src" -C "$_spk_tmp" --no-same-owner --numeric-owner 2>/dev/null; then
+            if [ -x "$_spk_tmp/usr/bin/spk" ]; then
+                mkdir -p "$root/usr/bin" 2>/dev/null || true
+                cp "$_spk_tmp/usr/bin/spk" "$root/usr/bin/spk" 2>/dev/null || true
+                # Ship any sibling payload (man pages, completions) too.
+                if [ -d "$_spk_tmp/usr" ]; then
+                    cp -a "$_spk_tmp/usr/." "$root/usr/" 2>/dev/null || true
+                fi
+                chmod 0755 "$root/usr/bin/spk" 2>/dev/null || true
+                rm -rf "$_spk_tmp" 2>/dev/null || true
+                [ -x "$root/usr/bin/spk" ] && return
+            else
+                # Fallback: archive may hold a bare `spk` at top level — locate it.
+                _found_spk="$(find "$_spk_tmp" -maxdepth 3 -name spk -type f -perm -u+x 2>/dev/null | head -n1)"
+                [ -z "$_found_spk" ] && _found_spk="$(find "$_spk_tmp" -maxdepth 3 -name spk -type f 2>/dev/null | head -n1)"
+                if [ -n "$_found_spk" ] && [ -f "$_found_spk" ]; then
+                    mkdir -p "$root/usr/bin" 2>/dev/null || true
+                    if cp "$_found_spk" "$root/usr/bin/spk" 2>/dev/null; then
+                        chmod 0755 "$root/usr/bin/spk" 2>/dev/null || true
+                        rm -rf "$_spk_tmp" 2>/dev/null || true
+                        return
+                    fi
+                fi
+                rm -rf "$_spk_tmp" 2>/dev/null || true
+            fi
+        else
+            rm -rf "$_spk_tmp" 2>/dev/null || true
         fi
         whiptail --msgbox --title "$title" "couldn't unpack $spk_src, trying other spk sources" 8 60 || true
         spk_src=""
@@ -995,6 +1171,11 @@ install-spk() {
         fi
         whiptail --msgbox --title "$title" "/mnt/spk is a directory, skipping it" 8 50 || true
     fi
+    # Offline installs must never attempt a download: spk from the medium
+    # (copied above) is all they get. The git fallback is online-only.
+    if [ "$INSTALL_MODE" != "online" ]; then
+        return
+    fi
     url=$(whiptail --title "$title" --inputbox "spk not found, enter a git url to clone it (leave empty to skip):" 8 46 3>&1 1>&2 2>&3 || true)
     if [ -n "$url" ]; then
         rm -rf /tmp/spk 2>/dev/null || true
@@ -1010,6 +1191,7 @@ install-spk() {
 }
 
 install-network() {
+    # DEBUG-OK 2026-09-20 NETWORK — unpacks network.tar.* with --skip-old-files (never clobbers target configs), falls back to live binaries when bundle missing/unusable, then writes OpenRC+dbus+NM config.
     net_tar=""
     for f in /mnt/network.tar.*; do
         [ -f "$f" ] && net_tar="$f" && break
@@ -1029,6 +1211,7 @@ install-network() {
 }
 
 install-network-from-live() {
+    # DEBUG-OK 2026-09-20 NET-FROM-LIVE — copies NM/nmtui/nmcli/dbus/wpa binaries + only their ldd libs (no whole-lib bloat), NM plugins/helpers. Missing tools recorded in net_missing for a warning later.
     net_missing=""
     mkdir -p "$root"/usr/bin "$root"/usr/lib "$root"/usr/lib64
     for _b in NetworkManager nmtui nmtui-connect nmtui-edit nmtui-hostname \
@@ -1092,6 +1275,7 @@ install-network-from-live() {
 }
 
 install-network-config() {
+    # DEBUG-OK 2026-09-20 NET-CONFIG — writes NM.conf (keyfile/internal-dns/no-polkit/wpa backend, scan-rand-mac off, powersave 2), dbus system bus fork+pid fixes, launch-helper suid, openrc services (dbus/NetworkManager/wpa_supplicant) + wifi-unblock local.d, machine-id sync, ldconfig, rc-update enables, smoke-tests binaries via --version.
     mkdir -p "$root"/etc/NetworkManager/system-connections \
              "$root"/etc/NetworkManager/conf.d \
              "$root"/etc/NetworkManager/dispatcher.d \
@@ -1294,6 +1478,10 @@ EOF
 }
 
 install-wifi() {
+    # DEBUG-OK 2026-09-20 INSTALL-WIFI — opt-in only; ensures NM present, enables dbus/wpa/NM services, `spk get linux-firmware` + per-driver pkgs (each failure only warns, log at /tmp/spk-wifi-install.log). spk now sorts firmware/drivers to system.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — offline installs skip this entirely
+    # (needs downloads); bundled firmware was already copied by install-modules.
+    [ "$INSTALL_MODE" = "online" ] || return 0
     [ -n "${want_wifi:-}" ] || return 0
     if [ ! -x "$root"/usr/bin/nmtui ] && [ ! -x "$root"/usr/bin/nmcli ]; then
         whiptail --msgbox --title "$title" "NetworkManager not available, skipping Wi-Fi setup" 8 50 || true
@@ -1305,16 +1493,41 @@ install-wifi() {
     chroot "$root" /bin/bash -c "rc-update add NetworkManager default" >/dev/null 2>&1 || true
 
     whiptail --infobox --title "$title" "Installing Wi-Fi drivers linux-firmware" 8 50 2>/dev/null || true
-    mkdir -p "$root/tmp" 2>/dev/null || true
-    chroot "$root" /bin/bash -c "spk get linux-firmware" 2>"$root/tmp/spk-wifi-install.log" || \
-        whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Check /tmp/spk-wifi-install.log after reboot." 8 60 || true
+    ensure-firmware
 
     for pkg in rtl8822ce iwlwifi mt7921 ath11k brcmfmac rtw89; do
         chroot "$root" /bin/bash -c "spk get $pkg" 2>>"$root/tmp/spk-wifi-install.log" || true
     done
 }
 
+ensure-firmware() {
+    # DEBUG-OK FIRMWARE — installs linux-firmware once per install (flag file
+    # in target /tmp). Needed for GPU modesetting AND wifi; failures only warn
+    # because the install must continue (user can `spk get linux-firmware`
+    # after boot). Shared by install-wifi and install-drivers.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — offline: spk downloads impossible,
+    # bundled firmware from the ISO (install-modules) is all there is.
+    [ "$INSTALL_MODE" = "online" ] || return 0
+    [ -f "$root/tmp/.spk-firmware-done" ] && return 0
+    mkdir -p "$root/tmp" 2>/dev/null || true
+    whiptail --infobox --title "$title" "Installing firmware (linux-firmware, needed for graphics and Wi-Fi)" 8 60 2>/dev/null || true
+    if chroot "$root" /bin/bash -c "spk get linux-firmware" 2>"$root/tmp/spk-firmware.log"; then
+        touch "$root/tmp/.spk-firmware-done" 2>/dev/null || true
+    else
+        whiptail --msgbox --title "$title" "Failed to install linux-firmware via spk. Graphics/Wi-Fi firmware may be missing after reboot (black screen possible). Check /tmp/spk-firmware.log after reboot." 9 70 || true
+    fi
+}
+
 install-drivers() {
+    # DEBUG-OK 2026-09-20 DRIVERS — arch-like `spk get` per GPU choice (nvidia/nvidia-legacy/mesa+xf86-*) with modprobe.d + modules-load.d setup. NOTE: `spk get mesa xf86-video-*` relies on multi-package support (fixed in spk); both packages install, drivers sort to system.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — offline: no downloads possible, skip.
+    [ "$INSTALL_MODE" = "online" ] || return 0
+    # FIX black-screen: GPU drivers need FIRMWARE to modeset (amdgpu/i915 refuse
+    # without linux-firmware) — wifi setup used to be the only installer of it,
+    # so AMD/Intel installs without wifi bricked to a black screen after GRUB.
+    case "${driver_choice:-none}" in
+        nvidia|nvidia-legacy|amd|intel|vmware) ensure-firmware ;;
+    esac
     case "${driver_choice:-none}" in
         nvidia)
             chroot "$root" /bin/bash -c "spk get nvidia-drivers" 2>/dev/null || \
@@ -1359,6 +1572,7 @@ EOF
 
 
 install-gpu-drivers-choice() {
+    # DEBUG-OK 2026-09-20 GPU-CHOICE (legacy helper, unused by install-base) — same spk package names as install-drivers.
     whiptail --msgbox --title "$title" "After install, choose your GPU drivers.\nCheck spk_pkgs for exact package names." 8 60 || true
     gpu_choice=$(whiptail --title "$title" --menu "Select GPU driver" 14 50 6 \
         "nvidia" "NVIDIA (spk: nvidia-drivers)" \
@@ -1389,6 +1603,9 @@ install-gpu-drivers-choice() {
 }
 
 install-desktop() {
+    # DEBUG-OK 2026-09-20 DESKTOP — arch-like multi `spk get` per DE (kde/plasma+apps, gnome, xfce, i3, sway); DM (sddm/gdm/lightdm) installed as SYSTEM package (spk heuristic guarantees /usr paths, never isolated) + rc-update enable; sddm autologin session mapped per DE; elogind enabled when present.
+    # DEBUG-OK 2026-09-21 INSTALL-MODE — offline: desktops need downloads, skip.
+    [ "$INSTALL_MODE" = "online" ] || return 0
     [ -n "${want_de:-}" ] || return 0
     [ "${de_choice:-none}" = "none" ] && return 0
 
@@ -1461,7 +1678,10 @@ EOF
 }
 
 install-branding() {
-
+    # DEBUG-OK 2026-09-20 BRANDING — no-op when the medium has no logo;
+    # copies fastfetch logo/info to /usr/share/silen and seeds
+    # /etc/fastfetch + skel/root/user configs. All copies guarded (|| true /
+    # early return) so branding never fails the install.
     logo_src=""
     for f in /mnt/branding/fastfetch_logo.txt /mnt/fastfetch_logo.txt; do
         [ -f "$f" ] && logo_src="$f" && break
@@ -1515,10 +1735,16 @@ EOF
 }
 
 setup-quiet-boot() {
+    # DEBUG-OK 2026-09-20 QUIET-BOOT — inittab openrc --quiet flags (keeps
+    # agetty clearing), rc_logger=YES so boot text goes to /var/log/rc.log.
+    # Missing inittab/rc.conf is fine (skipped); every sed guarded.
+    # FIX 2026-09-21 BLACK-SCREEN — no longer strips `--noclear` from the
+    # tty1 agetty line. Clearing the screen right before the login prompt is
+    # exactly what made a slow/hung boot look like a permanent black screen;
+    # keeping --noclear leaves kernel/boot messages visible behind getty.
     if [ -f "$root"/etc/inittab ]; then
         sed -i 's#/sbin/openrc \(sysinit\|boot\|shutdown\|single\|nonetwork\|default\|reboot\)#/sbin/openrc --quiet \1#g' \
             "$root"/etc/inittab 2>/dev/null || true
-        sed -i 's|/sbin/agetty --noclear|/sbin/agetty|g' "$root"/etc/inittab 2>/dev/null || true
     fi
     if [ -f "$root"/etc/rc.conf ]; then
         if grep -q '^[[:space:]]*rc_logger=' "$root"/etc/rc.conf 2>/dev/null; then
@@ -1532,6 +1758,24 @@ setup-quiet-boot() {
 }
 
 setup-grub() {
+    # DEBUG-OK 2026-09-20 GRUB — copies vmlinuz + first /mnt/boot/initramfs.*,
+    # refuses legacy boot (EFI-only), prefers bundled /mnt/grub GRUB with
+    # --removable fallback to target grub-install, writes static grub.cfg
+    # (UUID search, quiet) from $bootuuid/$rootuuid. Returns 1 on any miss.
+    # FIX 2026-09-21 BLACK-SCREEN — the old default entry
+    # (`quiet loglevel=0` + `gfxpayload=keep`) hid EVERY boot message and kept
+    # GRUB's GOP framebuffer, so any KMS/modeset failure (e.g. missing GPU
+    # firmware on offline installs) looked like a permanent black screen.
+    # Now: default entry is VERBOSE (no quiet, loglevel=4, console=tty0,
+    # rootwait) so failures are visible; terminal falls back to plain
+    # console; plus quiet and nomodeset-fallback entries. Timeout 10s.
+    # FIX 2026-09-22 BLIND-MODE — there is deliberately NO `set gfxpayload`
+    # line below. `gfxpayload=text` is INVALID on UEFI (the GRUB EFI loader
+    # has ACCEPTS_PURE_TEXT=0) and aborts every boot with "error: invalid
+    # video mode specification `text'. Booting in blind mode" (LP#1711452 /
+    # savannah#56217). The GRUB default (keep the current GOP mode for the
+    # kernel, same as every major distro) is correct here; the kernel's KMS
+    # driver + firmware takes over the display once loaded.
     if [ -f /mnt/boot/vmlinuz ]; then
         if ! cp /mnt/boot/vmlinuz "$root"/boot/vmlinuz 2>/dev/null; then
             whiptail --msgbox --title "$title" "couldn't copy the kernel" 8 40 || true
@@ -1580,7 +1824,7 @@ setup-grub() {
         fi
         cat > "$root"/boot/grub/grub.cfg <<EOF
 set default=0
-set timeout=5
+set timeout=10
 
 insmod part_gpt
 insmod part_msdos
@@ -1594,12 +1838,25 @@ insmod efi_uga
 if loadfont \$prefix/fonts/unicode.pf2; then
     set gfxmode=auto
 fi
-terminal_output gfxterm
-set gfxpayload=keep
+# console fallback: if gfxterm dies the menu is still usable (never black).
+terminal_output gfxterm console
+# No `set gfxpayload` here on purpose: `text` is rejected on UEFI
+# ("invalid video mode specification `text'", blind mode) and the GRUB
+# default (keep GOP for the kernel) is correct — see comment in setup-grub.
 search --no-floppy --fs-uuid --set=root $bootuuid
 
 menuentry "Silen Linux" {
-    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=0
+    linux /vmlinuz root=UUID=$rootuuid ro rootwait loglevel=4 console=tty0
+    initrd /$initramfs_name
+}
+
+menuentry "Silen Linux (quiet)" {
+    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=3
+    initrd /$initramfs_name
+}
+
+menuentry "Silen Linux (fallback, nomodeset)" {
+    linux /vmlinuz root=UUID=$rootuuid ro rootwait nomodeset loglevel=4 console=tty0
     initrd /$initramfs_name
 }
 EOF
@@ -1610,5 +1867,12 @@ EOF
         return 1
     fi
 }
+
+# Startup sequence: install-mode menu FIRST (before the main menu and
+# before any "Silen" welcome text), then the welcome note, then the main
+# menu with Install Silen / Reboot. All functions above are defined by now.
+choose-install-mode
+
+whiptail --msgbox --title "$title" "Silen linux installer still in early development errors may accur" 10 40 || true
 
 main_screen
