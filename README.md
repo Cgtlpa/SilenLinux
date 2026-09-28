@@ -1,4 +1,4 @@
-# Silen Linux
+# Silen Linux, the future of Operating systems
 
 > Reliable by default. Powerful when you want it.
 
@@ -23,7 +23,7 @@ Silen Linux is an independent Linux distribution focused on simplicity, stabilit
 3. Boot from the USB.
 4. Follow the installer.
 5. Reboot into Silen.
-6. Its that simple :p
+6. Its that simple :P
 
 ---
 
