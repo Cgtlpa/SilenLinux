@@ -10,7 +10,7 @@ for _kv in rootfs/lib/modules/[0-9]*; do
 	DEFAULT_KVER="${_kv##*/}"
 	break
 done
-KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-7.2.4-zen2-1-zen}}"
+KERNEL_VERSION="${KERNEL_VERSION:-${DEFAULT_KVER:-6.18.54-silen}}"
 KERNEL_SOURCE="${KERNEL_SOURCE:-boot/vmlinuz}"
 MODULES_SOURCE="${MODULES_SOURCE:-rootfs/lib/modules/$KERNEL_VERSION}"
 FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-rootfs/lib/firmware}"
@@ -39,6 +39,7 @@ ALLOW="
 	nls_utf8 nls_cp437 nls_iso8859-1 dm_mod md_mod loop
 	i8042 psmouse
 	exfat cdc_ether rndis_host rndis_wlan alx 8139too via-rhine
+	bochs cirrus-qemu qxl virtio-gpu vboxvideo vmwgfx
 "
 
 ALLOW_WIFI="
@@ -407,8 +408,8 @@ copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
 
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
 copy_app mkfs.vfat /usr/sbin/mkfs.vfat
-copy_app blkid   /usr/sbin/blkid
-copy_app sfdisk  /usr/bin/sfdisk
+if [ -f /usr/bin/blkid ]; then copy_app blkid /usr/bin/blkid; elif [ -f /usr/sbin/blkid ]; then copy_app blkid /usr/sbin/blkid; else echo "  ERROR required tool missing: blkid (install it first)"; exit 1; fi
+if [ -f /usr/bin/sfdisk ]; then copy_app sfdisk /usr/bin/sfdisk; elif [ -f /usr/sbin/sfdisk ]; then copy_app sfdisk /usr/sbin/sfdisk; else echo "  ERROR required tool missing: sfdisk (install it first)"; exit 1; fi
 copy_app tar     /usr/bin/tar
 ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
 ln -sf /usr/bin/blkid    "$RAMROOT/bin/blkid"
@@ -597,10 +598,12 @@ copy_firmware() {
 				# Merge per-file so the second source fills gaps instead of
 				# being skipped when the first source already made the dir.
 				mkdir -p "$RAMROOT/lib/firmware/$rel" || { echo "  ERROR cannot create firmware dir $rel"; exit 1; }
+				find "$RAMROOT/lib/firmware/$rel" -xtype l -delete 2>/dev/null || true
 				cp -an "$f"/. "$RAMROOT/lib/firmware/$rel"/ 2>/dev/null || cp -a "$f"/. "$RAMROOT/lib/firmware/$rel"/ || { echo "  ERROR cannot copy firmware dir $rel"; exit 1; }
 			else
 				local target="$RAMROOT/lib/firmware/$rel"
 				mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+				if [ -L "$target" ] && [ ! -e "$target" ]; then rm -f "$target"; fi
 				[ -f "$target" ] || cp "$f" "$target" || { echo "  ERROR cannot copy firmware $rel"; exit 1; }
 			fi
 		done
@@ -612,12 +615,14 @@ copy_firmware() {
 				local rel="${f#$src/}"
 				local target="$RAMROOT/lib/firmware/$rel"
 				mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+				if [ -L "$target" ] && [ ! -e "$target" ]; then rm -f "$target"; fi
 				[ -f "$target" ] || cp "$f" "$target" || { echo "  ERROR cannot copy firmware $rel"; exit 1; }
 			done
 		fi
 		if [ "$found" = 0 ] && [ -f "$src/$fw.zst" ]; then
 			local target="$RAMROOT/lib/firmware/$fw.zst"
 			mkdir -p "$(dirname "$target")" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+			if [ -L "$target" ] && [ ! -e "$target" ]; then rm -f "$target"; fi
 			[ -f "$target" ] || cp "$src/$fw.zst" "$target" || { echo "  ERROR cannot copy firmware $fw.zst"; exit 1; }
 		fi
 	done
@@ -722,6 +727,7 @@ fi
 if [ -d "$FIRMWARE_SOURCE" ]; then
 	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO"
 	mkdir -p "$RAMROOT/lib/firmware" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+	find "$RAMROOT/lib/firmware" -xtype l -delete 2>/dev/null || true
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
 fi
 
@@ -1033,13 +1039,13 @@ terminal_output gfxterm console
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"
-	linux /boot/vmlinuz loglevel=4 console=tty0
+	linux /boot/vmlinuz loglevel=4 console=tty0 console=ttyS0
 	initrd /boot/$INITRAMFS
 }
 
 menuentry "Silen Linux (fallback, nomodeset)" {
 	echo "Booting Silen (no KMS)"
-	linux /boot/vmlinuz nomodeset loglevel=4 console=tty0
+	linux /boot/vmlinuz nomodeset loglevel=4 console=tty0 console=ttyS0
 	initrd /boot/$INITRAMFS
 }
 EOF
