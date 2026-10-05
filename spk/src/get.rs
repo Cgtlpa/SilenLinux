@@ -12,7 +12,7 @@ use std::process;
 use sha2::Digest;
 use sha2::Sha256;
 
-const DEFAULT_BASE: &str = "https://raw.githubusercontent.com/Cgtlpa/spk_pkgs/main/packages";
+const DEFAULT_BASE: &str = "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages";
 
 // [SPK-DEBUG-OK 2026-09-20] system-vs-isolated sorting audited.
 // Rule (arch-like): system packages install straight into / (like `pacman -S`)

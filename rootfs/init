@@ -16,6 +16,10 @@ for _q in $(cat /proc/cmdline 2>/dev/null); do
 	[ "$_q" = "quiet" ] && QUIET=1 && break
 done
 qecho() { [ -n "$QUIET" ] || echo "$@"; }
+note() {
+	echo "$@"
+	[ -c /dev/ttyS0 ] && echo "$@" > /dev/ttyS0 2>/dev/null || true
+}
 
 if [ -f /etc/modules ]; then
 	qecho "Loading kernel modules"
@@ -78,10 +82,10 @@ is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 is_mounted /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null || true
 is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
 
-echo "Welcome to Silen Linux"
+note "Welcome to Silen Linux"
 
 ip link set lo up 2>/dev/null || true
-mkdir -p /run/dbus /run/NetworkManager /run/wpa_supplicant /run/user /var/lib/NetworkManager
+mkdir -p /run/dbus /run/user /var/lib/iwd
 chmod 755 /run/user 2>/dev/null || true
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
@@ -95,17 +99,24 @@ if command -v dbus-daemon >/dev/null 2>&1; then
 else
 	echo "dbus-daemon missing wifi/dbus will not work"
 fi
-if command -v NetworkManager >/dev/null 2>&1; then
-	echo "Starting NetworkManager"
-	NetworkManager --no-daemon >/tmp/NetworkManager.log 2>&1 &
+if command -v iwd >/dev/null 2>&1; then
+	echo "Starting iwd"
+	mkdir -p /var/lib/iwd 2>/dev/null || true
+	iwd >/tmp/iwd.log 2>&1 &
 else
-	echo "NetworkManager missing networking will not work"
+	echo "iwd missing networking will not work"
 fi
-(sleep 5; rfkill unblock all >/dev/null 2>&1 || true; nmcli radio wifi on >/dev/null 2>&1 || true; nmcli networking on >/dev/null 2>&1 || true) &
+(sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
+(
+for _w in 1 2 3 4 5 6; do
+	sleep 10
+	rfkill unblock all >/dev/null 2>&1 || true
+done
+) &
 (sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
 
 echo
-echo "Mounting install medium"
+note "Mounting install medium"
 
 medium_has_tarball_at() {
 	_dir="$1"
@@ -171,6 +182,10 @@ enumerate_devices() {
 mount_candidate() {
 	_dev="$1"
 	_mp="$2"
+	_t="$(blkid -o value -s TYPE "$_dev" 2>/dev/null)"
+	if [ -n "$_t" ]; then
+		mount -t "$_t" -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	fi
 	mount "$_dev" "$_mp" 2>/dev/null && return 0
 	mount -o ro "$_dev" "$_mp" 2>/dev/null && return 0
 	mount -t iso9660 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
@@ -193,6 +208,39 @@ mount_iso() {
 		return 0
 	fi
 	losetup -d "$_loopdev" 2>/dev/null
+	return 1
+}
+
+fast_medium_scan() {
+	enumerate_devices
+	for dev in $candidates; do
+		[ -b "$dev" ] || continue
+		_type="$(blkid -o value -s TYPE "$dev" 2>/dev/null)"
+		_label="$(blkid -o value -s LABEL "$dev" 2>/dev/null)"
+		case "$_type:$_label" in
+			iso9660:*|*:ISOIMAGE) ;;
+			*) continue ;;
+		esac
+		umount /run/scan 2>/dev/null
+		mount_candidate "$dev" /run/scan || continue
+		if medium_has_tarball_at /run/scan; then
+			umount /mnt 2>/dev/null
+			mkdir -p /mnt
+			if mount --move /run/scan /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				mount_candidate "$dev" /mnt || continue
+				umount /run/scan 2>/dev/null
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			[ -n "$stage3" ] || continue
+			note "  install medium is $_dev"
+			echo "$dev" > /run/silen-medium-dev 2>/dev/null || true
+			return 0
+		fi
+		umount /run/scan 2>/dev/null
+	done
 	return 1
 }
 
@@ -256,7 +304,7 @@ try_isos_on_scan() {
 				fi
 			fi
 			[ -n "$stage3" ] || continue
-			echo "  install medium is an ISO file on $_srcdev $_iso"
+			note "  install medium is an ISO file on $_srcdev $_iso"
 			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
 			_rel="${_iso#/run/scan/}"
 			if [ "$_rel" != "$_iso" ] && is_mounted /run/ventoy; then
@@ -278,6 +326,8 @@ mounted_devices=""
 seen_isos=""
 iso_searched=""
 i=0
+fast_medium_scan || true
+if [ -z "$stage3" ]; then
 while [ $i -lt 20 ]; do
 	enumerate_devices
 	for dev in $candidates; do
@@ -322,12 +372,13 @@ while [ $i -lt 20 ]; do
 		sleep 1
 	fi
 done
+fi
 umount /run/scan 2>/dev/null
 umount /iso 2>/dev/null || true
 
 if [ -n "$stage3" ]; then
-	echo "  install medium mounted at /mnt"
-	echo "  found Silen tarball $stage3"
+	note "  install medium mounted at /mnt"
+	note "  found Silen tarball $stage3"
 else
 	echo "  no Silen tarball found on any device"
 	echo "  debug block devices seen $seen_devices"
@@ -352,7 +403,7 @@ fi
 
 echo
 if [ -x /installer/main.sh ]; then
-	echo "Starting the Silen installer"
+	note "Starting the Silen installer"
 	echo "  it also lets you open a shell reboot or power off"
 	echo
 	/installer/main.sh

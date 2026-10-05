@@ -17,6 +17,7 @@ FIRMWARE_SOURCE="${FIRMWARE_SOURCE:-rootfs/lib/firmware}"
 HOST_FIRMWARE="${HOST_FIRMWARE:-/lib/firmware}"
 BUSYBOX_SOURCE="${BUSYBOX_SOURCE:-rootfs/bin/busybox}"
 INIT_SOURCE="${INIT_SOURCE:-rootfs/init}"
+IWD_ROOT="${IWD_ROOT:-build/iwd-root}"
 
 RAMROOT="build/initramfs-root"
 ISO_DIR="build/iso"
@@ -165,6 +166,16 @@ fi
 
 echo "[1/7] Cleaning old build"
 
+_IWD_KEEP=""
+for _keep in iwd-root iwd-src; do
+	[ -e "build/$_keep" ] || continue
+	if [ -z "$_IWD_KEEP" ]; then
+		_IWD_KEEP="$(mktemp -d /tmp/silen-iwd-keep.XXXXXX 2>/dev/null || echo /tmp/silen-iwd-keep.$$)" || true
+		mkdir -p "$_IWD_KEEP" 2>/dev/null || true
+	fi
+	mv "build/$_keep" "$_IWD_KEEP/" 2>/dev/null || true
+done || true
+
 if [ -d build ]; then
 	rm -rf build 2>/dev/null || true
 fi
@@ -177,6 +188,15 @@ if [ -d build ]; then
 		echo "      sudo rm -rf $(pwd)/build"
 		exit 1
 	fi
+fi
+
+if [ -n "$_IWD_KEEP" ]; then
+	mkdir -p build 2>/dev/null || true
+	for _keep in iwd-root iwd-src; do
+		[ -e "$_IWD_KEEP/$_keep" ] || continue
+		mv "$_IWD_KEEP/$_keep" "build/$_keep" 2>/dev/null || true
+	done || true
+	rm -rf "$_IWD_KEEP" 2>/dev/null || true
 fi
 
 FREE_KB=$(df -Pk . 2>/dev/null | awk 'NR==2 {print $4}')
@@ -398,18 +418,48 @@ copy_opt() {
 
 if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
 copy_app whiptail /usr/bin/whiptail
-copy_app nmtui /usr/bin/nmtui
-for _nmtui_link in nmtui-connect nmtui-edit nmtui-hostname; do
-	ln -sf nmtui "$RAMROOT/usr/bin/$_nmtui_link"
-done
-copy_app nmcli /usr/bin/nmcli
-copy_app nm-online /usr/bin/nm-online
 copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
+
+_IWD_DAEMON=""
+for _cand in "$IWD_ROOT/usr/libexec/iwd" /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWD_DAEMON="$_cand"
+	break
+done
+_IWCTL=""
+for _cand in "$IWD_ROOT/usr/bin/iwctl" /usr/bin/iwctl /usr/sbin/iwctl; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWCTL="$_cand"
+	break
+done
+_IWMON=""
+for _cand in "$IWD_ROOT/usr/bin/iwmon" /usr/bin/iwmon /usr/sbin/iwmon; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWMON="$_cand"
+	break
+done
+if [ -z "$_IWD_DAEMON" ]; then
+	echo "  ERROR iwd daemon not found (checked $IWD_ROOT and the host)"
+	echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
+	exit 1
+fi
+if [ -z "$_IWCTL" ]; then
+	echo "  ERROR iwctl not found (checked $IWD_ROOT and the host)"
+	echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
+	exit 1
+fi
+mkdir -p "$RAMROOT/usr/libexec" || { echo "  ERROR cannot create $RAMROOT/usr/libexec"; exit 1; }
+cp --dereference "$_IWD_DAEMON" "$RAMROOT/usr/libexec/iwd" || { echo "  ERROR cannot copy iwd (disk full?)"; exit 1; }
+ln -sf /usr/libexec/iwd "$RAMROOT/usr/bin/iwd" 2>/dev/null || true
+copy_libs "$_IWD_DAEMON"
+copy_app iwctl "$_IWCTL"
+[ -n "$_IWMON" ] && copy_opt iwmon "$_IWMON"
 
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
 copy_app mkfs.vfat /usr/sbin/mkfs.vfat
 if [ -f /usr/bin/blkid ]; then copy_app blkid /usr/bin/blkid; elif [ -f /usr/sbin/blkid ]; then copy_app blkid /usr/sbin/blkid; else echo "  ERROR required tool missing: blkid (install it first)"; exit 1; fi
 if [ -f /usr/bin/sfdisk ]; then copy_app sfdisk /usr/bin/sfdisk; elif [ -f /usr/sbin/sfdisk ]; then copy_app sfdisk /usr/sbin/sfdisk; else echo "  ERROR required tool missing: sfdisk (install it first)"; exit 1; fi
+if [ -f /usr/bin/mkfs.btrfs ]; then copy_app mkfs.btrfs /usr/bin/mkfs.btrfs; elif [ -f /usr/sbin/mkfs.btrfs ]; then copy_app mkfs.btrfs /usr/sbin/mkfs.btrfs; else echo "  ! mkfs.btrfs not found btrfs installs will fail"; fi
 copy_app tar     /usr/bin/tar
 ln -sf /usr/bin/tar "$RAMROOT/bin/tar"
 ln -sf /usr/bin/blkid    "$RAMROOT/bin/blkid"
@@ -444,16 +494,12 @@ else
 fi
 [ -f /etc/ssl/openssl.cnf ] && cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf" || true
 
-copy_app NetworkManager /usr/sbin/NetworkManager
 copy_app dbus-daemon  /usr/bin/dbus-daemon
-copy_app wpa_supplicant /usr/sbin/wpa_supplicant
 mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
-ln -sf /usr/bin/wpa_supplicant "$RAMROOT/usr/sbin/wpa_supplicant"
 # sbin tools live in /usr/bin in the ramroot; keep absolute /usr/sbin/* working too.
-for _sbin_link in NetworkManager mkfs.ext4 mkfs.vfat blkid; do
+for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
 	ln -sf "/usr/bin/$_sbin_link" "$RAMROOT/usr/sbin/$_sbin_link" 2>/dev/null || true
 done
-[ -f /usr/bin/wpa_cli ] && copy_opt wpa_cli /usr/bin/wpa_cli
 [ -f /usr/bin/rfkill ] && copy_opt rfkill /usr/bin/rfkill
 [ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
 [ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
@@ -473,65 +519,29 @@ if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr
 	echo "  ! no dbus-daemon-launch-helper copied wifi activation may fail"
 fi
 
-for _nmdir in /usr/lib/NetworkManager /usr/lib64/NetworkManager; do
-	if [ -d "$_nmdir" ]; then
-		mkdir -p "$RAMROOT/usr/lib/NetworkManager"
-		cp -a "$_nmdir"/. "$RAMROOT/usr/lib/NetworkManager/"
-	fi
-done
-mkdir -p "$RAMROOT/usr/lib"
-for _nm_helper in /usr/lib/nm-dispatcher /usr/lib/nm-priv-helper \
-		/usr/lib/nm-daemon-helper /usr/lib/nm-dhcp-helper \
-		/usr/lib/nm-libnm-helper; do
-	[ -f "$_nm_helper" ] || continue
-	cp --dereference "$_nm_helper" "$RAMROOT/usr/lib/"
-	copy_libs "$_nm_helper"
-done
-while IFS= read -r _nm_plugin; do
-	copy_libs "$_nm_plugin"
-done < <(find "$RAMROOT/usr/lib/NetworkManager" -name '*.so' 2>/dev/null)
-
 mkdir -p "$RAMROOT/var/lib/dbus" "$RAMROOT/etc"
 # No static machine-id on purpose: live init runs `dbus-uuidgen --ensure`
 # on every boot so each machine gets a unique ID (clones break D-Bus/DHCP).
 rm -f "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id" 2>/dev/null || true
 
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
-if [ -f /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf ]; then
-	cp /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf "$RAMROOT/usr/share/dbus-1/system.d/"
-else
-	echo "  ! NetworkManager dbus policy missing"
-fi
-for _wpa_conf in /usr/share/dbus-1/system.d/wpa_supplicant.conf \
-		/etc/dbus-1/system.d/wpa_supplicant.conf; do
-	if [ -f "$_wpa_conf" ]; then
-		cp "$_wpa_conf" "$RAMROOT/usr/share/dbus-1/system.d/"
-		break
-	fi
+_IWD_POLICY=""
+for _cand in "$IWD_ROOT/usr/share/dbus-1/system.d/iwd-dbus.conf" /usr/share/dbus-1/system.d/iwd-dbus.conf; do
+	[ -f "$_cand" ] || continue
+	_IWD_POLICY="$_cand"
+	break
 done
-[ -f /usr/share/dbus-1/system.d/nm-dispatcher.conf ] && \
-	cp /usr/share/dbus-1/system.d/nm-dispatcher.conf "$RAMROOT/usr/share/dbus-1/system.d/"
-if [ -f /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service ]; then
-	mkdir -p "$RAMROOT/usr/share/dbus-1/system-services"
-	cp /usr/share/dbus-1/system-services/fi.w1.wpa_supplicant1.service \
-		"$RAMROOT/usr/share/dbus-1/system-services/"
+if [ -n "$_IWD_POLICY" ]; then
+	cp "$_IWD_POLICY" "$RAMROOT/usr/share/dbus-1/system.d/"
+else
+	echo "  ! iwd dbus policy missing (D-Bus will deny iwd)"
 fi
 if [ -f /usr/share/dbus-1/system.conf ]; then sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"; else echo "  ! dbus system.conf missing"; fi
 
-mkdir -p "$RAMROOT/etc/NetworkManager"
-cat > "$RAMROOT/etc/NetworkManager/NetworkManager.conf" <<'EOF'
-[main]
-plugins=keyfile
-dhcp=internal
-dns=default
-auth-polkit=false
-wifi.backend=wpa_supplicant
-
-[device]
-wifi.scan-rand-mac-address=no
-
-[connection]
-wifi.powersave=2
+mkdir -p "$RAMROOT/etc/iwd"
+cat > "$RAMROOT/etc/iwd/main.conf" <<'EOF'
+[General]
+EnableNetworkConfiguration=true
 EOF
 
 cat > "$RAMROOT/etc/nsswitch.conf" <<'EOF'
@@ -555,7 +565,7 @@ for _nss in /usr/lib/libnss_dns.so.2 /usr/lib/libnss_files.so.2; do
 	[ -e "$_nss" ] || continue
 	cp --dereference "$_nss" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy $_nss (live DNS may fail)"
 done
-# Empty resolv.conf placeholder; NetworkManager populates it via DHCP.
+# Empty resolv.conf placeholder; iwd fills it via built-in DHCP.
 touch "$RAMROOT/etc/resolv.conf" 2>/dev/null || true
 if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
 	echo "  ERROR ldconfig failed (dynamic apps will not load)"
@@ -740,7 +750,7 @@ fi
 # linux-firmware); missing dirs are fine - skip silently.
 # SIZE 2026-09-22 — `nvidia` is deliberately NOT in this list: it alone is
 # ~200M of blobs that only work with the proprietary NVIDIA driver (which
-# the ISO installs later via spk on online installs), and shipping it would
+# the ISO installs later via spk after reboot), and shipping it would
 # push the ISO over 1.5GB. amdgpu+i915+xe+radeon are ~45M combined.
 for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
 	for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
@@ -961,24 +971,19 @@ else
 	echo "  ! cargo not found skipping spk build installer will try to fetch it"
 fi
 
-echo "  packing network bundle NetworkManager/nmtui + deps for the installed system"
+echo "  packing network bundle iwd/iwctl + deps for the installed system"
 NETROOT="build/network-root"
 rm -rf "$NETROOT"
 mkdir -p "$NETROOT"
 for _np in \
-	usr/bin/NetworkManager \
-	usr/bin/nmtui usr/bin/nmtui-connect usr/bin/nmtui-edit usr/bin/nmtui-hostname \
-	usr/bin/nmcli usr/bin/nm-online \
+	usr/libexec/iwd \
+	usr/bin/iwd \
+	usr/bin/iwctl usr/bin/iwmon \
 	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
-	usr/bin/wpa_supplicant usr/bin/wpa_cli \
 	usr/bin/rfkill usr/bin/iw \
-	usr/sbin/wpa_supplicant usr/sbin/rfkill usr/sbin/iw \
-	usr/lib/NetworkManager \
-	usr/lib/nm-dispatcher usr/lib/nm-priv-helper \
-	usr/lib/nm-daemon-helper usr/lib/nm-dhcp-helper usr/lib/nm-libnm-helper \
 	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper \
 	usr/lib64 \
-	etc/NetworkManager \
+	etc/iwd \
 	usr/share/dbus-1 \
 	usr/share/terminfo \
 	etc/machine-id \
@@ -987,12 +992,12 @@ for _np in \
 	mkdir -p "$NETROOT/$(dirname "$_np")" || { echo "  ERROR cannot create $NETROOT/$(dirname "$_np")"; exit 1; }
 	cp -a "$RAMROOT/$_np" "$NETROOT/$_np" || { echo "  ERROR cannot copy $_np to network bundle"; exit 1; }
 done
-if [ -d "$NETROOT/usr/bin" ]; then
+if [ -x "$NETROOT/usr/libexec/iwd" ]; then
 	NETWORK_TAR="$ISO_DIR/network.tar.zst"
 	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" . || { echo "  ERROR network bundle creation failed"; exit 1; }
 	echo "  network bundle $(du -h "$NETWORK_TAR" | cut -f1)"
 else
-	echo "  ! network stack missing from ramroot installed system gets no NetworkManager"
+	echo "  ! iwd missing from ramroot installed system gets no wifi stack"
 fi
 
 if [ -d grub-bundle/usr/local ]; then
@@ -1039,13 +1044,13 @@ terminal_output gfxterm console
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"
-	linux /boot/vmlinuz loglevel=4 console=tty0 console=ttyS0
+	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
 	initrd /boot/$INITRAMFS
 }
 
 menuentry "Silen Linux (fallback, nomodeset)" {
 	echo "Booting Silen (no KMS)"
-	linux /boot/vmlinuz nomodeset loglevel=4 console=tty0 console=ttyS0
+	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
 	initrd /boot/$INITRAMFS
 }
 EOF

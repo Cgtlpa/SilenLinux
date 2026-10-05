@@ -39,28 +39,41 @@ else
 	echo "lsusb unavailable"
 fi
 echo "kernel wifi/firmware messages ---"
-_dmsg="$(dmesg 2>/dev/null | grep -iE "firmware|wlan|wifi|iwl|cfg80211|regulatory|rtw|mt76|mt79|ath1|brcmfmac|b43|mwifiex|80211|wpa_supplicant|NetworkManager|probe|failed|error|blocked|rfkill" | tail -n 50)"; if [ -n "$_dmsg" ]; then printf "%s\n" "$_dmsg"; else echo "dmesg unavailable or no matches"; fi
-echo "NetworkManager devices ---"
-if command -v nmcli >/dev/null 2>&1; then
-	nmcli -t device status 2>/dev/null || echo "nmcli device status failed is NetworkManager running"
-	echo "NetworkManager wifi scan cached ---"
-	if nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null | head -n 25; then :; else echo "wifi scan unavailable"; fi
-	echo "NM radio ---"
-	nmcli radio all 2>/dev/null || true
-else
-	echo "nmcli unavailable"
-fi
-echo "wpa_supplicant ---"
-ls /run/wpa_supplicant 2>/dev/null || echo "/run/wpa_supplicant empty/missing"
+_dmsg="$(dmesg 2>/dev/null | grep -iE "firmware|wlan|wifi|iwl|cfg80211|regulatory|rtw|mt76|mt79|ath1|brcmfmac|b43|mwifiex|80211|iwd|probe|failed|error|blocked|rfkill" | tail -n 50)"; if [ -n "$_dmsg" ]; then printf "%s\n" "$_dmsg"; else echo "dmesg unavailable or no matches"; fi
+echo "iwd daemon ---"
+for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
+	[ -x "$_iwd" ] || continue
+	echo "daemon: $_iwd ($("$_iwd" --version 2>/dev/null || echo version-unknown))"
+	break
+done
 if command -v pgrep >/dev/null 2>&1; then
-	pgrep -a wpa_supplicant 2>/dev/null || echo "wpa_supplicant not running"
+	pgrep -a iwd 2>/dev/null || echo "iwd not running"
 else
-	ps 2>/dev/null | grep -i "[w]pa_supplicant" || echo "wpa_supplicant not running"
+	ps 2>/dev/null | grep -i "[i]wd" || echo "iwd not running"
+fi
+echo "iwd config ---"
+cat /etc/iwd/main.conf 2>/dev/null || echo "/etc/iwd/main.conf missing"
+echo "known networks ---"
+ls /var/lib/iwd 2>/dev/null || echo "/var/lib/iwd empty/missing"
+echo "iwctl devices ---"
+if command -v iwctl >/dev/null 2>&1; then
+	iwctl device list 2>/dev/null || echo "iwctl device list failed (is iwd running?)"
+	echo "iwctl station ---"
+	_dev="$(iwctl device list 2>/dev/null | awk '$2 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ {print $1; exit}')"
+	if [ -n "$_dev" ]; then
+		iwctl station "$_dev" show 2>/dev/null || echo "station show failed"
+		echo "iwctl scan (cached, no rescan) ---"
+		iwctl station "$_dev" get-networks 2>/dev/null | head -n 25 || echo "scan list unavailable"
+	else
+		echo "no station device found"
+	fi
+else
+	echo "iwctl unavailable"
 fi
 echo "dbus activation helper ---"
 { ls -l /usr/lib/dbus-daemon-launch-helper 2>/dev/null || true; ls -l /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true; } | grep -q . || echo "no helper found"
-echo "NM wifi plugin ---"
-ls /usr/lib/NetworkManager/libnm-device-plugin-wifi.so 2>/dev/null || echo "wifi plugin missing"
+echo "iwd dbus policy ---"
+ls /usr/share/dbus-1/system.d/iwd-dbus.conf 2>/dev/null || echo "iwd-dbus.conf missing"
 echo "===== end ====="
 } > "$out" 2>&1
 [ "$out" != "/dev/stdout" ] && echo "wrote $out"
