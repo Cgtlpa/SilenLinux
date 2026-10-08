@@ -40,6 +40,8 @@ ALLOW="
 	virtio_blk virtio_scsi virtio_pci virtio_console virtio_input
 	xhci-pci ehci-pci ohci-pci uhci-hcd usb-storage uas usbhid hid-generic
 	virtio_net e1000 e1000e r8169 tg3 igb ixgbe r8152 ax88179_178a
+	# wired nics people actually have, firmware rides along automatically
+	bnx2 bnx2x be2net sfc thunderbolt
 	ext4 jbd2 mbcache crc32c_intel vfat fat fuse squashfs ntfs3 btrfs xfs isofs
 	nls_utf8 nls_cp437 nls_iso8859-1 dm_mod md_mod loop
 	i8042 psmouse
