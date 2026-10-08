@@ -1,3 +1,4 @@
+# quick targets for building and installing spk
 PREFIX ?= /usr
 CARGO  ?= cargo
 

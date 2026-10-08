@@ -1,4 +1,5 @@
 #!/bin/bash
+# builds iwd from source so the iso has wifi even if the host dont
 set -e
 set -E
 set -o pipefail
@@ -58,6 +59,7 @@ case "$IWD_ROOT" in
 esac
 
 echo "== Building ell-$ELL_VERSION =="
+# ell first, iwd links against it statically so no extra lib needed later
 if [ ! -f "$ELL_ABS/ell/.libs/libell.a" ]; then
 	(
 		cd "$ELL_ABS"
@@ -84,6 +86,7 @@ fi
 [ -x "$IWD_ABS/client/iwctl" ] || { echo "  ERROR iwctl did not build (need readline headers, see $LOG)"; exit 1; }
 
 echo "== Installing to $IWD_ROOT =="
+# plain make install into a staging dir, build.sh grabs it from there
 rm -rf "$IWD_ROOT"
 mkdir -p "$IWD_ROOT"
 make -C "$IWD_ABS" DESTDIR="$DEST_ABS" install >>"$LOG" 2>&1 || { echo "  ERROR iwd install failed (see $LOG)"; exit 1; }

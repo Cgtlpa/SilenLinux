@@ -1,8 +1,10 @@
 pub mod find;
 pub mod remove;
+pub mod upd;
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::IsTerminal;
 use std::io::Read;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -14,42 +16,46 @@ use sha2::Sha256;
 
 const DEFAULT_BASE: &str = "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages";
 
-// [SPK-DEBUG-OK 2026-09-20] system-vs-isolated sorting audited.
-// Rule (arch-like): system packages install straight into / (like `pacman -S`)
-// so daemons/DMs/DEs/drivers keep their absolute paths (/usr/bin/sddm,
-// /etc/sddm.conf.d, /lib/modules, ...). Leaf apps stay isolated in
-// /spk_pkgs/<name> (or ~/.local/share/spk/apps/<name> with --user) with
-// shims in /usr/local/bin. `system` is true when the manifest says so OR
-// when the name matches the well-known system set below. This stops a
-// mis-packed manifest (e.g. sddm without system=true) from landing isolated
-// and never starting.
-// DEBUG-MARK: SYSTEM-SORT v1 — do not move sddm-class pkgs to isolated.
+// system pkgs go straight into / like pacman, the rest stay isolated with shims
+// a pkg counts as system when the manifest says so or its name is down here
 const SYSTEM_EXACT: &[&str] = &[
-    // display managers / greeters — MUST be system or no graphical login
-    "sddm", "gdm", "lightdm", "lxdm", "ly", "greetd", "tuigreet", "emptty",
+    // login screens, gotta be system or nobody can log in
+    "sddm", "gdm", "lightdm", "lxdm", "ly", "greetd", "tuigreet", "emptty", "xdm", "slim", "dm-openrc",
     "lightdm-gtk-greeter", "sddm-kcm",
     // desktops / sessions / compositors
     "plasma-desktop", "plasma-workspace", "plasma", "kde", "gnome", "gnome-shell",
     "gnome-session", "xfce4", "xfce4-session", "xfce", "lxqt", "lxde", "cinnamon",
     "mate-desktop", "mate", "budgie-desktop", "cosmic-desktop", "pantheon", "deepin",
-    "enlightenment", "sway", "i3", "hyprland", "wayland", "xorg-server", "xorg",
-    // DE companion apps installed by the Silen installer alongside the DE.
-    // They ship .desktop files / session integration under /usr, so they must
-    // be system too (isolated shims would hide them from the DE menu).
-    // DEBUG-MARK: SYSTEM-SORT v2 — installer DE sets stay in /usr.
+    "enlightenment", "sway", "i3", "hyprland", "instantwm", "instantwmctl", "instantmenu", "dwm", "niri", "mangowm", "mango", "labwc", "wayland", "xorg-server", "xorg", "xorg-libs",
+    "dmenu", "rofi", "wofi", "waybar", "quickshell", "st", "kitty", "alacritty", "ghostty", "xinit", "xkb-data", "dejavu", "llvm",
+    "gtk-libs", "wl-libs", "gtk3", "cxx-libs", "libcjson", "pipewire", "wlroots", "scenefx", "seatd", "vulkan-loader", "mesa",
+    // installer DE apps, they need their .desktop files visible
     "konsole", "dolphin", "kate", "kwrite", "ark", "spectacle",
     "gnome-terminal", "nautilus", "gnome-text-editor", "gnome-calculator",
     "xfce4-terminal", "thunar", "mousepad", "ristretto",
-    // kernels / firmware / drivers — MUST be system (paths like /lib/modules, /lib/firmware)
-    "linux", "kernel", "linux-firmware", "intel-ucode", "amd-ucode",
+    // kernels and drivers, system or their paths break
+    "linux", "kernel", "linux-firmware", "linux-headers", "kernel-headers", "intel-ucode", "amd-ucode",
     "nvidia-drivers", "nvidia-legacy-drivers", "mesa", "libdrm",
     "xf86-video-amdgpu", "xf86-video-intel", "xf86-video-vmware", "xf86-video-nouveau",
     "xf86-input-libinput", "vulkan-loader",
     "rtl8822ce", "iwlwifi", "mt7921", "ath11k", "brcmfmac", "rtw89", "rtw88",
+    "rtl8852be", "rtl8812au", "broadcom-wl", "b43", "ath9k",
+    // login stuff, has to be system or sudo and sessions break
+    "sudo", "doas", "pam", "shadow", "login",
+    // audio / bluetooth
+    "bluez", "rtkit", "jack", "jack2", "libpulse", "libasound",
+    // bootloaders / boot plumbing
+    "shim", "refind", "systemd-boot", "syslinux", "plymouth", "dracut", "mkinitcpio",
+    // greeters
+    "regreet",
+    // network utilities
+    "wpa-supplicant", "network-manager-applet", "modem-manager",
+    "iw", "hostapd", "dnsmasq", "dhclient",
     // core system services
     "dbus", "elogind", "systemd", "openrc", "polkit", "upower", "udisks2",
     "networkmanager", "wpa_supplicant", "iwd", "dhcpcd", "connman", "modemmanager",
     "pipewire", "pulseaudio", "alsa", "alsa-utils", "wireplumber",
+    "efibootmgr", "grub",
 ];
 
 fn looks_like_system_package(name: &str) -> bool {
@@ -59,10 +65,11 @@ fn looks_like_system_package(name: &str) -> bool {
     }
     // prefixes: DE families, xorg/xf86 drivers, firmware blobs
     for prefix in [
-        "plasma-", "kde-", "gnome-", "xfce4-", "xfce-", "lxqt-", "sddm-", "gdm-",
+        "plasma-", "kde-", "gnome-", "xfce4-", "xfce-", "lxqt-", "lxde-", "mate-",
+        "cinnamon-", "budgie-", "cosmic-", "deepin-", "pantheon-", "sddm-", "gdm-",
         "lightdm-", "xorg-", "xf86-video-", "xf86-input-", "nvidia-", "amd-ucode",
-        "intel-ucode", "linux-firmware", "wpa_", "alsa-", "pipewire-", "pulseaudio-",
-        "wireplumber",
+        "intel-ucode", "linux-", "linux-firmware", "wpa_", "wpa-", "alsa-", "pipewire-", "pulseaudio-",
+        "wireplumber", "xdg-desktop-portal-",
     ] {
         if n == prefix.trim_end_matches('-') || n.starts_with(prefix) {
             return true;
@@ -70,9 +77,9 @@ fn looks_like_system_package(name: &str) -> bool {
     }
     // substrings / suffixes that are (almost) always system-level
     for needle in [
-        "firmware", "driver", "kernel", "mesa", "vulkan", "libdrm", "microcode",
+        "firmware", "driver", "kernel", "headers", "mesa", "vulkan", "libdrm", "microcode",
         "-ucode", "greeter", "display-manager", "dm-", "elogind", "polkit",
-        "networkmanager", "modemmanager", "pipewire", "pulseaudio",
+        "networkmanager", "network-manager", "modemmanager", "modem-manager", "pipewire", "pulseaudio",
     ] {
         if n.contains(needle) {
             return true;
@@ -108,12 +115,7 @@ struct Installed {
 }
 
 fn main() {
-    // [SPK-DEBUG-OK 2026-09-20] CLI dispatch audited.
-    // Supports arch-like multi-package: `spk get a b c`, `spk rm a b c`.
-    // Each package gets its own Layout (tmp/registry paths differ per name).
-    // Installs run in order; first hard failure aborts (like pacman
-    // transaction abort) so half-installed sets are visible, not silent.
-    // DEBUG-MARK: CLI-MULTI v1.
+    // takes several pkgs at once, first hard failure stops everything
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
@@ -121,9 +123,29 @@ fn main() {
         return;
     }
 
-    // `spk --help`, `spk get --help`, `spk -h` behave like arch tools.
     if args[1] == "--help" || args[1] == "-h" || args[1] == "help" {
         usage();
+        return;
+    }
+
+    if args[1] == "--version" || args[1] == "-V" {
+        println!("spk {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    if args[1] == "self-update" {
+        let mut check_only = false;
+        for arg in &args[2..] {
+            if arg == "--check" {
+                check_only = true;
+            } else if arg == "--help" || arg == "-h" {
+                usage();
+                return;
+            } else {
+                fail(&format!("unknown flag {} (usage: spk self-update [--check])", arg));
+            }
+        }
+        self_update(check_only);
         return;
     }
 
@@ -153,16 +175,14 @@ fn main() {
         }
     }
 
-    // Arch-like: de-duplicate repeat names (`spk get foo foo` installs once;
-    // `spk rm foo foo` must not fail on the second, already-gone entry).
-    // FIX 2026-09-20 DEDUP — order-preserving dedup of positionals.
+    // skip repeat names so `spk get foo foo` only installs once
     {
         let mut seen = std::collections::HashSet::new();
         positional.retain(|n| seen.insert(n.clone()));
     }
 
     if args[1] == "list" {
-        // list takes no package name; fall through
+        // list takes no package name
         let layout = layout_for(&root, user_mode, "");
         list(&layout);
     } else if args[1] == "remove" || args[1] == "rm" {
@@ -174,7 +194,7 @@ fn main() {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
-        // arch-like: remove in order, keep going, report failures at end.
+        // rm keeps going through the list and reports failures at the end
         let mut failed: Vec<String> = Vec::new();
         for name in &positional {
             let layout = layout_for(&root, user_mode, name);
@@ -194,9 +214,10 @@ fn main() {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
+        let mut done = HashSet::new();
         for name in &positional {
             let layout = layout_for(&root, user_mode, name);
-            get(name, &layout);
+            get_with_visited(name, &layout, &mut done);
         }
     } else if args[1] == "find" || args[1] == "search" {
         if positional.is_empty() {
@@ -204,30 +225,72 @@ fn main() {
         }
         let layout = layout_for(&root, user_mode, "");
         find::find_packages(&positional[0], &layout);
+    } else if args[1] == "update" || args[1] == "upgrade" {
+        for name in &positional {
+            if !valid_name(name) {
+                fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
+            }
+        }
+        if !upd::update_packages(&positional, &root, user_mode) {
+            process::exit(1);
+        }
     } else {
         usage();
     }
 }
 
 fn usage() {
-    // [SPK-DEBUG-OK 2026-09-20] usage text audited — documents multi-package.
     eprintln!("usage:");
     eprintln!("  spk get <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk rm <package> [package...] [--root DIR] [--user]");
+    eprintln!("  spk update [<package>...] [--root DIR] [--user]");
     eprintln!("  spk find <pattern> [--root DIR] [--user]");
     eprintln!("  spk list [--root DIR] [--user]");
+    eprintln!("  spk self-update [--check]    update spk itself from its release feed");
     eprintln!("");
+    eprintln!("  sudo spk get <package>      install a package");
+    eprintln!("  sudo spk rm <package>       remove a package and its files");
+    eprintln!("  sudo spk update              update every installed package");
+    eprintln!("  sudo spk update <package>    update (or install) one package");
+    eprintln!("");
+    eprintln!("packages live in categories (app-misc, app-editors, sys-apps,");
+    eprintln!("dev-tools, sys-monitor, ...): just type the bare name and spk");
+    eprintln!("finds it. If several categories share a name, spk asks which one.");
     eprintln!("like pacman: system packages (sddm, desktops, drivers, firmware,");
     eprintln!("dbus, NetworkManager, ...) install into / ; leaf apps stay");
     eprintln!("isolated with shims in /usr/local/bin (or ~/.local/bin with --user).");
 }
 
-fn fail(message: &str) -> ! {
-    eprintln!("spk: error: {}", message.trim_start());
+pub(crate) fn fail(message: &str) -> ! {
+    if color() {
+        eprintln!("\x1b[1;31mspk: error:\x1b[0m {}", message.trim_start());
+    } else {
+        eprintln!("spk: error: {}", message.trim_start());
+    }
     process::exit(1);
 }
 
-fn valid_name(name: &str) -> bool {
+fn color() -> bool {
+    std::env::var("NO_COLOR").is_err() && std::io::stderr().is_terminal()
+}
+
+fn paint(code: &str, text: &str) -> String {
+    if color() {
+        format!("\x1b[{}m{}\x1b[0m", code, text)
+    } else {
+        text.to_string()
+    }
+}
+
+pub(crate) fn step(what: &str) {
+    eprintln!("{} {}", paint("1;34", "==>"), paint("1", what));
+}
+
+pub(crate) fn done_line(what: &str) {
+    println!("{} {}", paint("1;32", "done:"), what);
+}
+
+pub(crate) fn valid_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 128 {
         return false;
     }
@@ -248,25 +311,15 @@ fn check(result: std::io::Result<()>, what: &str) {
     }
 }
 
-fn base_url() -> String {
+pub(crate) fn base_url() -> String {
     match std::env::var("SPK_BASE_URL") {
         Ok(value) if !value.trim().is_empty() => value.trim_end_matches('/').to_string(),
         _ => DEFAULT_BASE.to_string(),
     }
 }
 
-fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
-    // [SPK-DEBUG-OK 2026-09-20] layout audited.
-    // System root (/): registry /var/lib/spk/packages/<name>, app links
-    // /opt/spk/<name>, isolated payload /spk_pkgs/<name>, shims
-    // /usr/local/bin. --root prefixes all of them; --user maps everything
-    // under $HOME. tmp is per-package (+pid) so `spk get a b` never clashes.
-    // DEBUG-MARK: LAYOUT v1.
-    // FIX 2026-09-20 LAYOUT-DBLSLASH: when root is "/" (or empty) the path
-    // prefix is "" so registry/appdir/pkgdir/shimdir build single-slash
-    // paths (/var/..., /spk_pkgs/..., /opt/..., /usr/local/bin). The old code
-    // used "/" as prefix and produced "//var/..." strings; the fs tolerated
-    // them but registry-vs-installed string compares could mismatch.
+pub(crate) fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
+    // registry paths for /, --root and --user, tmp carries the pid
     if user_mode {
         let home = std::env::var("HOME").unwrap_or_default();
         if home.is_empty() {
@@ -283,7 +336,7 @@ fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
             appdir: format!("{}/apps/{}", base, name),
             pkgdir: format!("{}/apps/{}", base, name),
             shimdir: format!("{}/.local/bin", home),
-            tmp: format!("{}/.cache/spk/{}.spk", home, name),
+            tmp: format!("{}/.cache/spk/{}-{}.spk", home, sanitize_conf_name(name), std::process::id()),
             user_mode: true,
         }
     } else {
@@ -347,16 +400,65 @@ fn rel_target(link: &str, dest: &str) -> String {
     }
 }
 
-fn get(name: &str, layout: &Layout) {
-    // [SPK-DEBUG-OK 2026-09-20] install flow audited end-to-end:
-    // manifest -> download(+sha256) -> payload_base -> extract ->
-    // finish_install(shims+registry) -> postinstall -> ldconfig.
-    // DEBUG-MARK: GET-FLOW v1.
-    let base = base_url();
-    let manifest_url = format!("{}/{}/package.json", base, name);
+pub(crate) fn get(name: &str, layout: &Layout) {
+    let mut done = HashSet::new();
+    get_with_visited(name, layout, &mut done);
+}
 
-    println!("spk: fetching manifest for {}", name);
-    let manifest = http_get(&manifest_url);
+fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
+    if !done.insert(name.to_string()) {
+        println!("spk: note: {} already queued, skipping", name);
+        return;
+    }
+    // fetch it, check it, unpack it, register it
+    let base = base_url();
+    let installed_cat = fs::read_to_string(format!("{}/category", layout.registry))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let (category, manifest, pkg_base) = if !installed_cat.is_empty() && installed_cat != "misc" {
+        let url = format!("{}/{}/{}/package.json", base, installed_cat, name);
+        match http_get_opt(&url) {
+            Some(m) => {
+                let mut c = manifest_category(&m);
+                if c.is_empty() {
+                    c = installed_cat.clone();
+                }
+                (c, m, format!("{}/{}/{}", base, installed_cat, name))
+            }
+            None => resolve_package(&base, name),
+        }
+    } else {
+        resolve_package(&base, name)
+    };
+    let deps = read_string_array(&manifest, "depends");
+    for dep in &deps {
+        if !valid_name(dep) {
+            println!("spk: warning: ignoring bad dependency name {:?} of {}", dep, name);
+            continue;
+        }
+        if dep == name {
+            continue;
+        }
+        let dep_layout = layout_for(&layout.root, layout.user_mode, dep);
+        let (_, dep_manifest, _) = resolve_package(&base, dep);
+        let dep_version = read_field(&dep_manifest, "version");
+        if !dep_version.trim().is_empty() {
+            let installed_version =
+                fs::read_to_string(format!("{}/version", dep_layout.registry)).unwrap_or_default();
+            if installed_version.trim() == dep_version.trim() {
+                println!(
+                    "spk: note: dependency {} v{} already installed, skipping",
+                    dep,
+                    dep_version.trim()
+                );
+                done.insert(dep.clone());
+                continue;
+            }
+        }
+        get_with_visited(dep, &dep_layout, done);
+    }
+    let show_cat = if category.is_empty() { "misc".to_string() } else { category.clone() };
 
     let file_name = read_field(&manifest, "filename");
     let version = read_field(&manifest, "version");
@@ -377,8 +479,10 @@ fn get(name: &str, layout: &Layout) {
     );
     let (system, reason) = is_system_package(name, manifest_system);
     if system {
+        step(&format!("installing {} {} ({}, system -> /)", name, version.trim(), show_cat));
         println!("spk: {} is a system package ({}), installing into /", name, reason);
     } else {
+        step(&format!("installing {} {} ({}, isolated)", name, version.trim(), show_cat));
         println!("spk: {} is a leaf package, installing isolated", name);
     }
 
@@ -386,9 +490,7 @@ fn get(name: &str, layout: &Layout) {
         fail("system packages (login managers, desktops, kernels) need a system install - retry without --user");
     }
 
-    // Arch-like transparency: say so when this exact version is already
-    // installed (pacman prints "warning: X is up to date -- reinstalling").
-    // FIX 2026-09-20 REINSTALL-NOTE.
+    // say so when its already there instead of reinstalling quiet
     if !version.trim().is_empty() {
         let installed_version =
             fs::read_to_string(format!("{}/version", layout.registry)).unwrap_or_default();
@@ -401,7 +503,7 @@ fn get(name: &str, layout: &Layout) {
         fail(&format!("manifest for {} has no filename", name));
     }
 
-    let download_url = format!("{}/{}/{}", base, name, file_name);
+    let download_url = format!("{}/{}", pkg_base, file_name);
     println!("spk: downloading {}", file_name);
 
     if let Some(parent) = Path::new(&layout.tmp).parent() {
@@ -437,9 +539,10 @@ fn get(name: &str, layout: &Layout) {
     let installed = extract(&layout.tmp, payload_base, system);
     let _ = fs::remove_file(&layout.tmp);
 
-    finish_install(name, &version, &installed, layout, system);
+    finish_install(name, &version, &installed, layout, system, &show_cat);
     run_postinstall(name, &version, layout, payload_base, system, &installed);
     register_libs(name, layout, system);
+    done_line(&format!("{} v{} installed", name, version.trim()));
 }
 
 fn clean_stale_isolated(name: &str, layout: &Layout) {
@@ -677,11 +780,7 @@ fn register_libs(name: &str, layout: &Layout, system: bool) {
 }
 
 fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &str, system: bool, installed: &[Installed]) {
-    // [SPK-DEBUG-OK 2026-09-20] postinstall hook audited.
-    // Only runs <payload>/usr/lib/spk/postinstall when it was part of THIS
-    // package (prevents a stale hook from another package being executed).
-    // Applies to both system and isolated layouts.
-    // DEBUG-MARK: POSTINSTALL v1.
+    // only run the hook that came with this package, not some stale one
     if payload_base.is_empty() {
         return;
     }
@@ -723,15 +822,8 @@ fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &st
     }
 }
 
-fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &Layout, system: bool) {
-    // [SPK-DEBUG-OK 2026-09-20] registry/shim finalisation audited.
-    // Arch-like upgrade rule: orphaned shims/files from the previous version
-    // that are gone in the new version are removed, so `spk get foo` twice
-    // does not leak stale /usr/local/bin entries. New files/shims are
-    // recorded in <registry>/{files,shims}. App links live in <appdir>/bin.
-    // System files on PATH (/usr/bin/...) get app links but no shims.
-    // DEBUG-MARK: FINISH-INSTALL v1.
-    // Snapshot previous records before overwriting (for orphan cleanup).
+fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &Layout, system: bool, category: &str) {
+    // drops leftovers from the old version so upgrades dont leak files
     let old_files = fs::read_to_string(format!("{}/files", layout.registry)).unwrap_or_default();
     let old_shims = fs::read_to_string(format!("{}/shims", layout.registry)).unwrap_or_default();
     check(fs::create_dir_all(&layout.registry), &format!("cannot create {}", layout.registry));
@@ -739,6 +831,8 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
     check(fs::create_dir_all(&layout.shimdir), &format!("cannot create {}", layout.shimdir));
 
     check(fs::write(format!("{}/version", layout.registry), format!("{}\n", version)), &format!("cannot write {}/version", layout.registry));
+    let show_cat = if category.is_empty() { "misc" } else { category };
+    check(fs::write(format!("{}/category", layout.registry), format!("{}\n", show_cat)), &format!("cannot write {}/category", layout.registry));
 
     let mut files = String::new();
     for item in installed {
@@ -755,6 +849,9 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
         if item.is_link || item.mode & 0o111 == 0 {
             continue;
         }
+        if item.path.ends_with("/usr/lib/spk/postinstall") {
+            continue;
+        }
         let cmd = match Path::new(&item.path).file_name() {
             Some(base) => base.to_string_lossy().to_string(),
             None => continue,
@@ -764,8 +861,12 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
         }
 
         let link = format!("{}/bin/{}", layout.appdir, cmd);
-        let _ = fs::remove_file(&link);
-        if std::os::unix::fs::symlink(rel_target(&link, &item.path), &link).is_ok() && !commands.contains(&cmd) {
+        if link != item.path {
+            let _ = fs::remove_file(&link);
+            if std::os::unix::fs::symlink(rel_target(&link, &item.path), &link).is_ok() && !commands.contains(&cmd) {
+                commands.push(cmd.clone());
+            }
+        } else if !commands.contains(&cmd) {
             commands.push(cmd.clone());
         }
 
@@ -802,15 +903,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
 
     check(fs::write(format!("{}/shims", layout.registry), shims.clone()), &format!("cannot write {}/shims", layout.registry));
 
-    // Remove orphans from the previous version (arch-like upgrade hygiene).
-    // FIX 2026-09-20 FINISH-PRUNE v2: (a) files recorded in the previous
-    // `files` registry for THIS package are owned by us even when they live
-    // in shared system dirs (/usr/...) — the old guard only pruned
-    // pkgdir/appdir/shims, so reinstalling a system package with fewer files
-    // leaked orphans forever. Protected configs (passwd/shadow/...) are never
-    // pruned here (rm path protects them too). (b) stale <appdir>/bin links
-    // were never tracked, so a command dropped between versions lingered.
-    // Sweep them below against the new command set.
+    // prune stuff the old version had but the new one doesnt
     {
         use std::collections::HashSet;
         let new_files: HashSet<&str> = installed.iter().map(|i| i.path.as_str()).collect();
@@ -822,10 +915,6 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             if p.is_empty() || new_files.contains(p) || new_shims.contains(p) {
                 continue;
             }
-            // Owned when: a recorded shim, a file we recorded for this
-            // package (system or isolated), or anything under our private
-            // payload/app dirs. Anything else (never recorded) is left alone
-            // in case another package still needs it.
             let owned_shim = old_shims.lines().any(|s| s.trim() == p);
             let owned_file = old_file_set.contains(p);
             let under_payload = !layout.pkgdir.is_empty() && (p == layout.pkgdir || p.starts_with(&format!("{}/", layout.pkgdir)));
@@ -844,7 +933,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             println!("spk: pruned {} stale file(s) from previous version", pruned);
         }
     }
-    // Drop stale <appdir>/bin links for commands gone in the new version.
+    // drop dead app links the new version doesnt have anymore
     {
         let bin_dir = format!("{}/bin", layout.appdir);
         if let Ok(entries) = fs::read_dir(&bin_dir) {
@@ -854,7 +943,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
                     continue;
                 }
                 let full = format!("{}/{}", bin_dir, fname);
-                // Only remove symlinks we manage (app links are always links).
+                // only touch links we made ourselves
                 if let Ok(m) = fs::symlink_metadata(&full) {
                     if m.file_type().is_symlink() && fs::remove_file(&full).is_ok() {
                         println!("spk: pruned stale app link {}", full);
@@ -910,9 +999,7 @@ fn path_contains(dir: &str) -> bool {
     }
 }
 
-// Shared with rm: never auto-delete these configs on upgrade prune, even if a
-// previous package version recorded them. Scoped to /etc/ so a binary that
-// merely shares the basename (e.g. /usr/bin/passwd) is still pruned.
+// these configs never get auto-deleted, scoped to /etc/ only on purpose
 fn is_protected_basename(path: &str) -> bool {
     if !path.contains("/etc/") {
         return false;
@@ -937,7 +1024,7 @@ fn list(layout: &Layout) {
             return;
         }
     };
-    let mut rows: Vec<(String, String)> = Vec::new();
+    let mut rows: Vec<(String, String, String, bool)> = Vec::new();
     for entry in entries.flatten() {
         let dir = entry.path();
         if !dir.is_dir() {
@@ -945,59 +1032,404 @@ fn list(layout: &Layout) {
         }
         let pkg = entry.file_name().to_string_lossy().to_string();
         let version = fs::read_to_string(dir.join("version")).unwrap_or_default();
-        rows.push((pkg, version.trim().to_string()));
+        let category = fs::read_to_string(dir.join("category")).unwrap_or_default();
+        let files = fs::read_to_string(dir.join("files")).unwrap_or_default();
+        let prefix = layout.root.trim_end_matches('/');
+        let system = files.lines().any(|l| {
+            let p = l.trim();
+            if p.is_empty() {
+                return false;
+            }
+            let rel = if !prefix.is_empty() && prefix != "/" {
+                p.strip_prefix(prefix).unwrap_or(p)
+            } else {
+                p
+            };
+            if rel.starts_with("/spk_pkgs/")
+                || rel.starts_with("/opt/spk/")
+                || rel.starts_with("/home/")
+                || rel.contains(".local/share/spk/")
+            {
+                return false;
+            }
+            rel.starts_with("/usr/")
+                || rel.starts_with("/etc/")
+                || rel.starts_with("/lib")
+                || rel.starts_with("/bin/")
+                || rel.starts_with("/sbin/")
+                || rel.starts_with("/var/")
+                || rel.starts_with("/opt/")
+        });
+        rows.push((pkg, version.trim().to_string(), category.trim().to_string(), system));
     }
     rows.sort();
     if rows.is_empty() {
         println!("spk: nothing installed");
         return;
     }
-    for (pkg, version) in rows {
+    for (pkg, version, category, system) in rows {
+        let cat = if category.is_empty() { "misc".to_string() } else { category };
+        let kind = if system { "system" } else { "leaf" };
         if version.is_empty() {
-            println!("{}", pkg);
+            println!("{} [{}] ({})", pkg, cat, kind);
         } else {
-            println!("{} v{}", pkg, version);
+            println!("{} v{} [{}] ({})", pkg, version, cat, kind);
         }
     }
 }
 
 fn http_get(url: &str) -> String {
+    match http_get_opt(url) {
+        Some(text) => text,
+        None => fail(&format!("could not fetch {} (not found or network down)", url)),
+    }
+}
+
+pub(crate) fn http_get_opt(url: &str) -> Option<String> {
     let mut attempt = 0;
     loop {
         attempt += 1;
         match ureq::get(url).call() {
             Ok(mut response) => {
                 if response.status().as_u16() != 200 {
-                    fail(&format!("could not fetch {} (http {})", url, response.status().as_u16()));
+                    return None;
                 }
                 match response.body_mut().read_to_string() {
-                    Ok(text) => return text,
-                    Err(err) => {
+                    Ok(text) => return Some(text),
+                    Err(_) => {
                         if attempt >= 3 {
-                            fail(&format!("could not read {}: {}", url, err));
+                            return None;
                         }
                     }
                 }
             }
-            Err(err) => {
+            Err(ureq::Error::StatusCode(404)) => return None,
+            Err(_) => {
                 if attempt >= 3 {
-                    fail(&format!("could not fetch {}: {}", url, err));
+                    return None;
                 }
             }
         }
-        println!("spk: fetch failed (attempt {}), retrying...", attempt);
         std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
     }
 }
 
+struct IndexEntry {
+    name: String,
+    category: String,
+    version: String,
+    description: String,
+}
+
+fn parse_index(text: &str) -> Vec<IndexEntry> {
+    let mut out = Vec::new();
+    let arr = match text.find("\"packages\"") {
+        Some(pos) => pos,
+        None => return out,
+    };
+    let rest = &text[arr..];
+    let open = match rest.find('[') {
+        Some(pos) => pos,
+        None => return out,
+    };
+    let bytes = rest.as_bytes();
+    let mut depth = 1;
+    let mut start: Option<usize> = None;
+    let mut i = open + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                if depth == 1 {
+                    start = Some(i);
+                }
+                depth += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                if depth == 1 {
+                    if let Some(s) = start.take() {
+                        let obj = &rest[s..=i];
+                        let name = read_field(obj, "name");
+                        if !name.is_empty() {
+                            out.push(IndexEntry {
+                                name,
+                                category: read_field(obj, "category"),
+                                version: read_field(obj, "version"),
+                                description: read_field(obj, "description"),
+                            });
+                        }
+                    }
+                }
+                if depth == 0 {
+                    break;
+                }
+            }
+            b']' => {
+                if depth == 1 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+pub(crate) fn resolve_package(base: &str, name: &str) -> (String, String, String) {
+    let direct = format!("{}/{}/package.json", base, name);
+    if let Some(manifest) = http_get_opt(&direct) {
+        return (manifest_category(&manifest), manifest, format!("{}/{}", base, name));
+    }
+    step(&format!("{} is not at the top level, checking the index...", name));
+    let index_text = http_get(&format!("{}/index.json", base));
+    let entries = parse_index(&index_text);
+    let mut matched: Vec<&IndexEntry> = entries.iter().filter(|e| e.name == *name).collect();
+    if matched.is_empty() {
+        let lowered = name.to_ascii_lowercase();
+        matched = entries
+            .iter()
+            .filter(|e| e.name.to_ascii_lowercase() == lowered)
+            .collect();
+    }
+    if matched.is_empty() {
+        fail(&format!("no package named {} (check spelling with the repo index)", name));
+    }
+    if matched.len() == 1 {
+        let entry = matched[0];
+        return fetch_candidate(base, entry);
+    }
+    eprintln!("{} is in several categories:", paint("1;33", name));
+    for (i, entry) in matched.iter().enumerate() {
+        let cat = if entry.category.is_empty() { "misc" } else { entry.category.as_str() };
+        let ver = if entry.version.is_empty() { "".to_string() } else { format!(" v{}", entry.version) };
+        eprintln!("  [{}] {}{}  {}", i + 1, paint("1;36", cat), paint("1", &ver), entry.description);
+    }
+    for _ in 0..3 {
+        eprint!("pick one [1-{}]: ", matched.len());
+        let _ = std::io::stderr().flush();
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_err() {
+            continue;
+        }
+        if let Ok(n) = line.trim().parse::<usize>() {
+            if n >= 1 && n <= matched.len() {
+                return fetch_candidate(base, matched[n - 1]);
+            }
+        }
+        eprintln!("enter a number between 1 and {}", matched.len());
+    }
+    fail(&format!("no choice made for {}", name));
+}
+
+fn manifest_category(manifest: &str) -> String {
+    read_field(manifest, "category")
+}
+
+const SELF_UPDATE_API: &str = "https://api.github.com/repos/Cgtlpa/spk/releases/latest";
+
+fn update_api() -> String {
+    match std::env::var("SPK_UPDATE_API") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => SELF_UPDATE_API.to_string(),
+    }
+}
+
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(s: &str) -> Vec<u64> {
+        s.trim()
+            .trim_start_matches(['v', 'V'])
+            .split('.')
+            .map(|p| {
+                p.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(0)
+            })
+            .collect()
+    }
+    let mut pa = parts(a);
+    let mut pb = parts(b);
+    let len = pa.len().max(pb.len()).max(1);
+    pa.resize(len, 0);
+    pb.resize(len, 0);
+    pa.cmp(&pb)
+}
+
+fn find_asset_url(text: &str, asset: &str) -> String {
+    let key = "\"browser_download_url\"";
+    let mut search = 0;
+    while let Some(pos) = text[search..].find(key) {
+        let abs_pos = search + pos + key.len();
+        let after = &text[abs_pos..];
+        let after = after.trim_start_matches([' ', '\t', '\r', '\n', ':']);
+        let after = after.trim_start();
+        if !after.starts_with('"') {
+            search = abs_pos;
+            continue;
+        }
+        let end = match after[1..].find('"') {
+            Some(e) => e + 1,
+            None => {
+                search = abs_pos;
+                continue;
+            }
+        };
+        let url = &after[1..end];
+        let prefix = &text[..abs_pos];
+        if let Some(npos) = prefix.rfind("\"name\"") {
+            let nrest = &prefix[npos + 6..];
+            let nrest = nrest.trim_start_matches([' ', '\t', '\r', '\n', ':']);
+            let nrest = nrest.trim_start();
+            if nrest.starts_with('"') {
+                if let Some(nend) = nrest[1..].find('"') {
+                    if &nrest[1..nend + 1] == asset {
+                        return url.to_string();
+                    }
+                }
+            }
+        }
+        search = abs_pos;
+    }
+    String::new()
+}
+
+fn self_update(check_only: bool) {
+    let api = update_api();
+    step("checking for spk updates...");
+    let release = match http_get_opt(&api) {
+        Some(release) => release,
+        None => fail("could not reach the release feed (network down or rate-limited?)"),
+    };
+    let tag = read_field(&release, "tag_name")
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .to_string();
+    if tag.is_empty() {
+        fail("release feed has no tag_name");
+    }
+    let current = env!("CARGO_PKG_VERSION");
+    match compare_versions(&tag, current) {
+        std::cmp::Ordering::Equal => {
+            println!("spk: v{} is already the latest", current);
+            return;
+        }
+        std::cmp::Ordering::Less => {
+            println!(
+                "spk: installed v{} is newer than released v{} - nothing to do",
+                current, tag
+            );
+            return;
+        }
+        std::cmp::Ordering::Greater => {}
+    }
+    if check_only {
+        println!("spk: update available: v{} -> v{}", current, tag);
+        return;
+    }
+    let bin_url = find_asset_url(&release, "spk-x86_64");
+    let sum_url = find_asset_url(&release, "spk-x86_64.sha256");
+    if bin_url.is_empty() || sum_url.is_empty() {
+        fail("release is missing spk-x86_64 assets");
+    }
+    println!("spk: updating v{} -> v{}", current, tag);
+    let dir = std::env::temp_dir().join(format!("spk-self-{}", std::process::id()));
+    check(
+        fs::create_dir_all(&dir),
+        "cannot create temp dir for self-update",
+    );
+    let bin_path = dir.join("spk-x86_64").to_string_lossy().to_string();
+    let digest = download(&bin_url, &bin_path, 1);
+    let sums = http_get(&sum_url);
+    let expected = sums.split_whitespace().next().unwrap_or_default();
+    if expected.is_empty() || digest.to_lowercase() != expected.trim().to_lowercase() {
+        let _ = fs::remove_dir_all(&dir);
+        fail("sha256 mismatch on the release binary - aborting self-update");
+    }
+    println!("spk: checksum ok");
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => fail(&format!("cannot locate running binary: {}", err)),
+    };
+    let mode = fs::metadata(&exe).map(|m| m.permissions().mode()).unwrap_or(0o755);
+    let bak = exe.with_extension("bak");
+    let _ = fs::remove_file(&bak);
+    if fs::rename(&exe, &bak).is_err() {
+        let _ = fs::remove_dir_all(&dir);
+        fail("cannot replace the running binary (run with sudo?)");
+    }
+    let restore = |msg: &str| -> ! {
+        let _ = fs::rename(&bak, &exe);
+        let _ = fs::remove_dir_all(&dir);
+        fail(msg);
+    };
+    if fs::copy(&bin_path, &exe).is_err() {
+        restore("cannot install the new binary (run with sudo?)");
+    }
+    let _ = fs::set_permissions(&exe, fs::Permissions::from_mode(mode));
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_file(&bak);
+    done_line(&format!("spk updated to v{}", tag));
+}
+
+#[cfg(test)]
+mod self_update_tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_numerically() {
+        assert_eq!(compare_versions("0.2.0", "0.2.0"), std::cmp::Ordering::Equal);
+        assert_eq!(compare_versions("v0.2.0", "0.2.0"), std::cmp::Ordering::Equal);
+        assert_eq!(compare_versions("0.10.0", "0.2.0"), std::cmp::Ordering::Greater);
+        assert_eq!(compare_versions("0.1.0", "0.2.0"), std::cmp::Ordering::Less);
+        assert_eq!(compare_versions("1.0", "1.0.0"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn assets_resolve_by_name() {
+        let feed = r#"{"tag_name": "v0.2.0", "assets": [
+            {"name": "spk-x86_64.sha256", "browser_download_url": "https://x/s.sha256"},
+            {"name": "spk-x86_64", "browser_download_url": "https://x/s"}
+        ]}"#;
+        assert_eq!(find_asset_url(feed, "spk-x86_64"), "https://x/s");
+        assert_eq!(find_asset_url(feed, "spk-x86_64.sha256"), "https://x/s.sha256");
+        assert_eq!(find_asset_url(feed, "nope"), "");
+    }
+
+    #[test]
+    fn depends_parses_string_arrays() {
+        assert_eq!(read_string_array(r#"{"depends": []}"#, "depends"), Vec::<String>::new());
+        assert_eq!(
+            read_string_array(r#"{"depends": ["a", "b"]}"#, "depends"),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        assert_eq!(read_string_array(r#"{"x": 1}"#, "depends"), Vec::<String>::new());
+    }
+}
+
+fn fetch_candidate(base: &str, entry: &IndexEntry) -> (String, String, String) {
+    if !entry.category.is_empty() {
+        let prefix = format!("{}/{}/{}", base, entry.category, entry.name);
+        if let Some(manifest) = http_get_opt(&format!("{}/package.json", prefix)) {
+            let mut category = manifest_category(&manifest);
+            if category.is_empty() {
+                category = entry.category.clone();
+            }
+            return (category, manifest, prefix);
+        }
+    }
+    let prefix = format!("{}/{}", base, entry.name);
+    let manifest = http_get(&format!("{}/package.json", prefix));
+    let mut category = manifest_category(&manifest);
+    if category.is_empty() {
+        category = entry.category.clone();
+    }
+    (category, manifest, prefix)
+}
+
 fn download(url: &str, dst: &str, parts: u32) -> String {
-    // [SPK-DEBUG-OK 2026-09-20] download audited.
-    // Single file when parts==1; `<url>.000`, `<url>.001`, ... when split.
-    // Unknown-length split (parts==1 on disk as .000/.001/...) is probed:
-    // miss on bare URL -> try .000... until first 404 after data. Appends
-    // per part, truncates back to part-start on transient errors, 6 retries
-    // with backoff, sha256 over the concatenated file.
-    // DEBUG-MARK: DOWNLOAD v1.
+    // grabs one file or numbered parts, retries a few times then sha256s it
     let _ = fs::remove_file(dst);
     let mut split = parts > 1;
     let mut index = 0;
@@ -1072,6 +1504,21 @@ enum PartFetch {
     Transient(String),
 }
 
+fn print_progress(done: u64, total: Option<u64>) {
+    match total {
+        Some(t) if t > 0 => {
+            let pct = ((done as f64 / t as f64) * 100.0).min(100.0);
+            let bars = (pct / 5.0) as usize;
+            let bar: String = std::iter::repeat('=').take(bars).collect();
+            eprint!("\r  [{:<20}] {:>5.1}% {}", bar, pct, paint("1;36", &format!("{}/{}", done, t)));
+        }
+        _ => {
+            eprint!("\r  {} downloaded", done);
+        }
+    }
+    let _ = std::io::stderr().flush();
+}
+
 fn fetch_part(part_url: &str, dst: &str) -> PartFetch {
     let mut response = match ureq::get(part_url).call() {
         Ok(response) => response,
@@ -1081,6 +1528,11 @@ fn fetch_part(part_url: &str, dst: &str) -> PartFetch {
     if response.status().as_u16() != 200 {
         return PartFetch::Transient(format!("http {}", response.status().as_u16()));
     }
+    let total: Option<u64> = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse().ok());
 
     let mut out = match fs::OpenOptions::new().append(true).create(true).open(dst) {
         Ok(file) => file,
@@ -1088,18 +1540,30 @@ fn fetch_part(part_url: &str, dst: &str) -> PartFetch {
     };
     let mut reader = response.body_mut().as_reader();
     let mut buf = [0u8; 65536];
+    let mut done: u64 = 0;
+    let mut shown = false;
 
     loop {
         let count = match reader.read(&mut buf) {
             Ok(count) => count,
-            Err(err) => return PartFetch::Transient(format!("download failed: {}", err)),
+            Err(err) => {
+                eprintln!();
+                return PartFetch::Transient(format!("download failed: {}", err));
+            }
         };
         if count == 0 {
             break;
         }
         if let Err(err) = out.write_all(&buf[..count]) {
+            eprintln!();
             return PartFetch::Transient(format!("cannot write {}: {}", dst, err));
         }
+        done += count as u64;
+        print_progress(done, total);
+        shown = true;
+    }
+    if shown {
+        eprintln!();
     }
 
     PartFetch::Ok
@@ -1132,12 +1596,8 @@ fn hash_file(dst: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn read_field(text: &str, key: &str) -> String {
-    // [SPK-DEBUG-OK 2026-09-20] manifest mini-parser audited.
-    // Handles `"key": "string"`, `"key": true/1/yes` and `"key": 3`
-    // (quoted or bare). Not full JSON — enough for flat package.json
-    // manifests (filename/version/sha256/parts/system).
-    // DEBUG-MARK: READ-FIELD v1.
+pub(crate) fn read_field(text: &str, key: &str) -> String {
+    // tiny parser, just enough for flat package.json files
     let needle = format!("\"{}\"", key);
     let pos = match text.find(&needle) {
         Some(pos) => pos + needle.len(),
@@ -1182,6 +1642,54 @@ fn read_field(text: &str, key: &str) -> String {
     value.trim().trim_matches('"').to_string()
 }
 
+pub(crate) fn read_string_array(text: &str, key: &str) -> Vec<String> {
+    let needle = format!("\"{}\"", key);
+    let pos = match text.find(&needle) {
+        Some(pos) => pos + needle.len(),
+        None => return Vec::new(),
+    };
+    let rest = &text[pos..];
+    let open = match rest.find('[') {
+        Some(open) => open + 1,
+        None => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for c in rest[open..].chars() {
+        if escaped {
+            escaped = false;
+            if in_string {
+                cur.push(c);
+            }
+            continue;
+        }
+        if c == '\\' && in_string {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            if in_string {
+                let value = cur.trim().to_string();
+                if !value.is_empty() {
+                    out.push(value);
+                }
+                cur.clear();
+            }
+            in_string = !in_string;
+            continue;
+        }
+        if c == ']' && !in_string {
+            break;
+        }
+        if in_string {
+            cur.push(c);
+        }
+    }
+    out
+}
+
 fn skipped_name(name: &str) -> bool {
     let base = Path::new(name)
         .file_name()
@@ -1191,13 +1699,7 @@ fn skipped_name(name: &str) -> bool {
 }
 
 fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
-    // [SPK-DEBUG-OK 2026-09-20] tar extract audited.
-    // `clean()` jails `..`/absolute paths under root; `resolve_link()`
-    // rejects symlinks escaping root. System mode skips bundled glibc
-    // copies (core_lib/system_tool) and keeps the host's. Dirs created,
-    // symlinks + hardlinks (with copy fallback) recorded, regular files
-    // get their tar modes. Returns installed paths for the registry.
-    // DEBUG-MARK: EXTRACT v1.
+    // unpacks the tarball jailed under root, no escapes allowed
     let mut installed: Vec<Installed> = Vec::new();
     let mut skipped = 0;
     let mut pending_links: Vec<(String, String, u32)> = Vec::new();
@@ -1332,9 +1834,7 @@ fn make_parent(dest: &str) {
 }
 
 fn clean(name: &str, root: &str) -> String {
-    // [SPK-DEBUG-OK 2026-09-20] path jail audited — strips leading /,
     // collapses `.`, pops `..`, then prefixes root. Never escapes root.
-    // DEBUG-MARK: CLEAN v1.
     let mut parts: Vec<&str> = Vec::new();
     for part in name.split('/') {
         if part.is_empty() || part == "." {
@@ -1355,18 +1855,8 @@ fn clean(name: &str, root: &str) -> String {
 }
 
 fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
-    // [SPK-DEBUG-OK 2026-09-20] symlink scope check audited — absolute
-    // targets are rebased under --root, `..` normalised, escapes rejected.
-    // DEBUG-MARK: RESOLVE-LINK v1.
-    // FIX 2026-09-20 RESOLVE-LINK-ROOT: absolute targets are stored verbatim
-    // (like pacman --root). The old code rebased them to include the host
-    // --root prefix (e.g. /silen/usr/lib/...) which is correct on the host
-    // but broken inside the chroot after boot; it also wrongly rejected
-    // valid absolute targets as "escapes". Only relative targets need the
-    // join+normalise escape check below.
+    // absolute targets stay verbatim, relative ones get checked for escapes
     if target.starts_with('/') {
-        // Normalise `..`/`.` without touching the fs; any absolute path is
-        // inside "/" by construction, so it can never escape the target root.
         let mut parts: Vec<&str> = Vec::new();
         for part in target.split('/') {
             if part.is_empty() || part == "." {
@@ -1382,10 +1872,8 @@ fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
         return target.to_string();
     }
     let scope = if root == "/" || root.is_empty() { "/".to_string() } else { root.trim_end_matches('/').to_string() };
-    // Only relative targets reach here (absolute returned above).
     let parent = Path::new(link_dest).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let abs = format!("{}/{}", parent.trim_end_matches('/'), target);
-    // normalize .. without touching fs
     let mut parts: Vec<&str> = Vec::new();
     for part in abs.split('/') {
         if part.is_empty() || part == "." {

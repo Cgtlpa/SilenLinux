@@ -2,6 +2,7 @@
 
 set -e
 
+# copies wifi drivers from this pc into the repo so the iso gets them
 KVER="${KVER:-}"
 if [ -z "$KVER" ]; then
 	for _d in rootfs/lib/modules/[0-9]*; do
@@ -231,6 +232,7 @@ copy_fw_zst() {
 }
 
 echo "  copying firmware"
+# firmware comes along with whatever modules got copied
 while IFS= read -r path; do
     fw_from_module "$path"
 done < <(printf '%s\n' $copied)
@@ -264,6 +266,7 @@ for meta in modules.builtin modules.builtin.alias.bin modules.builtin.bin \
 done
 
 echo "  regenerating modules dep and modules alias"
+# rebuild the module index or nothing loads on boot
 depmod -b "$(dirname "$0")/../rootfs" "$KVER" 2>/dev/null || echo "  ! depmod failed run depmod manually"
 
 echo

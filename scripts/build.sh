@@ -22,6 +22,9 @@ IWD_ROOT="${IWD_ROOT:-build/iwd-root}"
 RAMROOT="build/initramfs-root"
 ISO_DIR="build/iso"
 RESULT="build/silen-linux.iso"
+if [ "${NVIDIA:-0}" = "1" ]; then
+	RESULT="build/silen-linux-nvidia.iso"
+fi
 
 COMPRESS="${COMPRESS:-zstd}"   
 AUTO_HOST="${AUTO_HOST:-0}"    
@@ -29,6 +32,7 @@ FULL="${FULL:-0}"
 FORCE="${FORCE:-0}"            
 MIN_RAM_MB="${MIN_RAM_MB:-2048}"
 MIN_DISK_MB="${MIN_DISK_MB:-2048}"
+NVIDIA="${NVIDIA:-0}"
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common vmd
@@ -41,6 +45,11 @@ ALLOW="
 	i8042 psmouse
 	exfat cdc_ether rndis_host rndis_wlan alx 8139too via-rhine
 	bochs cirrus-qemu qxl virtio-gpu vboxvideo vmwgfx
+	drm drm_kms_helper ttm
+	amdgpu radeon nouveau i915 xe
+	evdev hid hid-generic usbhid
+	input-core uinput joydev
+	snd snd_pcm snd_timer soundcore
 "
 
 ALLOW_WIFI="
@@ -114,7 +123,6 @@ echo
 
 modules_ok() {
 	[ -d "$1" ] || return 1
-	# -print -quit stops after the first match so no SIGPIPE under pipefail.
 	[ -n "$(find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) -print -quit 2>/dev/null)" ]
 }
 
@@ -128,7 +136,11 @@ if ! modules_ok "$MODULES_SOURCE"; then
 		echo "     modules from $HOST_MODS"
 		KERNEL_VERSION="$HOST_VER"
 		MODULES_SOURCE="$HOST_MODS"
-		[ -f "$HOST_MODS/vmlinuz" ] && KERNEL_SOURCE="$HOST_MODS/vmlinuz"
+		for _kv in "$HOST_MODS/vmlinuz" "/boot/vmlinuz-$HOST_VER" /boot/vmlinuz; do
+			[ -f "$_kv" ] || continue
+			KERNEL_SOURCE="$_kv"
+			break
+		done
 	else
 		echo
 		echo "  No usable module tree found anywhere. You must provide one, e.g.:"
@@ -167,7 +179,7 @@ fi
 echo "[1/7] Cleaning old build"
 
 _IWD_KEEP=""
-for _keep in iwd-root iwd-src; do
+for _keep in iwd-root iwd-src nvidia-dl; do
 	[ -e "build/$_keep" ] || continue
 	if [ -z "$_IWD_KEEP" ]; then
 		_IWD_KEEP="$(mktemp -d /tmp/silen-iwd-keep.XXXXXX 2>/dev/null || echo /tmp/silen-iwd-keep.$$)" || true
@@ -192,7 +204,7 @@ fi
 
 if [ -n "$_IWD_KEEP" ]; then
 	mkdir -p build 2>/dev/null || true
-	for _keep in iwd-root iwd-src; do
+	for _keep in iwd-root iwd-src nvidia-dl; do
 		[ -e "$_IWD_KEEP/$_keep" ] || continue
 		mv "$_IWD_KEEP/$_keep" "build/$_keep" 2>/dev/null || true
 	done || true
@@ -200,7 +212,7 @@ if [ -n "$_IWD_KEEP" ]; then
 fi
 
 FREE_KB=$(df -Pk . 2>/dev/null | awk 'NR==2 {print $4}')
-if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ]; then
+if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $((MIN_DISK_MB * 1024)) ] && [ "$FORCE" != "1" ]; then
 	echo "  ERROR: only $((FREE_KB / 1024))MB free on disk - need at least ${MIN_DISK_MB}MB to build."
 	exit 1
 fi
@@ -243,9 +255,11 @@ module_file() {
 }
 
 is_blacklisted() {
-	local name="$1"
+	local name="$1" norm="$1" bad
+	norm="${norm//_/-}"
 	for bad in $BLACKLIST; do
-		if [ "$name" = "$bad" ]; then
+		bad="${bad//_/-}"
+		if [ "$norm" = "$bad" ]; then
 			return 0
 		fi
 	done
@@ -319,15 +333,15 @@ for _ld in /lib64/ld-linux-x86-64.so.2 /usr/lib64/ld-linux-x86-64.so.2 /lib/ld-l
 	[ -f "$_ld" ] || continue
 	cp --dereference "$_ld" "$RAMROOT/lib64/ld-linux-x86-64.so.2" 2>/dev/null && break
 done
-for _clib in /usr/lib/libc.so.6 /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6; do
+for _clib in /usr/lib64/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6 /usr/lib/libc.so.6; do
 	[ -f "$_clib" ] || continue
 	cp --dereference "$_clib" "$RAMROOT/usr/lib64/libc.so.6" 2>/dev/null && break
 done
-for _mlib in /usr/lib/libm.so.6 /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6; do
+for _mlib in /usr/lib64/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6 /usr/lib/libm.so.6; do
 	[ -f "$_mlib" ] || continue
 	cp --dereference "$_mlib" "$RAMROOT/usr/lib64/libm.so.6" 2>/dev/null && break
 done
-for _rlib in /usr/lib/libresolv.so.2 /usr/lib64/libresolv.so.2 /lib/x86_64-linux-gnu/libresolv.so.2; do
+for _rlib in /usr/lib64/libresolv.so.2 /lib/x86_64-linux-gnu/libresolv.so.2 /usr/lib/libresolv.so.2; do
 	[ -f "$_rlib" ] || continue
 	cp --dereference "$_rlib" "$RAMROOT/usr/lib64/libresolv.so.2" 2>/dev/null && break
 done
@@ -365,16 +379,13 @@ copy_libs() {
 	local bin="$1" lib
 	[ -f "$bin" ] || return 0
 	mkdir -p "$RAMROOT/usr/lib64"
-	# Warn once if ldd reports missing libs (e.g. "libfoo.so => not found").
 	if ldd "$bin" 2>/dev/null | grep -q '=> not found'; then
 		echo "  ! $bin has missing libs:"
 		ldd "$bin" 2>/dev/null | grep '=> not found' | sed 's/^/    /' || true
 	fi
 	while IFS= read -r lib; do
-		# Strip any leading/trailing whitespace (ldd indents with tabs).
 		lib="$(printf '%s' "$lib" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 		[ -n "$lib" ] || continue
-		# Skip the virtual vdso (no file on disk) and any non-absolute entry.
 		case "$lib" in
 			/*) ;;
 			*) continue ;;
@@ -496,7 +507,6 @@ fi
 
 copy_app dbus-daemon  /usr/bin/dbus-daemon
 mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
-# sbin tools live in /usr/bin in the ramroot; keep absolute /usr/sbin/* working too.
 for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
 	ln -sf "/usr/bin/$_sbin_link" "$RAMROOT/usr/sbin/$_sbin_link" 2>/dev/null || true
 done
@@ -504,6 +514,8 @@ done
 [ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
 [ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
 [ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+[ -f /usr/bin/efibootmgr ] && copy_opt efibootmgr /usr/bin/efibootmgr
+[ -f /usr/sbin/efibootmgr ] && { copy_opt efibootmgr /usr/sbin/efibootmgr; ln -sf /usr/bin/efibootmgr "$RAMROOT/usr/sbin/efibootmgr" 2>/dev/null || true; }
 for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
 	[ -f "$_dbus_helper" ] || continue
 	_helper_rel="${_dbus_helper#/}"
@@ -520,8 +532,7 @@ if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr
 fi
 
 mkdir -p "$RAMROOT/var/lib/dbus" "$RAMROOT/etc"
-# No static machine-id on purpose: live init runs `dbus-uuidgen --ensure`
-# on every boot so each machine gets a unique ID (clones break D-Bus/DHCP).
+# no fixed machine-id, every boot makes its own or clones break stuff
 rm -f "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id" 2>/dev/null || true
 
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
@@ -560,12 +571,22 @@ for _ti in "l/linux" "x/xterm" "x/xterm-256color" "v/vt100" "s/screen"; do
 done
 
 printf '/lib64\n/usr/lib64\n/usr/lib\n/lib\n' > "$RAMROOT/etc/ld.so.conf" || { echo "  ERROR cannot write ld.so.conf"; exit 1; }
-# NSS is dlopen()ed by libc (never appears in ldd) - without it live DNS is dead.
-for _nss in /usr/lib/libnss_dns.so.2 /usr/lib/libnss_files.so.2; do
-	[ -e "$_nss" ] || continue
+# nss never shows up in ldd so copy it by hand or dns dies on live
+for _n in libnss_dns.so.2 libnss_files.so.2; do
+	_nss=""
+	for _cand in /usr/lib64/$_n /lib64/$_n /usr/lib/x86_64-linux-gnu/$_n /lib/x86_64-linux-gnu/$_n /usr/lib/$_n; do
+		[ -e "$_cand" ] || continue
+		_nss="$_cand"
+		break
+	done
+	[ -n "$_nss" ] || continue
+	if command -v file >/dev/null 2>&1; then
+		case "$(file -L -b "$_nss" 2>/dev/null)" in
+			*32-bit*) continue ;;
+		esac
+	fi
 	cp --dereference "$_nss" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy $_nss (live DNS may fail)"
 done
-# Empty resolv.conf placeholder; iwd fills it via built-in DHCP.
 touch "$RAMROOT/etc/resolv.conf" 2>/dev/null || true
 if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
 	echo "  ERROR ldconfig failed (dynamic apps will not load)"
@@ -577,10 +598,23 @@ mkdir -p "$RAMROOT/installer/lib" || { echo "  ERROR cannot create installer dir
 cp installer/main.sh "$RAMROOT/installer/main.sh" || { echo "  ERROR cannot copy installer"; exit 1; }
 cp -a installer/lib/. "$RAMROOT/installer/lib/" || { echo "  ERROR cannot copy installer libs"; exit 1; }
 chmod 0755 "$RAMROOT/installer/main.sh"
+echo "  bash installer shipped for reference; live boot is GUI-only (silen-installer)"
 
 if [ -f scripts/wifi-check.sh ]; then
 	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check" || { echo "  ERROR cannot copy wifi-check"; exit 1; }
 	chmod 0755 "$RAMROOT/usr/bin/silen-wifi-check"
+fi
+if [ -f scripts/nvidia-check.sh ]; then
+	cp scripts/nvidia-check.sh "$RAMROOT/usr/bin/silen-nvidia-check" || { echo "  ERROR cannot copy nvidia-check"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/silen-nvidia-check"
+fi
+if [ -f scripts/lock-ssd.sh ]; then
+	cp scripts/lock-ssd.sh "$RAMROOT/usr/bin/lock-ssd" || { echo "  ERROR cannot copy lock-ssd"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/lock-ssd"
+fi
+if [ -f scripts/unlock-ssd.sh ]; then
+	cp scripts/unlock-ssd.sh "$RAMROOT/usr/bin/unlock-ssd" || { echo "  ERROR cannot copy unlock-ssd"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/unlock-ssd"
 fi
 
 cp "$INIT_SOURCE" "$RAMROOT/init" || { echo "  ERROR cannot copy init"; exit 1; }
@@ -605,8 +639,6 @@ copy_firmware() {
 			found=1
 			local rel="${f#$src/}"
 			if [ -d "$f" ]; then
-				# Merge per-file so the second source fills gaps instead of
-				# being skipped when the first source already made the dir.
 				mkdir -p "$RAMROOT/lib/firmware/$rel" || { echo "  ERROR cannot create firmware dir $rel"; exit 1; }
 				find "$RAMROOT/lib/firmware/$rel" -xtype l -delete 2>/dev/null || true
 				cp -an "$f"/. "$RAMROOT/lib/firmware/$rel"/ 2>/dev/null || cp -a "$f"/. "$RAMROOT/lib/firmware/$rel"/ || { echo "  ERROR cannot copy firmware dir $rel"; exit 1; }
@@ -741,17 +773,8 @@ if [ -d "$FIRMWARE_SOURCE" ]; then
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
 fi
 
-# FIX 2026-09-21 BLACK-SCREEN — GPU firmware (amdgpu/i915/...).
-# The repo firmware tree only carries Wi-Fi blobs, so without this the live
-# initramfs and the ISO firmware dir (which offline installs copy into the
-# target via install-modules) have NO graphics firmware. amdgpu/i915 then
-# refuse to modeset after GRUB and the screen stays black. Merge whatever
-# GPU blobs the firmware sources have (host /lib/firmware usually ships
-# linux-firmware); missing dirs are fine - skip silently.
-# SIZE 2026-09-22 — `nvidia` is deliberately NOT in this list: it alone is
-# ~200M of blobs that only work with the proprietary NVIDIA driver (which
-# the ISO installs later via spk after reboot), and shipping it would
-# push the ISO over 1.5GB. amdgpu+i915+xe+radeon are ~45M combined.
+# gpu firmware has to ride along or the screen just stays black after grub
+# no nvidia blobs here, way too fat and they need the proprietary driver anyway
 for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
 	for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
 		[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
@@ -801,6 +824,326 @@ if ! "$DEPMOD" -b "$RAMROOT" "$KERNEL_VERSION"; then
 	exit 1
 fi
 [ -f "$MODULES_DIR/modules.dep" ] || [ -f "$MODULES_DIR/modules.dep.bin" ] || { echo "  ERROR depmod produced no modules.dep"; exit 1; }
+
+
+echo "[5b/7] Live Wayland desktop (instantwm) + Rust installer"
+echo "  applies to both 'make iso' and 'make nvidia-iso' (NVIDIA flag only adds the driver payload later)"
+
+if command -v cargo >/dev/null 2>&1; then
+	echo "  building silen-installer (Rust + egui port of installer/*.sh)"
+	CARGO_ENV=()
+	CARGO_AS_USER=""
+	if [ -n "${SUDO_USER:-}" ]; then
+		_SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+		if [ -n "$_SUDO_HOME" ]; then
+			CARGO_ENV+=(RUSTUP_HOME="$_SUDO_HOME/.rustup" CARGO_HOME="$_SUDO_HOME/.cargo")
+			if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
+				CARGO_AS_USER="$SUDO_USER"
+			fi
+		fi
+	fi
+	_SI_OK=0
+	if [ -n "$CARGO_AS_USER" ]; then
+		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path silen-installer/Cargo.toml; then
+			_SI_OK=1
+		fi
+	else
+		if env "${CARGO_ENV[@]}" cargo build --release --manifest-path silen-installer/Cargo.toml; then
+			_SI_OK=1
+		fi
+	fi
+	if [ "$_SI_OK" = "1" ] && [ -f silen-installer/target/release/silen-installer ]; then
+		echo "  installing silen-installer into live ramroot"
+		mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
+		cp silen-installer/target/release/silen-installer "$RAMROOT/usr/bin/silen-installer" || { echo "  ERROR cannot copy silen-installer"; exit 1; }
+		chmod 0755 "$RAMROOT/usr/bin/silen-installer" 2>/dev/null || true
+		copy_libs "$RAMROOT/usr/bin/silen-installer"
+		mkdir -p "$RAMROOT/usr/share/applications" || true
+		cp silen-installer/target/release/silen-installer "build/silen-installer" 2>/dev/null || true
+	else
+		echo "  ERROR silen-installer build failed (live ISO needs it)"; exit 1
+	fi
+else
+	echo "  ERROR cargo not found (needed for silen-installer)"; exit 1
+fi
+
+echo "  unpacking instantwm + Wayland stack into live ramroot"
+for _lp in instantwm instantmenu wl-libs gtk-libs xorg-libs xorg-server xorg-drivers xinit xkb-data dejavu kitty seatd wlroots scenefx vulkan-loader llvm; do
+	_spk="spk-pkgs/packages/$_lp/$_lp.spk"
+	[ -f "$_spk" ] || continue
+	echo "    + $_lp"
+	tar -xzpf "$_spk" -C "$RAMROOT" 2>/dev/null || tar -xzf "$_spk" -C "$RAMROOT" 2>/dev/null || echo "  ! cannot unpack $_lp"
+done
+if [ -x /usr/local/bin/instantwm ] && [ ! -x "$RAMROOT/usr/bin/instantwm" ]; then
+	echo "    + instantwm (host fallback)"
+	mkdir -p "$RAMROOT/usr/bin" || true
+	cp -a /usr/local/bin/instantwm "$RAMROOT/usr/bin/instantwm" 2>/dev/null || true
+	chmod 0755 "$RAMROOT/usr/bin/instantwm" 2>/dev/null || true
+	[ -x /usr/local/bin/instantwmctl ] && cp -a /usr/local/bin/instantwmctl "$RAMROOT/usr/bin/instantwmctl" 2>/dev/null || true
+fi
+if [ -x "$RAMROOT/usr/bin/seatd" ] && [ ! -e "$RAMROOT/usr/local/bin/seatd" ]; then
+	mkdir -p "$RAMROOT/usr/local/bin" || true
+	ln -sf /usr/bin/seatd "$RAMROOT/usr/local/bin/seatd" 2>/dev/null || true
+fi
+echo "  merging host Mesa/DRI (software rendering for egui/instantwm)"
+for _mesa_src in /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib; do
+	[ -d "$_mesa_src" ] || continue
+	mkdir -p "$RAMROOT/usr/lib64" || true
+	for _m in libGL.so* libEGL.so* libGLESv*.so* libgbm.so* libdrm.so* libglapi.so* libxkbcommon.so* libwayland-*.so* libseat.so* libinput.so* libudev.so* libevdev.so* libwacom.so* libmtdev.so* libxkbcommon-x11.so* libEGL_mesa.so* libGLX_mesa.so* liblua*.so* libsystemd.so* libxml2.so* libexpat.so* libffi.so* libpcre2*.so* libz.so* liblzma.so* libbz2.so* libbrotli*.so* libgcc_s.so* libstdc++.so* libGLX_mesa.so* libGLdispatch.so* libOpenGL.so*; do
+		for _f in "$_mesa_src"/$_m; do
+			[ -e "$_f" ] || continue
+			case "$_f" in
+				*nvidia*) continue ;;
+			esac
+			if command -v file >/dev/null 2>&1; then
+				case "$(file -L -b "$_f" 2>/dev/null)" in
+					*32-bit*) continue ;;
+				esac
+			elif [ "$_mesa_src" != "/usr/lib64" ] && [ -e "$RAMROOT/usr/lib64/$(basename "$_f")" ]; then
+				continue
+			fi
+			cp --dereference "$_f" "$RAMROOT/usr/lib64/" 2>/dev/null || true
+		done
+	done
+	if [ -d "$_mesa_src/dri" ]; then
+		mkdir -p "$RAMROOT/usr/lib64/dri" || true
+		for _df in "$_mesa_src"/dri/*; do
+			[ -e "$_df" ] || continue
+			_db="$(basename "$_df")"
+			if [ "$_mesa_src" != "/usr/lib64" ] && [ -e "$RAMROOT/usr/lib64/dri/$_db" ]; then
+				continue
+			fi
+			if command -v file >/dev/null 2>&1; then
+				case "$(file -L -b "$_df" 2>/dev/null)" in
+					*32-bit*) continue ;;
+				esac
+			fi
+			cp -a "$_df" "$RAMROOT/usr/lib64/dri/" 2>/dev/null || true
+		done
+	fi
+	if [ -d "$_mesa_src/gconv" ]; then
+		mkdir -p "$RAMROOT/usr/lib64/gconv" || true
+		for _gf in "$_mesa_src"/gconv/*; do
+			[ -e "$_gf" ] || continue
+			_gb="$(basename "$_gf")"
+			if [ "$_mesa_src" != "/usr/lib64" ] && [ -e "$RAMROOT/usr/lib64/gconv/$_gb" ]; then
+				continue
+			fi
+			if command -v file >/dev/null 2>&1; then
+				case "$(file -L -b "$_gf" 2>/dev/null)" in
+					*32-bit*) continue ;;
+				esac
+			fi
+			cp -a "$_gf" "$RAMROOT/usr/lib64/gconv/" 2>/dev/null || true
+		done
+	fi
+done
+# mesa gl vendor file or instantwm never starts, never ship the nvidia one
+mkdir -p "$RAMROOT/usr/share/glvnd/egl_vendor.d" || true
+if [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
+	cp /usr/share/glvnd/egl_vendor.d/50_mesa.json "$RAMROOT/usr/share/glvnd/egl_vendor.d/" 2>/dev/null || echo "  ! cannot copy mesa egl vendor json"
+else
+	echo "  ! host 50_mesa.json missing (EGL will fail in live session)"
+fi
+echo "  resolving remaining live-binary deps via ldd (instantwm/kitty/wofi/waybar/silen-installer)"
+for _lb in "$RAMROOT"/usr/bin/*; do
+	[ -f "$_lb" ] || continue
+	case "$_lb" in
+		*.sh|*.log|*.conf|*.desktop) continue ;;
+	esac
+	if head -c 4 "$_lb" 2>/dev/null | grep -q '^.ELF'; then
+		copy_libs "$_lb"
+	fi
+done
+for _font_src in /usr/share/fonts /usr/share/fontconfig; do
+	[ -d "$_font_src" ] || continue
+	mkdir -p "$RAMROOT/usr/share" || true
+	cp -an "$_font_src" "$RAMROOT/usr/share/" 2>/dev/null || cp -a "$_font_src" "$RAMROOT/usr/share/" 2>/dev/null || true
+done
+if command -v fc-cache >/dev/null 2>&1; then
+	mkdir -p "$RAMROOT/usr/bin" || true
+	_FC="$(command -v fc-cache)"
+	cp --dereference "$_FC" "$RAMROOT/usr/bin/fc-cache" 2>/dev/null || true
+	copy_libs "$_FC"
+fi
+mkdir -p "$RAMROOT/etc/skel/.config/instantwm" "$RAMROOT/root/.config/instantwm" "$RAMROOT/usr/share/wayland-sessions" "$RAMROOT/etc/instantwm" || true
+if [ -f "$RAMROOT/usr/share/doc/instantwm/config.toml.example" ]; then
+	cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$RAMROOT/etc/skel/.config/instantwm/config.toml" 2>/dev/null || true
+	cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$RAMROOT/root/.config/instantwm/config.toml" 2>/dev/null || true
+	for _cfg in "$RAMROOT/etc/skel/.config/instantwm/config.toml" "$RAMROOT/root/.config/instantwm/config.toml" "$RAMROOT/usr/share/doc/instantwm/config.toml.example"; do
+		[ -f "$_cfg" ] || continue
+		if grep -q '^keybinds = \[\]' "$_cfg" 2>/dev/null; then
+			sed -i 's|^keybinds = \[\]|keybinds = [{ modifiers = ["super", "shift"], key = "space", action = { spawn = ["instantmenu_run"] } }]|' "$_cfg" 2>/dev/null || true
+		fi
+	done
+fi
+if [ ! -f "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" ]; then
+	cat > "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" <<'EOF'
+[Desktop Entry]
+Name=instantwm
+Comment=instantWM hybrid tiling window manager
+Exec=instantwm --backend drm
+Type=Application
+DesktopNames=instantwm
+EOF
+fi
+mkdir -p "$RAMROOT/usr/share/applications" || true
+cat > "$RAMROOT/usr/share/applications/silen-installer.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Silen Installer
+Comment=Install Silen Linux
+Exec=silen-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;
+EOF
+cat > "$RAMROOT/usr/bin/silen-live-wayland" <<'EOF'
+#!/bin/sh
+# live desktop, no login. compositor first then the installer, drm then x11
+LOG=/tmp/live-gui.log
+echo "=== silen-live-wayland start ===" >"$LOG" 2>&1
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_CURRENT_DESKTOP=instantwm
+export XDG_SESSION_DESKTOP=instantwm
+export XDG_SESSION_TYPE=wayland
+export INSTANTWM_LOG="${INSTANTWM_LOG:-info}"
+export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
+	seatd -g root >>"$LOG" 2>&1 &
+	_i=0
+	while [ ! -S "$SEATD_SOCK" ] && [ $_i -lt 50 ]; do
+		_i=$((_i + 1))
+		sleep 0.1 2>/dev/null || sleep 1
+	done
+fi
+echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >>"$LOG" 2>&1
+ls /dev/dri/card* >>"$LOG" 2>&1 || echo "no /dev/dri/card* (KMS driver or firmware missing?)" >>"$LOG" 2>&1
+try_drm() {
+	[ -x /usr/bin/instantwm ] || return 1
+	ls /dev/dri/card* >/dev/null 2>&1 || return 1
+	echo "starting instantwm --backend drm" >>"$LOG" 2>&1
+	/usr/bin/instantwm --backend drm >>/tmp/instantwm.log 2>&1 &
+	echo $! >/tmp/instantwm.pid 2>/dev/null || true
+	return 0
+}
+try_x11() {
+	[ -x /usr/bin/Xorg ] && [ -x /usr/bin/instantwm ] || return 1
+	export DISPLAY="${DISPLAY:-:0}"
+	echo "starting Xorg $DISPLAY" >>"$LOG" 2>&1
+	mkdir -p /tmp/.X11-unix 2>/dev/null || true
+	/usr/bin/Xorg "$DISPLAY" vt1 -nolisten tcp -logfile /tmp/xorg.log >>/tmp/xorg.log 2>&1 &
+	echo $! >/tmp/xorg.pid 2>/dev/null || true
+	i=0
+	while [ $i -lt 100 ] && [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
+		i=$((i + 1)); sleep 0.1 2>/dev/null || sleep 1
+	done
+	[ -S "/tmp/.X11-unix/X${DISPLAY#:}" ] || { echo "Xorg socket never appeared" >>"$LOG" 2>&1; return 1; }
+	unset WAYLAND_DISPLAY
+	export XDG_SESSION_TYPE=x11
+	echo "starting instantwm --backend x11" >>"$LOG" 2>&1
+	sleep 1 2>/dev/null || true
+	DISPLAY="$DISPLAY" /usr/bin/instantwm --backend x11 >>/tmp/instantwm.log 2>&1 &
+	echo $! >/tmp/instantwm.pid 2>/dev/null || true
+	sleep 2 2>/dev/null || true
+	read -r _p </tmp/instantwm.pid 2>/dev/null || _p=""
+	[ -n "$_p" ] && kill -0 "$_p" 2>/dev/null || { echo "instantwm x11 died at startup" >>"$LOG" 2>&1; return 1; }
+	return 0
+}
+wait_socket() {
+	i=0
+	while [ $i -lt 150 ]; do
+		[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && return 0
+		if [ -f /tmp/instantwm.pid ]; then
+			read -r _pid </tmp/instantwm.pid 2>/dev/null || _pid=""
+			if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then
+				echo "compositor died while waiting for socket, see /tmp/instantwm.log" >>"$LOG" 2>&1
+				return 1
+			fi
+		fi
+		i=$((i + 1)); sleep 0.2 2>/dev/null || sleep 1
+	done
+	echo "Wayland socket never appeared" >>"$LOG" 2>&1
+	return 1
+}
+cleanup() {
+	[ -f /tmp/instantwm.pid ] && read -r _p </tmp/instantwm.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
+	[ -f /tmp/xorg.pid ] && read -r _p </tmp/xorg.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
+}
+_started=""
+if try_drm && wait_socket; then
+	_started="drm"
+	echo "compositor up (drm)" >>"$LOG" 2>&1
+else
+	cleanup
+	if try_x11; then
+		_started="x11"
+		echo "compositor up (x11 fallback)" >>"$LOG" 2>&1
+	fi
+fi
+if [ -z "$_started" ]; then
+	echo "no compositor available" >>"$LOG" 2>&1
+	cleanup
+	exit 1
+fi
+touch /tmp/gui-was-up 2>/dev/null || true
+(
+_wp=0
+[ -f /tmp/instantwm.pid ] && read -r _wp </tmp/instantwm.pid 2>/dev/null
+_autorecover=0
+case " $(cat /proc/cmdline 2>/dev/null) " in
+	*" silen.debug "*) _autorecover=1 ;;
+esac
+_n=0
+touch /tmp/.watchdog-mark 2>/dev/null || true
+while [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; do
+	sleep 15 2>/dev/null || sleep 15
+	_n=$((_n + 1))
+	echo "--- watchdog $(date -u 2>/dev/null || date)" >>"$LOG" 2>&1
+	ps >>"$LOG" 2>&1 || true
+	tail -n 8 /tmp/instantwm.log >>"$LOG" 2>&1 || true
+	dmesg 2>/dev/null | tail -n 15 >>"$LOG" 2>&1 || true
+	if [ "$_autorecover" = "1" ] && [ $_n -ge 24 ]; then
+		if ! ps 2>/dev/null | grep -q "[s]ilen-installer"; then
+			if [ /tmp/instantwm.log -ot /tmp/.watchdog-mark ]; then
+				echo "watchdog: installer never started and compositor log stale, recovering to shell" >>"$LOG" 2>&1
+				kill "$_wp" 2>/dev/null || true
+				sleep 3
+				kill -9 "$_wp" 2>/dev/null || true
+				break
+			fi
+		fi
+	fi
+	touch /tmp/.watchdog-mark 2>/dev/null || true
+done
+) &
+if command -v kitty >/dev/null 2>&1; then
+	(kitty sh -c 'echo Silen live terminal; exec sh' >>/tmp/kitty.log 2>&1 &) || true
+fi
+if [ -x /usr/bin/silen-installer ]; then
+	echo "launching installer" >>"$LOG" 2>&1
+	/usr/bin/silen-installer >>/tmp/silen-installer.log 2>&1
+	echo "installer exited rc=$?" >>"$LOG" 2>&1
+fi
+echo "holding desktop session" >>"$LOG" 2>&1
+while [ -f /tmp/instantwm.pid ]; do
+	read -r _p </tmp/instantwm.pid 2>/dev/null || break
+	[ -n "$_p" ] || break
+	kill -0 "$_p" 2>/dev/null || break
+	sleep 5 2>/dev/null || sleep 5
+done
+cleanup
+echo "compositor gone, session over" >>"$LOG" 2>&1
+exit 0
+EOF
+chmod 0755 "$RAMROOT/usr/bin/silen-live-wayland" 2>/dev/null || true
+if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
+	echo "  ERROR ldconfig failed after live desktop merge"; exit 1
+fi
+echo "  live desktop: $(du -sh "$RAMROOT/usr/bin/instantwm" 2>/dev/null | cut -f1) instantwm + $(du -sh "$RAMROOT/usr/lib64" 2>/dev/null | cut -f1) libs"
 
 
 echo "[6/7] Packing initramfs ($COMPRESS)"
@@ -862,32 +1205,91 @@ if modules_ok "$MODULES_SOURCE"; then
 	mkdir -p "$KROOT/boot" "$KROOT/lib/modules"
 	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz" || { echo "  ERROR cannot copy kernel image"; exit 1; }
 	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION" || { echo "  ERROR cannot copy module tree"; exit 1; }
-	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
-	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
-	       "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
-	find "$KROOT/lib/modules" \( -name '*.ko' -o -name '*.ko.zst' -o -name '*.ko.xz' \) -exec strip --strip-debug {} + 2>/dev/null || true
+	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
+	find "$KROOT/lib/modules" -name '*.ko' -exec strip --strip-debug {} + 2>/dev/null || true
 	KERNEL_TAR="$ISO_DIR/kernel-$KERNEL_VERSION.tar.zst"
-	tar -C "$KROOT" --exclude='./lib/modules/*/build' --exclude='./lib/modules/*/source' \
-		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" . || { echo "  ERROR kernel tarball creation failed (disk full?)"; exit 1; }
+	tar -C "$KROOT" --exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" . || { echo "  ERROR kernel tarball creation failed (disk full?)"; exit 1; }
 	echo "  kernel bundle: $(du -h "$KERNEL_TAR" | cut -f1)"
 else
 	echo "  no module tree found to add to ISO installed system gets the initramfs set"
 fi
 
-if [ -d rootfs/lib/firmware ]; then
+_HEADERS_TAR=""
+for _h in headers-*.tar.zst headers-*.tar.gz headers-*.tar.xz; do
+	[ -f "$_h" ] || continue
+	_HEADERS_TAR="$_h"
+	break
+done
+if [ -n "$_HEADERS_TAR" ]; then
+	echo "  adding kernel headers to ISO ($_HEADERS_TAR)"
+	cp "$_HEADERS_TAR" "$ISO_DIR/" || { echo "  ERROR cannot copy headers bundle"; exit 1; }
+else
+	echo "  ! no headers-*.tar.zst found - run scripts/make-headers-bundle.sh or nvidia module builds will fail"
+fi
+
+if [ "$NVIDIA" = "1" ]; then
+	echo "  nvidia variant: staging driver payload"
+	[ -n "$_HEADERS_TAR" ] || { echo "  ERROR nvidia variant needs headers-*.tar.zst (run KERNEL_SRC=... scripts/make-headers-bundle.sh first)"; exit 1; }
+	_NVIDIA_RUN=""
+	for _r in nvidia-*.run; do
+		[ -f "$_r" ] || continue
+		_NVIDIA_RUN="$_r"
+		break
+	done
+	if [ -z "$_NVIDIA_RUN" ] && ls build/nvidia-dl/nvidia-*.run >/dev/null 2>&1; then
+		_NVIDIA_RUN="$(ls build/nvidia-dl/nvidia-*.run 2>/dev/null | head -n1)"
+	fi
+	if [ -z "$_NVIDIA_RUN" ]; then
+		_SPK_BASE="${SPK_BASE_URL:-https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages}"
+		_NVIDIA_MANIFEST="$(curl -sSL --max-time 60 "$_SPK_BASE/nvidia-drivers/package.json" 2>/dev/null)" || _NVIDIA_MANIFEST=""
+		_NVIDIA_PARTS="$(printf '%s' "$_NVIDIA_MANIFEST" | sed -n 's/.*"parts"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')"
+		_NVIDIA_SHA="$(printf '%s' "$_NVIDIA_MANIFEST" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p')"
+		[ -n "$_NVIDIA_PARTS" ] || { echo "  ERROR cannot fetch nvidia-drivers manifest (network down?) - drop nvidia-*.run in the repo root instead"; exit 1; }
+		mkdir -p build/nvidia-dl || { echo "  ERROR cannot create build/nvidia-dl"; exit 1; }
+		_i=0
+		while [ "$_i" -lt "$_NVIDIA_PARTS" ]; do
+			_part="$(printf '%s.%03d' "nvidia-drivers.spk" "$_i")"
+			curl -sSL --max-time 600 -o "build/nvidia-dl/$_part" "$_SPK_BASE/nvidia-drivers/$_part" || { echo "  ERROR download failed: $_part"; exit 1; }
+			_i=$((_i + 1))
+		done
+		cat build/nvidia-dl/nvidia-drivers.spk.* > build/nvidia-dl/nvidia-drivers.spk || { echo "  ERROR cannot join parts"; exit 1; }
+		if [ -n "$_NVIDIA_SHA" ]; then
+			_got="$(sha256sum build/nvidia-dl/nvidia-drivers.spk 2>/dev/null | awk '{print $1}')"
+			[ "$_got" = "$_NVIDIA_SHA" ] || { echo "  ERROR sha256 mismatch on nvidia-drivers.spk"; exit 1; }
+		fi
+		_NVIDIA_TMP="$(mktemp -d /tmp/silen-nvidia.XXXXXX 2>/dev/null || echo /tmp/silen-nvidia.$$)"
+		tar -xzf build/nvidia-dl/nvidia-drivers.spk -C "$_NVIDIA_TMP" || { echo "  ERROR cannot unpack spk"; exit 1; }
+		_NVIDIA_RUN_FILE="$(find "$_NVIDIA_TMP" -name 'nvidia-*.run' | head -n1)"
+		[ -n "$_NVIDIA_RUN_FILE" ] || { echo "  ERROR no .run inside spk"; exit 1; }
+		cp "$_NVIDIA_RUN_FILE" build/nvidia-dl/ || { echo "  ERROR cannot stage .run"; exit 1; }
+		rm -rf "$_NVIDIA_TMP" build/nvidia-dl/nvidia-drivers.spk* 2>/dev/null || true
+		_NVIDIA_RUN="$(ls build/nvidia-dl/nvidia-*.run 2>/dev/null | head -n1)"
+		[ -n "$_NVIDIA_RUN" ] || { echo "  ERROR nvidia .run staging failed"; exit 1; }
+	fi
+	cp "$_NVIDIA_RUN" "$ISO_DIR/$(basename "$_NVIDIA_RUN")" || { echo "  ERROR cannot copy nvidia .run to ISO"; exit 1; }
+	touch "$ISO_DIR/nvidia-auto" || { echo "  ERROR cannot write nvidia-auto flag"; exit 1; }
+	if bash scripts/build-nvidia-kmods.sh "$KERNEL_VERSION" "$_HEADERS_TAR" "$_NVIDIA_RUN" "$ISO_DIR/nvidia-kmods-$KERNEL_VERSION.tar.zst"; then
+		echo "  nvidia prebuilt kmods ready"
+	else
+		echo "  ! nvidia kmods prebuild failed - installer will compile on target"
+		echo "  ! see build/nvidia-kmods-build.log:"
+		tail -n 15 build/nvidia-kmods-build.log 2>/dev/null | sed 's/^/    /' || true
+		rm -f "$ISO_DIR/nvidia-kmods-$KERNEL_VERSION.tar.zst" 2>/dev/null || true
+	fi
+	echo "  nvidia payload: $(du -h "$ISO_DIR/$(basename "$_NVIDIA_RUN")" | cut -f1)"
+fi
+
+if [ -d "$FIRMWARE_SOURCE" ]; then
 	echo "  adding firmware to ISO at firmware"
-	cp -a rootfs/lib/firmware "$ISO_DIR/firmware" || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
-	# FIX 2026-09-21 BLACK-SCREEN — same GPU-firmware merge as the initramfs
-	# above: offline installs copy /mnt/firmware into the target, so the ISO
-	# must carry graphics blobs too (repo tree only has Wi-Fi ones).
-	# SIZE 2026-09-22 — no `nvidia` here either (~200M, proprietary-driver
-	# only, would push the ISO over 1.5GB).
+	mkdir -p "$ISO_DIR/firmware" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
+	cp -a "$FIRMWARE_SOURCE"/. "$ISO_DIR/firmware"/ || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
+	# same gpu firmware as the initramfs or installed systems go black
 	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
-		for _fwsrc in rootfs/lib/firmware "$HOST_FIRMWARE"; do
+		for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
 			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
-			[ -e "$ISO_DIR/firmware/$_gpu_fw" ] && continue
-			mkdir -p "$ISO_DIR/firmware" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
-			cp -a "$_fwsrc/$_gpu_fw" "$ISO_DIR/firmware/" || { echo "  ERROR cannot copy GPU firmware $_gpu_fw to ISO"; exit 1; }
+			mkdir -p "$ISO_DIR/firmware/$_gpu_fw" || { echo "  ERROR cannot create ISO firmware dir $_gpu_fw"; exit 1; }
+			cp -an "$_fwsrc/$_gpu_fw"/. "$ISO_DIR/firmware/$_gpu_fw"/ 2>/dev/null || \
+			cp -a "$_fwsrc/$_gpu_fw"/. "$ISO_DIR/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw to ISO"; exit 1; }
 		done
 	done
 fi
@@ -925,7 +1327,6 @@ if command -v cargo >/dev/null 2>&1; then
 	fi
 	_CARGO_OK=0
 	if [ -n "$CARGO_AS_USER" ]; then
-		# Build as the invoking user so root never poisons ~/.cargo.
 		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
 			_CARGO_OK=1
 		fi
@@ -942,11 +1343,11 @@ if command -v cargo >/dev/null 2>&1; then
 			cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs (live spk will rely on /mnt/spk)"
 			chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
 		fi
-		# cargo runs after [6/7] packed the initramfs, so re-pack to include
-		# /usr/bin/spk in the live env (the later ISO copy picks this up).
+		# spk gets built late so pack the image again with it inside
 		if [ -f "$RAMROOT/usr/bin/spk" ] && [ -f "build/$INITRAMFS" ]; then
 			echo "  re-packing initramfs to include spk"
 			copy_libs "$RAMROOT/usr/bin/spk"
+			ldconfig -r "$RAMROOT" 2>/dev/null || { echo "  ERROR ldconfig failed after spk merge"; exit 1; }
 			if ! (
 				cd "$RAMROOT"
 				find . -print0 | cpio --null -o --format=newc --owner=0:0
@@ -1000,6 +1401,35 @@ else
 	echo "  ! iwd missing from ramroot installed system gets no wifi stack"
 fi
 
+echo "  packing desktop bundle (instantwm Wayland stack for the installed system)"
+DESKROOT="build/desktop-root"
+rm -rf "$DESKROOT"
+mkdir -p "$DESKROOT"
+for _dp in \
+	usr/bin/instantwm usr/bin/instantwmctl \
+	usr/bin/instantmenu usr/bin/instantmenu_run usr/bin/instantmenu_path usr/bin/instantmenu_smartrun \
+	usr/bin/seatd usr/bin/seatd-launch etc/init.d/seatd \
+	usr/bin/silen-installer usr/bin/silen-live-wayland \
+	usr/bin/kitty usr/bin/wofi usr/bin/waybar \
+	usr/share/wayland-sessions usr/share/applications \
+	usr/share/doc/instantwm \
+	etc/skel \
+; do
+	[ -e "$RAMROOT/$_dp" ] || [ -L "$RAMROOT/$_dp" ] || continue
+	mkdir -p "$DESKROOT/$(dirname "$_dp")" || { echo "  ERROR cannot create $DESKROOT/$(dirname "$_dp")"; exit 1; }
+	cp -a "$RAMROOT/$_dp" "$DESKROOT/$_dp" || { echo "  ERROR cannot copy $_dp to desktop bundle"; exit 1; }
+done
+if [ -x "$DESKROOT/usr/bin/instantwm" ]; then
+	DESKTOP_TAR="$ISO_DIR/desktop.tar.zst"
+	tar -C "$DESKROOT" -I 'zstd -19' -cf "$DESKTOP_TAR" . || { echo "  ERROR desktop bundle creation failed"; exit 1; }
+	echo "  desktop bundle $(du -h "$DESKTOP_TAR" | cut -f1)"
+else
+	echo "  ! instantwm missing from ramroot installed system gets no desktop bundle"
+fi
+if [ -f build/silen-installer ]; then
+	cp build/silen-installer "$ISO_DIR/silen-installer" 2>/dev/null || true
+fi
+
 if [ -d grub-bundle/usr/local ]; then
 	echo "  adding bundled grub EFI to ISO at grub"
 	mkdir -p "$ISO_DIR/grub"
@@ -1035,11 +1465,8 @@ insmod efi_uga
 if loadfont \$prefix/fonts/unicode.pf2; then
 	set gfxmode=auto
 fi
-# FIX 2026-09-21 BLACK-SCREEN — console fallback (see installer
-# setup-grub): a failed modeset must never freeze a black GOP frame on
-# screen. Verbose default so live-boot failures are visible. NOTE: no
-# 'set gfxpayload' line — 'text' is invalid on UEFI ('invalid video mode
-# specification', blind mode, LP#1711452); the GRUB default is correct.
+# keep console output on, a black screen here hides real errors
+# no gfxpayload line, uefi chokes on it so leave it out
 terminal_output gfxterm console
 
 menuentry "Silen Linux" {

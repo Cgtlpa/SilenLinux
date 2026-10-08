@@ -1,3 +1,4 @@
+# unpacks the base tarball onto the new root
 install-base() {
 	mkdir -p "$ROOT_PATH"
 	if ! mount "$rootp" "$ROOT_PATH"; then
@@ -15,7 +16,7 @@ install-base() {
 	for s in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz /mnt/*.tar.zst; do
 		[[ -f "$s" ]] || continue
 		case "$(basename "$s")" in
-			kernel-*.tar.*|network.tar.*|spk.tar.*) continue ;;
+			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*) continue ;;
 		esac
 		stage3="$s" && break
 	done || true
@@ -40,7 +41,6 @@ install-base() {
 	fi
 	whiptail --infobox "Installing this might take a while...\n" 8 60 2>/dev/null || true
 	fix-permissions
-	fix-sudo-emerge
 
 	if ! mkdir -p "$ROOT_PATH"/proc "$ROOT_PATH"/sys "$ROOT_PATH"/dev "$ROOT_PATH"/run "$ROOT_PATH"/etc "$ROOT_PATH"/usr/share/zoneinfo; then
 		whiptail --msgbox --title "$title" "failed to prepare $ROOT_PATH (disk full?)" 8 40 || true
@@ -55,12 +55,16 @@ install-base() {
 	if [[ -L "$ROOT_PATH"/etc/resolv.conf ]]; then
 		rm -f "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
 	fi
-	if [[ -s /etc/resolv.conf ]]; then
-		cp /etc/resolv.conf "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	chattr -i "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	grep -q '127\.0\.0\.53' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null && rm -f "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	if [[ -s /etc/resolv.conf ]] && grep -q '^nameserver' /etc/resolv.conf 2>/dev/null; then
+		cp -L /etc/resolv.conf "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+		sed -i '/127\.0\.0\.53/d' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
 	fi
-	if [[ ! -s "$ROOT_PATH"/etc/resolv.conf ]]; then
+	if ! grep -q '^nameserver' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null; then
 		printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
 	fi
+	chmod 644 "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
 	echo "$hostnm" > "$ROOT_PATH"/etc/hostname || { whiptail --msgbox --title "$title" "failed to write hostname (disk full?)" 8 40 || true; cleanup; return; }
 	if [[ -f "$ROOT_PATH"/etc/conf.d/hostname ]]; then
 		if grep -q '^hostname=' "$ROOT_PATH"/etc/conf.d/hostname 2>/dev/null; then
@@ -108,9 +112,39 @@ EOF
 	whiptail --infobox "Installing the system this might take a while...\n(installing packages and network)" 8 60 2>/dev/null || true
 	install-spk
 	install-network
+	install-nvidia-auto
 	whiptail --infobox "Installing the system this might take a while...\n(creating users and finishing setup)" 8 60 2>/dev/null || true
 	create-user
 	install-branding
+	mkdir -p "$ROOT_PATH"/usr/share/silen 2>/dev/null || true
+	cat > "$ROOT_PATH"/usr/share/silen/spk-help.txt <<'EOF'
+spk - Silen package manager (spark)
+
+  sudo spk get <package> [package...]   install one or more packages
+  sudo spk rm <package> [package...]    remove packages and their files
+  sudo spk update                       update every installed package
+  sudo spk update <package> [...]       update (or install) specific packages
+  spk find <pattern>                   search installed packages
+  spk list                              list installed packages with versions
+
+System packages (desktops, drivers, firmware, dbus, iwd) install into /.
+Leaf apps install isolated with shims in /usr/local/bin.
+Per-user installs: spk get <package> --user (shims in ~/.local/bin).
+Custom repo: SPK_BASE_URL=https://... spk get <package>
+Full docs: spk --help
+Wi-Fi: iwctl, diagnostics: silen-wifi-check
+DNS: /etc/resolv.conf (nameserver 1.1.1.1 fallback, iwd updates it)
+Wi-Fi diagnostics: silen-wifi-check | GPU/NVIDIA diagnostics: silen-nvidia-check
+Network out of the box: wired uses dhcpcd, Wi-Fi uses iwd (iwctl). No network
+at all until you plug in or connect, then DNS just works.
+NVIDIA: display works out of the box via nouveau (in-tree + firmware).
+For proprietary (nvidia-smi, CUDA): sudo spk get nvidia-drivers, then reboot.
+That needs kernel headers at /lib/modules/$(uname -r)/build - this ISO ships
+them when headers-<kver>.tar.zst was built (scripts/make-headers-bundle.sh).
+Without headers the postinstall stops with a rerun hint and nothing breaks.
+Diagnose any time with: silen-nvidia-check
+EOF
+	chmod 644 "$ROOT_PATH"/usr/share/silen/spk-help.txt 2>/dev/null || true
 	setup-root-shell
 	fix-user-session
 	if [[ -n "${_elogind_hint:-}" ]]; then
@@ -118,6 +152,23 @@ EOF
 	fi
 	setup-quiet-boot
 	cleanup-rootfs
+	if [[ -L "$ROOT_PATH"/etc/resolv.conf ]]; then
+		rm -f "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	fi
+	chattr -i "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	grep -q '127\.0\.0\.53' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null && rm -f "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	# second dns pass in case the first one didnt stick
+	if [[ -s /etc/resolv.conf ]] && grep -q '^nameserver' /etc/resolv.conf 2>/dev/null; then
+		cp -L /etc/resolv.conf "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+		sed -i '/127\.0\.0\.53/d' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	fi
+	if ! grep -q '^nameserver' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null; then
+		printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	fi
+	chmod 644 "$ROOT_PATH"/etc/resolv.conf 2>/dev/null || true
+	if ! grep -q '^nameserver' "$ROOT_PATH"/etc/resolv.conf 2>/dev/null; then
+		whiptail --msgbox --title "$title" "warning: no nameserver in the new system (live DNS was empty). After reboot, connect with iwctl, then check /etc/resolv.conf - the boot hook restores 1.1.1.1/9.9.9.9 when it is missing." 10 65 || true
+	fi
 	if ! setup-grub; then
 		sync 2>/dev/null || true
 		cleanup
@@ -126,9 +177,13 @@ EOF
 		return
 	fi
 
-	whiptail --msgbox --title "$title" "To get Wi-Fi working, use iwctl in the installed Silen Linux.\n\nTo refresh the package database and pull missing dependencies, run: sudo emerge --oneshot sec-keys/openpgp-keys-gentoo-release && sudo emerge --sync" 10 65 || true
+	whiptail --msgbox --title "$title" "Wi-Fi: use iwctl in the installed Silen Linux (help: silen-wifi-check).\n\nspk usage (as root, use sudo):\n  sudo spk update              update all packages\n  sudo spk update <package>    update one package\n  sudo spk get <package>       install\n  sudo spk rm <package>        remove\n  spk find <name> / spk list   search / list\n\nGuide saved to /usr/share/silen/spk-help.txt" 14 70 || true
+	_nv_note=""
+	if find "$ROOT_PATH"/lib/modules -iname 'nvidia.ko*' 2>/dev/null | grep -q .; then
+		_nv_note="\nNVIDIA driver installed - verify after reboot with nvidia-smi.\n"
+	fi
 	sync 2>/dev/null || true
 	cleanup
-	whiptail --msgbox --title "$title" "Silen is installed, reboot in main menu" 8 40 || true
+	whiptail --msgbox --title "$title" "Silen is installed. Reboot to use it.\n\nAfter reboot (as root):\n  sudo spk update               update all\n  sudo spk update <package>    update one\n  sudo spk get <package>       install (try: sudo spk get fastfetch)\n  sudo spk rm <package>        remove\n  spk find <name> / spk list   search / list\n\nFull guide: /usr/share/silen/spk-help.txt\nWi-Fi: iwctl, DNS: /etc/resolv.conf$_nv_note" 16 70 || true
 	main_screen
 }

@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 
 pub fn find_packages(pattern: &str, layout: &Layout) {
+    // searches installed pkgs by name, nothing fancy
     if pattern.is_empty() {
         println!("spk: no pattern given (try: spk find <name>)");
         return;

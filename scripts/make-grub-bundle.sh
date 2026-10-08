@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# packs your grub build into grub-bundle/ for the iso
 set -e
 
 GRUB_SRC="${GRUB_SRC:-$HOME/grub}"
@@ -32,6 +32,7 @@ mkdir -p grub-bundle
 cp -a "$DEST/usr" grub-bundle/
 
 if [ ! -f grub-bundle/usr/local/share/grub/unicode.pf2 ]; then
+	# grub needs this font or install warns, grab it from the host if we can
 	if [ -f /usr/share/grub/unicode.pf2 ]; then
 		mkdir -p grub-bundle/usr/local/share/grub
 		cp /usr/share/grub/unicode.pf2 grub-bundle/usr/local/share/grub/unicode.pf2

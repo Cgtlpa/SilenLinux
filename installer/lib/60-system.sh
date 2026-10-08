@@ -1,4 +1,14 @@
+# perms and users and services on the new system
 fix-permissions() {
+	if [[ ! -e "$ROOT_PATH/bin/bash" ]]; then
+		ln -sf /usr/bin/bash "$ROOT_PATH/bin/bash" 2>/dev/null || true
+	fi
+	if [[ ! -e "$ROOT_PATH/bin/sh" ]]; then
+		ln -sf bash "$ROOT_PATH/bin/sh" 2>/dev/null || true
+	fi
+	if [[ ! -e "$ROOT_PATH/bin/login" ]]; then
+		ln -sf /usr/bin/login "$ROOT_PATH/bin/login" 2>/dev/null || true
+	fi
 	for _s in bin/su usr/bin/su \
 			bin/passwd usr/bin/passwd \
 			usr/bin/chage usr/bin/chfn usr/bin/chsh \
@@ -24,7 +34,17 @@ fix-permissions() {
 		chown root:shadow "$ROOT_PATH/etc/gshadow" 2>/dev/null || chown root:root "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 		chmod 640 "$ROOT_PATH/etc/gshadow" 2>/dev/null || chmod 600 "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 	fi
-	if [[ -f "$ROOT_PATH/etc/sudoers" ]] && [[ ! -L "$ROOT_PATH/etc/sudoers" ]]; then
+	if [[ ! -f "$ROOT_PATH/etc/sudoers" ]] || [[ -L "$ROOT_PATH/etc/sudoers" ]]; then
+		cat > "$ROOT_PATH/etc/sudoers" <<'EOF'
+## Silen Linux sudoers
+root ALL=(ALL:ALL) ALL
+%wheel ALL=(ALL:ALL) NOPASSWD: ALL
+## Read drop-in files from /etc/sudoers.d
+@includedir /etc/sudoers.d
+EOF
+		chown root:root "$ROOT_PATH/etc/sudoers" 2>/dev/null || true
+		chmod 440 "$ROOT_PATH/etc/sudoers" 2>/dev/null || true
+	else
 		chown root:root "$ROOT_PATH/etc/sudoers" 2>/dev/null || true
 		chmod 440 "$ROOT_PATH/etc/sudoers" 2>/dev/null || true
 	fi
@@ -37,6 +57,13 @@ fix-permissions() {
 			chmod 440 "$_s" 2>/dev/null || true
 		done || true
 	fi
+	mkdir -p "$ROOT_PATH/etc/pam.d" 2>/dev/null || true
+	for _p in sudo sudo-i; do
+		if [[ ! -f "$ROOT_PATH/etc/pam.d/$_p" ]]; then
+			printf 'auth\tinclude\t\tsystem-auth\naccount\tinclude\t\tsystem-auth\nsession\tinclude\t\tsystem-auth\n' > "$ROOT_PATH/etc/pam.d/$_p" 2>/dev/null || true
+		fi
+		chmod 644 "$ROOT_PATH/etc/pam.d/$_p" 2>/dev/null || true
+	done || true
 	if [[ -f "$ROOT_PATH/etc/passwd" ]]; then
 		chmod 644 "$ROOT_PATH/etc/passwd" 2>/dev/null || true
 	fi
@@ -45,56 +72,6 @@ fix-permissions() {
 	fi
 	if ! chroot "$ROOT_PATH" /bin/bash -c "getent group wheel" >/dev/null 2>&1; then
 		chroot "$ROOT_PATH" /bin/bash -c "groupadd -r wheel" >/dev/null 2>&1 || true
-	fi
-}
-
-fix-sudo-emerge() {
-	if [[ -d "$ROOT_PATH/etc/pam.d" ]]; then
-		for _p in sudo sudo-i; do
-			if [[ ! -f "$ROOT_PATH/etc/pam.d/$_p" ]]; then
-				printf 'auth\tinclude\t\tsystem-auth\naccount\tinclude\t\tsystem-auth\nsession\tinclude\t\tsystem-auth\n' > "$ROOT_PATH/etc/pam.d/$_p" 2>/dev/null || true
-			fi
-			chmod 644 "$ROOT_PATH/etc/pam.d/$_p" 2>/dev/null || true
-		done || true
-	fi
-	if chroot "$ROOT_PATH" /bin/bash -c "getent passwd portage" >/dev/null 2>&1; then
-		if ! grep -q '^portage:' "$ROOT_PATH/etc/shadow" 2>/dev/null; then
-			printf '%s\n' 'portage:*:9797:0:::::' >> "$ROOT_PATH/etc/shadow" 2>/dev/null || true
-		fi
-		if ! grep -q '^portage:' "$ROOT_PATH/etc/gshadow" 2>/dev/null; then
-			printf '%s\n' 'portage:!::portage' >> "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
-		fi
-		sed -i 's/^portage::/portage:x:/' "$ROOT_PATH/etc/group" 2>/dev/null || true
-	fi
-	chown 250:250 "$ROOT_PATH/var/cache/binpkgs" 2>/dev/null || true
-	chmod 775 "$ROOT_PATH/var/cache/binpkgs" 2>/dev/null || true
-	chown 250:250 "$ROOT_PATH/var/db/repos/gentoo" 2>/dev/null || true
-	chmod 775 "$ROOT_PATH/var/db/repos/gentoo" 2>/dev/null || true
-	chown 0:250 "$ROOT_PATH/var/cache/distfiles" 2>/dev/null || true
-	chmod 775 "$ROOT_PATH/var/cache/distfiles" 2>/dev/null || true
-	chown 250:250 "$ROOT_PATH/var/tmp/portage" 2>/dev/null || true
-	chmod 775 "$ROOT_PATH/var/tmp/portage" 2>/dev/null || true
-	sed -i 's/^auto-sync *= *no/auto-sync = yes/' "$ROOT_PATH/etc/portage/repos.conf/gentoo.conf" 2>/dev/null || true
-	if [[ -f "$ROOT_PATH/etc/portage/make.conf" ]]; then
-		if ! grep -q '^EMERGE_DEFAULT_OPTS=' "$ROOT_PATH/etc/portage/make.conf" 2>/dev/null; then
-			printf '%s\n' 'EMERGE_DEFAULT_OPTS="--getbinpkg --binpkg-respect-use=y"' >> "$ROOT_PATH/etc/portage/make.conf" 2>/dev/null || true
-		fi
-		if ! grep -q '^FEATURES=' "$ROOT_PATH/etc/portage/make.conf" 2>/dev/null; then
-			printf '%s\n' 'FEATURES="binpkg-request-signature"' >> "$ROOT_PATH/etc/portage/make.conf" 2>/dev/null || true
-		fi
-	fi
-	mkdir -p "$ROOT_PATH/etc/portage/binrepos.conf" "$ROOT_PATH/etc/portage/package.use" "$ROOT_PATH/etc/portage/package.accept_keywords" 2>/dev/null || true
-	if [[ ! -f "$ROOT_PATH/etc/portage/binrepos.conf/gentoobinhost.conf" ]]; then
-		printf '%s\n' '[binhost]' 'priority = 9999' 'sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64' > "$ROOT_PATH/etc/portage/binrepos.conf/gentoobinhost.conf" 2>/dev/null || true
-	fi
-	if [[ ! -f "$ROOT_PATH/etc/portage/package.use/freetype" ]]; then
-		printf '%s\n' 'media-libs/freetype harfbuzz' > "$ROOT_PATH/etc/portage/package.use/freetype" 2>/dev/null || true
-	fi
-	if [[ ! -f "$ROOT_PATH/etc/portage/package.use/bootstrap" ]]; then
-		printf '%s\n' 'sys-devel/gettext -xattr' 'sys-apps/attr -nls' > "$ROOT_PATH/etc/portage/package.use/bootstrap" 2>/dev/null || true
-	fi
-	if [[ ! -f "$ROOT_PATH/etc/portage/package.accept_keywords/elt-patches" ]]; then
-		printf '%s\n' 'app-portage/elt-patches **' > "$ROOT_PATH/etc/portage/package.accept_keywords/elt-patches" 2>/dev/null || true
 	fi
 }
 
@@ -238,6 +215,14 @@ install-branding() {
 		cp /mnt/branding/info.txt "$ROOT_PATH"/usr/share/silen/info.txt 2>/dev/null || true
 	fi
 
+	mkdir -p "$ROOT_PATH"/usr/local/bin
+	cat > "$ROOT_PATH"/usr/local/bin/silenfetch <<'EOF'
+#!/bin/sh
+command -v fastfetch >/dev/null 2>&1 || { echo "silenfetch: fastfetch is not installed (sudo spk get fastfetch)" >&2; exit 127; }
+exec fastfetch -l /usr/share/silen/fastfetch_logo.txt "$@"
+EOF
+	chmod 755 "$ROOT_PATH"/usr/local/bin/silenfetch 2>/dev/null || true
+
 	mkdir -p "$ROOT_PATH"/etc/fastfetch "$ROOT_PATH"/etc/xdg/fastfetch "$ROOT_PATH"/etc/skel/.config/fastfetch "$ROOT_PATH"/root/.config/fastfetch
 	cat > "$ROOT_PATH"/etc/fastfetch/config.jsonc <<'EOF'
 {
@@ -274,7 +259,7 @@ EOF
 		mkdir -p "$ROOT_PATH"/home/$newuser/.config/fastfetch 2>/dev/null || true
 		cp "$ROOT_PATH"/etc/fastfetch/config.jsonc "$ROOT_PATH"/home/$newuser/.config/fastfetch/config.jsonc 2>/dev/null || true
 		cp "$logo_src" "$ROOT_PATH/home/$newuser/.ascii" 2>/dev/null || true
-		printf '%s\n' "alias silenfetch='fastfetch -l ~/.ascii'" >> "$ROOT_PATH/home/$newuser/.bashrc" 2>/dev/null || true
+		printf '%s\n' "alias silenfetch='fastfetch -l /usr/share/silen/fastfetch_logo.txt'" >> "$ROOT_PATH/home/$newuser/.bashrc" 2>/dev/null || true
 		chroot "$ROOT_PATH" /bin/bash -c "chown -R $newuser /home/$newuser/.config" >/dev/null 2>&1 || \
 		chown -R --reference="$ROOT_PATH/home/$newuser" "$ROOT_PATH/home/$newuser/.config" 2>/dev/null || true
 		chown --reference="$ROOT_PATH/home/$newuser" "$ROOT_PATH/home/$newuser/.ascii" "$ROOT_PATH/home/$newuser/.bashrc" 2>/dev/null || true

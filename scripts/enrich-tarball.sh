@@ -1,22 +1,6 @@
 #!/bin/bash
-# enrich-tarball.sh - inject missing base CLI tools into tarball-silen.xz.
-#
-# Only adds what the installer does NOT already deliver but the installed
-# system needs to work properly:
-#   sudo (+ libexec plugins + minimal sudoers) - tarball has no sudo at all,
-#     yet create-user puts users in wheel/sudo groups
-#   lspci (pciutils) - silen-wifi-check diagnostics
-#   lsusb (usbutils) - silen-wifi-check diagnostics
-#   iw                - wifi link survey, install-network copies it from live
-#                     if present but the tarball itself lacks it
-#
-# Deliberately NOT duplicated: kernel (kernel-*.tar.zst bundle),
-# nmtui/NetworkManager/dbus/wpa_supplicant (network.tar.zst bundle),
-# bash (tarball already has 5.3.15). git stays out by default (4.8M +
-# git-core helpers); live ISO carries git for the installer fallback,
-# installed systems can `spk get git`.
-#
-# Usage: ./scripts/enrich-tarball.sh [tarball] [--with-git]
+# stuffs sudo + wifi tools into tarball-silen.xz, skips what the installer already brings
+# usage: ./scripts/enrich-tarball.sh [tarball] [--with-git]
 set -e
 set -E
 set -o pipefail
@@ -66,7 +50,6 @@ add_tool() {
     src="$(command -v "$name" 2>/dev/null || true)"
     [ -n "$src" ] && [ -f "$src" ] || { echo "  ! $name not on host, skipping"; return 0; }
     if [ -e "$STAGE/usr/bin/$name" ]; then echo "  = $name already in tarball"; return 0; fi
-    # sudo is setuid: ldd refuses it, copy to temp first for dep scan.
     tmp="$(mktemp)"
     cp -a "$src" "$tmp" 2>/dev/null || { echo "  ! cannot read $src"; rm -f "$tmp"; return 0; }
     chmod 755 "$tmp" 2>/dev/null || true
@@ -77,22 +60,16 @@ add_tool() {
     echo "  + $name"
 }
 
-# 1. Small wifi-debug CLI tools.
 for t in lspci lsusb iw; do add_tool "$t"; done
 [ "$WITH_GIT" = "1" ] && add_tool git || true
 
-# 2. sudo: binary + plugins + minimal sudoers.
 if [ -e "$STAGE/usr/bin/sudo" ]; then
     echo "  = sudo already in tarball"
 else
-    # SUDO_SRC overrides the host sudo path (useful when /usr/bin/sudo is
-    # 4111: pre-read it with `sudo cat /usr/bin/sudo > /tmp/sudo-bin` and
-    # pass SUDO_SRC=/tmp/sudo-bin).
+    # host sudo is execute-only so read it through sudo itself if plain cp fails
     _sudo_src="${SUDO_SRC:-/usr/bin/sudo}"
     if [ -f "$_sudo_src" ] || [ -n "$SUDO_SRC" ]; then
         tmp="$(mktemp)"
-        # /usr/bin/sudo is 4111 (execute-only): plain cp fails for non-root,
-        # so fall back to reading it through sudo (prompts once if needed).
         if ! cp -a "$_sudo_src" "$tmp" 2>/dev/null; then
             if sudo -n true 2>/dev/null; then
                 sudo -n cat "$_sudo_src" > "$tmp" 2>/dev/null || true
@@ -119,7 +96,6 @@ else
                 cp -a "/usr/libexec/sudo/$plug" "$STAGE/usr/libexec/sudo/" 2>/dev/null \
                     && echo "  + sudo plugin $plug" || true
             done
-            # dep-scan the main plugin too (libsudo_util chain).
             if [ -f "$STAGE/usr/libexec/sudo/sudoers.so" ]; then
                 copy_libs "$STAGE/usr/libexec/sudo/sudoers.so"
             fi
@@ -141,7 +117,6 @@ EOF
     fi
 fi
 
-# 3. Repack (xz, same as original). Keep a backup of the pre-enrich tarball.
 BACKUP="${TARBALL}.bak"
 if [ -f "$BACKUP" ]; then
     echo "  backup kept: $BACKUP"

@@ -1,3 +1,99 @@
+silen_disk_size() {
+	local _d="$1"
+	local _b="${_d##*/}"
+	local _s=""
+	if command -v lsblk >/dev/null 2>&1; then
+		_s="$(lsblk -dn -o SIZE "$_d" 2>/dev/null | tr -d ' ' || true)"
+	fi
+	if [[ -z "$_s" && -f "/sys/block/$_b/size" ]]; then
+		local _sec="$(cat "/sys/block/$_b/size" 2>/dev/null || true)"
+		if [[ -n "$_sec" ]]; then
+			_s="$(awk -v s="$_sec" 'BEGIN { b=s*512; if (b>=1073741824) printf "%.0fG", b/1073741824; else if (b>=1048576) printf "%.0fM", b/1048576; else printf "%dK", b/1024 }' 2>/dev/null || true)"
+		fi
+	fi
+	if [[ -z "$_s" ]]; then
+		_s="unknown-size"
+	fi
+	printf '%s' "$_s"
+}
+silen_disk_model() {
+	local _d="$1"
+	local _b="${_d##*/}"
+	local _m=""
+	if [[ -f "/sys/block/$_b/device/model" ]]; then
+		_m="$(cat "/sys/block/$_b/device/model" 2>/dev/null | tr -s ' ' | sed -e 's/^ *//' -e 's/ *$//' || true)"
+	fi
+	if [[ -z "$_m" ]] && command -v lsblk >/dev/null 2>&1; then
+		_m="$(lsblk -dn -o MODEL "$_d" 2>/dev/null | tr -s ' ' | sed -e 's/^ *//' -e 's/ *$//' || true)"
+	fi
+	if [[ -z "$_m" ]]; then
+		_m="unknown-model"
+	fi
+	printf '%s' "$_m"
+}
+silen_disk_serial() {
+	local _d="$1"
+	local _b="${_d##*/}"
+	local _n=""
+	if [[ -f "/sys/block/$_b/device/serial" ]]; then
+		_n="$(cat "/sys/block/$_b/device/serial" 2>/dev/null | tr -d ' ' || true)"
+	fi
+	if [[ -z "$_n" ]] && command -v lsblk >/dev/null 2>&1; then
+		_n="$(lsblk -dn -o SERIAL "$_d" 2>/dev/null | tr -d ' ' || true)"
+	fi
+	if [[ -z "$_n" ]]; then
+		_n="no-serial"
+	fi
+	printf '%s' "$_n"
+}
+silen_disk_label() {
+	local _d="$1"
+	printf '%s %s %s %s' "$_d" "$(silen_disk_size "$_d")" "$(silen_disk_model "$_d")" "$(silen_disk_serial "$_d")"
+}
+silen_disk_unlocked() {
+	local _d="$1"
+	local _b="${_d##*/}"
+	if [[ "${SILEN_ALLOW_LOCKED:-0}" = "1" ]]; then
+		return 0
+	fi
+	if [[ -f "/tmp/.silen-unlock-$_b" ]]; then
+		return 0
+	fi
+	if [[ -f "/run/silen-unlock-$_b" ]]; then
+		return 0
+	fi
+	if [[ -f "/tmp/.silen-unlock-all" ]]; then
+		return 0
+	fi
+	if [[ -f "/run/silen-unlock-all" ]]; then
+		return 0
+	fi
+	return 1
+}
+silen_disk_locked() {
+	local _d="$1"
+	if silen_disk_unlocked "$_d"; then
+		return 1
+	fi
+	local _t=""
+	_t="$(mktemp -d /tmp/.silen-probe.XXXXXX 2>/dev/null || echo /tmp/.silen-probe.$$)"
+	mkdir -p "$_t" 2>/dev/null || true
+	local _p=""
+	for _p in "${_d}"[0-9]* "${_d}"p[0-9]*; do
+		[[ -b "$_p" ]] || continue
+		if mount -o ro "$_p" "$_t" 2>/dev/null; then
+			if [[ -f "$_t/.silen-lock" ]]; then
+				umount "$_t" 2>/dev/null || true
+				rmdir "$_t" 2>/dev/null || true
+				return 0
+			fi
+			umount "$_t" 2>/dev/null || true
+		fi
+	done || true
+	rmdir "$_t" 2>/dev/null || true
+	return 1
+}
+# disk list and safety checks live here
 partitioning() {
 	disks=()
 	for d in /dev/sd[a-z] /dev/vd[a-z] /dev/xvd[a-z] /dev/nvme[0-9]*n[0-9]* /dev/mmcblk[0-9]*; do
@@ -5,7 +101,7 @@ partitioning() {
 			case "$d" in
 				*p[0-9]*) continue ;;
 			esac
-			disks+=("$d" "Disk: $d")
+			disks+=("$d" "$(silen_disk_label "$d")")
 		fi
 	done
 	if [[ ${#disks[@]} -eq 0 ]]; then
@@ -13,12 +109,18 @@ partitioning() {
 		main_screen
 		return
 	fi
-	disk=$(whiptail --title "$title" --menu "Select the disk to install on" 14 50 6 "${disks[@]}" 3>&1 1>&2 2>&3 || true)
+	disk=$(whiptail --title "$title" --menu "Select the disk to install on" 20 70 6 "${disks[@]}" 3>&1 1>&2 2>&3 || true)
 	if [[ -z "$disk" ]]; then
 		main_screen
 		return
 	fi
-	if ! whiptail --title "$title" --yesno "wipe $disk are you sure" 8 40; then
+	_lbl="$(silen_disk_label "$disk")"
+	if silen_disk_locked "$disk"; then
+		whiptail --msgbox --title "$title" "$_lbl is locked by .silen-lock. Refusing to wipe. Pick a different disk, or run unlock-ssd $disk in Shell to allow it." 10 70 || true
+		partitioning
+		return
+	fi
+	if ! whiptail --title "$title" --yesno "wipe $_lbl are you sure" 8 70; then
 		partitioning
 		return
 	fi
@@ -59,10 +161,16 @@ partitioning() {
 		main_screen
 		return
 	fi
-	whiptail --infobox "Partitioning $disk writing GPT" 8 40 2>/dev/null || true
+	if silen_disk_locked "$disk"; then
+		whiptail --msgbox --title "$title" "$_lbl is locked by .silen-lock. Refusing to wipe. Run unlock-ssd $disk in Shell to allow it." 9 70 || true
+		main_screen
+		return
+	fi
+	whiptail --infobox "Partitioning $_lbl writing GPT" 8 70 2>/dev/null || true
 	if command -v wipefs >/dev/null 2>&1; then
 		wipefs -a "$disk" 2>/dev/null || true
 	fi
+	# writes the gpt table, esp first then root
 	if ! sfdisk --no-reread "$disk" <<EOF
 label: gpt
 , 512M, U

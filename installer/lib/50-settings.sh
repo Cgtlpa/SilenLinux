@@ -1,3 +1,4 @@
+# asks for hostname users passwords and the rest
 ask-install-settings() {
 	hostnm="silen"
 	hostnm=$(whiptail --title "$title" --inputbox "Set the hostname" 8 40 "$hostnm" 3>&1 1>&2 2>&3 || true)

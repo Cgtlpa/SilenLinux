@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# dumps wifi state into a file for bug reports
 out="${1:-/dev/stdout}"
 
 {
@@ -41,6 +41,7 @@ fi
 echo "kernel wifi/firmware messages ---"
 _dmsg="$(dmesg 2>/dev/null | grep -iE "firmware|wlan|wifi|iwl|cfg80211|regulatory|rtw|mt76|mt79|ath1|brcmfmac|b43|mwifiex|80211|iwd|probe|failed|error|blocked|rfkill" | tail -n 50)"; if [ -n "$_dmsg" ]; then printf "%s\n" "$_dmsg"; else echo "dmesg unavailable or no matches"; fi
 echo "iwd daemon ---"
+# find the daemon wherever the iso put it
 for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
 	[ -x "$_iwd" ] || continue
 	echo "daemon: $_iwd ($("$_iwd" --version 2>/dev/null || echo version-unknown))"
@@ -59,6 +60,7 @@ echo "iwctl devices ---"
 if command -v iwctl >/dev/null 2>&1; then
 	iwctl device list 2>/dev/null || echo "iwctl device list failed (is iwd running?)"
 	echo "iwctl station ---"
+	# pick the first station device and show what it sees
 	_dev="$(iwctl device list 2>/dev/null | awk '$2 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ {print $1; exit}')"
 	if [ -n "$_dev" ]; then
 		iwctl station "$_dev" show 2>/dev/null || echo "station show failed"

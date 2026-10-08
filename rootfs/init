@@ -10,6 +10,7 @@ mount -t devtmpfs devtmpfs /dev 2>/dev/null
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null
 
 QUIET=""
 for _q in $(cat /proc/cmdline 2>/dev/null); do
@@ -22,10 +23,13 @@ note() {
 }
 
 if [ -f /etc/modules ]; then
-	qecho "Loading kernel modules"
-	while read -r mod; do
-		case "$mod" in ""|\#*|options\ *) continue ;; esac
-		modprobe -q "$mod" 2>/dev/null || true
+	note "Loading kernel modules, please wait..."
+	while IFS= read -r mod; do
+		mod="${mod%%#*}"
+		set -- $mod
+		[ $# -eq 0 ] && continue
+		case "$1" in options) continue ;; esac
+		modprobe -q "$1" 2>/dev/null || true
 	done < /etc/modules
 fi
 
@@ -75,12 +79,13 @@ if [ -n "$rootarg" ]; then
 	fi
 fi
 
-is_mounted() { grep -qs " $1 " /proc/mounts 2>/dev/null; }
+is_mounted() { grep -Fqs " $1 " /proc/mounts 2>/dev/null; }
 is_mounted /proc || mount -t proc proc /proc 2>/dev/null || true
 is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
 is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 is_mounted /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null || true
 is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
+is_mounted /dev/shm || mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
 note "Welcome to Silen Linux"
 
@@ -95,7 +100,11 @@ if command -v dbus-daemon >/dev/null 2>&1; then
 	echo "Starting D-Bus"
 	[ -s /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
 	dbus-daemon --system --nofork >/dev/null 2>&1 &
-	sleep 1
+	_i=0
+	while [ ! -S /run/dbus/system_bus_socket ] && [ $_i -lt 50 ]; do
+		_i=$((_i + 1))
+		sleep 0.1 2>/dev/null || sleep 1
+	done
 else
 	echo "dbus-daemon missing wifi/dbus will not work"
 fi
@@ -402,15 +411,59 @@ else
 fi
 
 echo
-if [ -x /installer/main.sh ]; then
-	note "Starting the Silen installer"
-	echo "  it also lets you open a shell reboot or power off"
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+case " $(cat /proc/cmdline 2>/dev/null) " in
+	*" silen.debug "*)
+		if command -v setsid >/dev/null 2>&1 && [ -c /dev/ttyS0 ]; then
+			setsid sh </dev/ttyS0 >/dev/ttyS0 2>&1 &
+		fi
+		note "debug shell on serial (silen.debug)"
+		;;
+esac
+# boots straight into the gui, no login stuff
+_gui_done=0
+if [ -x /usr/bin/silen-live-wayland ]; then
+	note "Starting graphical live session (instantwm, no login)"
+	note "Starting Window manager, please wait..."
+	echo "  installer auto-launches; if graphics fail you get a shell"
+	[ -x /usr/bin/instantwm ] || note "instantwm missing, graphical session will fail"
+	[ -x /usr/bin/silen-installer ] || note "silen-installer missing, desktop will start without installer"
+	# seatd has to run first or the keyboard stays dead
+	export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+	if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
+		seatd -g root >/tmp/seatd.log 2>&1 &
+		_i=0
+		while [ ! -S "$SEATD_SOCK" ] && [ $_i -lt 50 ]; do
+			_i=$((_i + 1))
+			sleep 0.1 2>/dev/null || sleep 1
+		done
+	fi
+	export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+	export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+	export XDG_CURRENT_DESKTOP=instantwm
+	export XDG_SESSION_DESKTOP=instantwm
+	export XDG_SESSION_TYPE=wayland
+	export HOME="${HOME:-/root}"
+	export USER=root
+	export LOGNAME=root
+	mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+	chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+	if command -v fc-cache >/dev/null 2>&1; then
+		fc-cache -s >/dev/null 2>&1 || true
+	fi
+	if /usr/bin/silen-live-wayland; then
+		_gui_done=1
+	else
+		echo "Graphical session failed (see /tmp/live-gui.log /tmp/instantwm.log), dropping to shell"
+	fi
 	echo
-	/installer/main.sh
-	echo
-	echo "Installer exited dropping to a shell"
 else
-	echo "  installer not found dropping to a shell"
+	note "silen-live-wayland missing, dropping to shell"
+fi
+if [ "$_gui_done" = "1" ] || [ -f /tmp/gui-was-up ]; then
+	note "Graphical session finished, dropping to a shell"
+else
+	note "Graphical session did not start, dropping to a shell"
 fi
 mkdir -p /etc 2>/dev/null || true
 if touch /etc/silen-shrc 2>/dev/null; then

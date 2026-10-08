@@ -2,14 +2,7 @@ use super::Layout;
 use std::fs;
 use std::path::Path;
 
-// [SPK-DEBUG-OK 2026-09-20] uninstall flow audited.
-// Arch-like rules: remove exactly what the registry recorded (files+shims),
-// prune empty parents, drop ld.so conf, refresh ldconfig. Protected system
-// configs are never deleted (passwd/shadow/group/fstab/machine-id/hostname).
-// Returns true on full success, false when the package was missing — the
-// multi-package caller (`spk rm a b c`) uses this to keep going and exit 1
-// at the end instead of aborting mid-list.
-// DEBUG-MARK: RM-FLOW v1.
+// removes exactly what got installed, never touches system configs
 const PROTECTED_BASENAMES: &[&str] = &[
     "passwd",
     "shadow",
@@ -23,11 +16,7 @@ const PROTECTED_BASENAMES: &[&str] = &[
 ];
 
 fn is_protected(path: &str) -> bool {
-    // FIX 2026-09-20 RM-PROTECT-SCOPE: only guard real configs under /etc/.
-    // The old basename-only check also matched binaries that share a name
-    // (e.g. /usr/bin/passwd from a system package), leaving them behind on
-    // `spk rm`. Configs like /etc/passwd, /etc/shadow, /etc/fstab,
-    // /etc/machine-id, /etc/hostname are still never deleted.
+    // only guard real configs under /etc/, /usr/bin/passwd still gets removed
     if !path.contains("/etc/") {
         return false;
     }
@@ -45,8 +34,6 @@ pub fn remove_package(name: &str, layout: &Layout) {
 }
 
 pub fn try_remove_package(name: &str, layout: &Layout) -> bool {
-    // [SPK-DEBUG-OK 2026-09-20] registry removal audited — see header.
-    // DEBUG-MARK: RM-REGISTRY v1.
     if !Path::new(&layout.registry).is_dir() {
         return legacy_remove(name, layout);
     }
@@ -57,6 +44,7 @@ pub fn try_remove_package(name: &str, layout: &Layout) -> bool {
 
     let mut removed = 0;
     let mut skipped_protected = 0;
+    let mut failed = 0;
     for line in files.lines().chain(shims.lines()).chain(system_files.lines()) {
         let path = line.trim();
         if path.is_empty() {
@@ -69,17 +57,27 @@ pub fn try_remove_package(name: &str, layout: &Layout) -> bool {
         if !in_scope(path, layout) {
             continue;
         }
-        let meta = fs::symlink_metadata(path);
-        let gone = match meta {
-            Ok(m) if m.file_type().is_dir() => fs::remove_dir(path).is_ok(),
-            Ok(_) => fs::remove_file(path).is_ok(),
-            Err(_) => false,
-        };
-        if !gone {
-            continue;
+        match fs::symlink_metadata(path) {
+            Err(_) => continue,
+            Ok(m) if m.file_type().is_dir() => {
+                if fs::remove_dir(path).is_ok() {
+                    removed += 1;
+                    prune_empty_parents(path, layout);
+                }
+            }
+            Ok(_) => {
+                if fs::remove_file(path).is_ok() {
+                    removed += 1;
+                    prune_empty_parents(path, layout);
+                } else {
+                    failed += 1;
+                }
+            }
         }
-        removed += 1;
-        prune_empty_parents(path, layout);
+    }
+    if failed > 0 {
+        println!("spk: warning: {} file(s) could not be removed (try sudo spk rm {})", failed, name);
+        return false;
     }
 
     let _ = fs::remove_dir_all(&layout.appdir);
@@ -186,10 +184,7 @@ fn remove_lib_conf(name: &str, layout: &Layout) {
 }
 
 fn legacy_remove(name: &str, layout: &Layout) -> bool {
-    // [SPK-DEBUG-OK 2026-09-20] legacy fallback audited: pre-registry installs
-    // only left a single binary behind, so remove that + any stray dirs.
-    // Returns false (caller exits 1) when nothing is found.
-    // DEBUG-MARK: RM-LEGACY v1.
+    // old installs without a registry just left one binary behind
     remove_lib_conf(name, layout);
     let mut dirs: Vec<String> = Vec::new();
     if layout.user_mode {

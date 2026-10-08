@@ -1,4 +1,7 @@
-name = "Silen" 
-version = "null"
+name = "Silen"
+version = "1-instantwm"
 kernel = "6.18.54"
+edition = "instantwm-live"
+live = "instantwm-wayland"
+installer = "rust-egui"
 

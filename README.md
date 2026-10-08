@@ -1,8 +1,8 @@
-# Silen Linux
+# Silen Linux (instantwm live edition)
 
 > Reliable by default. Powerful when you want it.
 
-Silen Linux is an independent, lightweight Linux distribution focused on simplicity, stability, and performance. It boots as a minimal live environment and installs a clean base system you build on top of — no bloat, no forced desktop, full control.
+Silen Linux instantwm edition: boots straight into a graphical Wayland live session (instantwm, no login) with the Rust+egui installer auto-launched, Manjaro-style. Both `make iso` and `make nvidia-iso` produce this live desktop; the NVIDIA variant only adds the proprietary driver payload. The installer itself is a full Rust+egui port of the bash installer (`silen-installer/`), with the old whiptail scripts kept as fallback.
 
 ---
 
@@ -11,9 +11,12 @@ Silen Linux is an independent, lightweight Linux distribution focused on simplic
 | Component | What Silen uses |
 |---|---|
 | Kernel | Linux 6.18 (`boot/vmlinuz` + `rootfs/lib/modules/`) |
-| Init (installed system) | OpenRC (`rc-update`, `installer/lib/70-payloads.sh:404`) |
-| Live init | Custom BusyBox-based initramfs, `/init` from `rootfs/init` |
-| Arch | x86_64, UEFI only (installer refuses legacy boot, `installer/lib/90-grub.sh`) |
+| Init (installed system) | OpenRC (`rc-update`, `silen-installer/src/backend.rs:install_network`) |
+| Live init | Custom BusyBox-based initramfs, `/init` from `rootfs/init` — auto-starts instantwm Wayland + `silen-installer`, no login |
+| Live desktop | instantwm 0.5.0 Wayland (`spk-pkgs/packages/instantwm/`, `scripts/mkspk-instantwm.sh:1`), instantMENU 5.1.5 (`spk-pkgs/packages/instantmenu/`, `scripts/mkspk-instantmenu.sh:1`), DRM/KMS modules in `scripts/build.sh:ALLOW` |
+| Installer | Rust+egui `silen-installer/` (loading splash → disk → settings → confirm → install; full port of `installer/*.sh`); bash `installer/` is fallback only, never shown after the GUI was up |
+| Installed desktop | instantwm auto-starts on tty1 via agetty autologin, no display manager; passwords still set for su/sudo; seatd daemon runs for non-root sessions |
+| Arch | x86_64, UEFI only (installer refuses legacy boot, `silen-installer/src/backend.rs:setup_grub`) |
 | Bootloader | GRUB2 via `grub-mkrescue`, EFI bundle from `grub-bundle/` |
 | Base system | `tarball-silen.xz` / `stage3-*.tar.*` unpacked onto target |
 | Package manager | `spk` — Rust tool in `spk/src/get.rs`, built into the ISO |
@@ -32,10 +35,10 @@ Silen Linux is an independent, lightweight Linux distribution focused on simplic
   - Storage: AHCI, NVMe, virtio-blk/scsi, MMC/SDHCI, USB-storage/UAS (`scripts/build.sh:32`).
   - Wired + USB tethering: `e1000/e1000e`, `r8169`, `igb`, `ixgbe`, `r8152`, `alx`, `cdc_ether`, `rndis_host` (`scripts/build.sh:37`).
   - Wi-Fi: Intel `iwlwifi`, Atheros `ath9k/ath10k/ath11k/ath12k`, MediaTek `mt76/mt79xx`, Realtek `rtw88/rtw89/rtlwifi/rtl8xxxu`, Broadcom `brcmfmac/b43`, Marvell, Ralink, TI, etc. (`scripts/build.sh:44`, `scripts/add-wifi.sh:38`).
-  - GPU firmware merged for live + offline installs: `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon` (`scripts/build.sh:739`). NVIDIA blobs are intentionally excluded (~200M) — install later via `spk get nvidia-drivers` after reboot.
-- **Offline installer** — whiptail TUI (`installer/lib/20-ui.sh:1`): base system only, no network needed. Filesystem choice (ext4/btrfs/vfat), 15 timezones, 15 keymaps, hostname defaults to `silen`.
+  - GPU firmware merged for live + offline installs: `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon` (`scripts/build.sh:739`). NVIDIA blobs are intentionally excluded (~200M) — install later via `spk get nvidia-drivers` after reboot, or build the opt-in NVIDIA variant with `make nvidia-iso` (needs `headers-*.tar.zst`, prebuilds the driver kmods for the ISO kernel via `scripts/build-nvidia-kmods.sh` and installs them into the target with no on-target compile, fallback to compile if prebuilt is missing).
+- **Offline installer** — Rust+egui wizard (`silen-installer/src/main.rs:1`): disk pick, hostname/root/user, timezone/keymap/locale, fstype/swap, progress log. Full port of the bash flow (GPT ESP+root, tarball extract, kernel/firmware/network/spk/NVIDIA, OpenRC dbus/iwd, GRUB EFI). Bash whiptail (`installer/lib/20-ui.sh:1`) remains as fallback if graphics fail.
 - **`spk` package manager** — `spk get / find / rm` (`spk/src/get.rs:1`, `spk/src/find.rs:1`, `spk/src/remove.rs:1`). System packages (kernels, drivers, DEs, DMs) install to `/`; leaf apps go isolated to `/spk_pkgs/<name>` with shims in `/usr/local/bin`.
-- **Post-install via `spk`** (after reboot, with network): `spk get linux-firmware`, Wi-Fi drivers, GPU drivers, desktops (KDE Plasma, GNOME, XFCE, i3, Sway) + DMs (SDDM/GDM/LightDM).
+- **Post-install via `spk`** (after reboot, with network): `spk get linux-firmware`, Wi-Fi drivers, GPU drivers, desktops (KDE Plasma, GNOME, XFCE, i3, Sway) + DMs (SDDM/GDM/LightDM). Lightweight X11 path: `spk get mesa xorg-libs xorg-server xkb-data dejavu xorg-drivers xinit dwm` (+ `dmenu`, `st`, optional `llvm` for software/3D GL), then `startx` or pick dwm in ly.
 - **Diagnostics built in** — `silen-wifi-check` (from `scripts/wifi-check.sh`) dumps `lsmod`, `ip link`, `rfkill`, `lspci/lsusb`, `dmesg`, `iwctl`, `iwd`, D-Bus helper status to `/tmp/silen-wifi.log`.
 
 ---
@@ -46,10 +49,12 @@ Built by `scripts/build.sh` into `build/silen-linux.iso` via `grub-mkrescue`:
 
 ```text
 /boot/vmlinuz              kernel (Linux 6.18)
-/boot/initramfs.zst        compressed cpio ramdisk (zstd default, gzip/xz optional)
+/boot/initramfs.zst        compressed cpio ramdisk (zstd default, gzip/xz optional) — includes instantwm + silen-installer live desktop
 /boot/grub/grub.cfg        "Silen Linux" + "Silen Linux (fallback, nomodeset)"
 /kernel-*.tar.zst          kernel + full module tree for the installed system
 /network.tar.zst           iwd/iwctl/iwmon/dbus bundle
+/desktop.tar.zst           instantwm Wayland stack for the installed system (new in instant edition)
+/silen-installer           Rust+egui installer binary (also in live initramfs at /usr/bin/silen-installer)
 /firmware/                 Wi-Fi + GPU firmware copied to target on offline installs
 /spk                       prebuilt spk binary (also re-packed into the initramfs at scripts/build.sh:931)
 /grub/usr/local/           GRUB EFI bundle (see scripts/make-grub-bundle.sh:1)
@@ -63,14 +68,14 @@ GRUB menu is verbose by default (`loglevel=4 console=tty0`, `terminal_output gfx
 
 ## Installer
 
-Entry: `/installer/main.sh` in the live env (started by `rootfs/init:354`). Modular libs in `installer/lib/`:
+Live boot auto-starts instantwm (Wayland DRM, as root, no login) and auto-launches `silen-installer` (`rootfs/init`, `scripts/build.sh:[5b/7]`). Full Rust+egui port lives in `silen-installer/` (`src/main.rs` wizard, `src/backend.rs` port of all `installer/lib/*.sh` steps). Bash entry `/installer/main.sh` remains as fallback if graphics fail. Modular bash libs in `installer/lib/` (reference):
 
 - `10-medium.sh` — finds the install medium / tarball, handles Ventoy ISO-file boot + loop-mount.
 - `20-ui.sh` — offline menu (Install/Shell/Reboot).
 - `30-partition.sh` — disk pick, wipe confirm, GPT layout: 1MiB–513MiB ESP (`fat32`, `esp on`) + root to 100%. Handles `nvme/mmcblk` `p1/p2` naming.
 - `40-base.sh` — mounts target, extracts tarball (strips single top-level dir).
 - `50-settings.sh` — hostname, root password, optional user, locale/keymap/timezone, swapfile.
-- `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`fastfetch -l ~/.ascii` with `branding/fastfetch_logo.txt`).
+- `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`/usr/local/bin/silenfetch` → `fastfetch -l /usr/share/silen/fastfetch_logo.txt`; plain `fastfetch` also shows it via `/etc/fastfetch/config.jsonc`).
 - `70-payloads.sh` — installs kernel bundle, firmware, network bundle, `spk` binary, writes OpenRC services for `dbus`/`iwd`.
 - Extra drivers, firmware, and desktops are installed after reboot via `spk` (needs network).
 - `90-grub.sh` — copies kernel/initramfs to target, requires UEFI (`/sys/firmware/efi`), installs GRUB from `/mnt/grub`.
@@ -104,9 +109,10 @@ spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, hostnam
 ### Commands
 
 ```sh
-make iso    # sudo nice -n 10 ionice -c 3 ./scripts/build.sh  (Makefile:9)
-make qemu   # boot build/silen-linux.iso in UEFI QEMU (4G RAM, q35, 8G disk.img)
-make clean  # rm -rf build
+make iso         # sudo nice -n 10 ionice -c 3 ./scripts/build.sh  (Makefile:9)
+make nvidia-iso  # NVIDIA variant: auto-installs the proprietary driver on NVIDIA GPUs
+make qemu        # boot build/silen-linux.iso in UEFI QEMU (4G RAM, q35, 8G disk.img)
+make clean       # rm -rf build
 ```
 
 Place your kernel at `boot/vmlinuz`, modules at `rootfs/lib/modules/<ver>/`, firmware at `rootfs/lib/firmware/`, and `tarball-silen.xz` (or `stage3-*.tar.*`) in the repo root before building — otherwise the ISO boots but the installer refuses to install (`scripts/build.sh:889`).
@@ -129,21 +135,21 @@ Place your kernel at `boot/vmlinuz`, modules at `rootfs/lib/modules/<ver>/`, fir
 
 - `scripts/add-wifi.sh` — sync Wi-Fi modules + firmware from the host into `rootfs/` (run before `make iso` when adding new drivers).
 - `scripts/make-grub-bundle.sh` — build `grub-bundle/` from a compiled GRUB tree (`GRUB_SRC=~/grub`), required for the installer to set up EFI boot.
+- `scripts/make-headers-bundle.sh` — build `headers-<kver>.tar.zst` from the exact prepared kernel source (`KERNEL_SRC=...`), shipped on the ISO so `spk get nvidia-drivers` can compile.
 - `scripts/wifi-check.sh` — live Wi-Fi diagnostics, installed as `/usr/bin/silen-wifi-check`.
+- `scripts/nvidia-check.sh` — GPU/driver diagnostics, installed as `/usr/local/bin/silen-nvidia-check`.
 
 ---
 
 ## Project layout
 
 ```text
-Makefile                  make iso / qemu / clean
-scripts/build.sh          7-stage ISO builder (modules -> ramdisk -> initramfs -> ISO)
-scripts/add-wifi.sh       vendor Wi-Fi modules/firmware into rootfs/
-scripts/make-grub-bundle.sh  package GRUB EFI bits into grub-bundle/
-scripts/wifi-check.sh     live diagnostics
-boot/vmlinuz              Linux 6.18 kernel image
-rootfs/                   initramfs source: init, bin/busybox, lib/modules, lib/firmware
-installer/                whiptail installer (main.sh + lib/00-common..90-grub)
+Makefile                  make iso / nvidia-iso (both = instantwm live) / qemu / clean
+scripts/build.sh          7-stage ISO builder + [5b/7] live Wayland desktop + Rust installer
+scripts/mkspk-instantwm.sh  build instantwm spk from source (INSTANT_SRC, INSTANT_BIN)
+silen-installer/          Rust+egui installer (full port of installer/*.sh)
+rootfs/                   initramfs source: init (auto-launch Wayland, no login), bin/busybox, lib/modules, lib/firmware
+installer/                bash installer fallback (main.sh + lib/00-common..90-grub)
 spk/                      Rust package manager (get/find/remove)
 grub-bundle/              prebuilt GRUB EFI payload shipped on the ISO
 branding/                 fastfetch logo + distro info
