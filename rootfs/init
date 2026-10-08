@@ -1,0 +1,485 @@
+#!/bin/sh
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export TERM="${TERM:-linux}"
+
+mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null
+
+QUIET=""
+for _q in $(cat /proc/cmdline 2>/dev/null); do
+	[ "$_q" = "quiet" ] && QUIET=1 && break
+done
+qecho() { [ -n "$QUIET" ] || echo "$@"; }
+note() {
+	echo "$@"
+	[ -c /dev/ttyS0 ] && echo "$@" > /dev/ttyS0 2>/dev/null || true
+}
+
+if [ -f /etc/modules ]; then
+	note "Loading kernel modules, please wait..."
+	while IFS= read -r mod; do
+		mod="${mod%%#*}"
+		set -- $mod
+		[ $# -eq 0 ] && continue
+		case "$1" in options) continue ;; esac
+		modprobe -q "$1" 2>/dev/null || true
+	done < /etc/modules
+fi
+
+rootarg=""
+for arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$arg" in
+		root=*) rootarg="${arg#root=}" ;;
+	esac
+done
+
+case "$rootarg" in
+	""|/dev/ram|/dev/ram0|/dev/root|rootfs) rootarg="" ;;
+esac
+
+if [ -n "$rootarg" ]; then
+	i=0
+	while [ $i -lt 15 ]; do
+		case "$rootarg" in
+			UUID=*|LABEL=*) rootdev="$(findfs "$rootarg" 2>/dev/null)" ;;
+			PARTUUID=*|PARTLABEL=*) rootdev="$(blkid -t "$rootarg" -o device 2>/dev/null | head -n1)" ;;
+			*) rootdev="$rootarg" ;;
+		esac
+		[ -n "$rootdev" ] && [ -b "$rootdev" ] && break
+		i=$((i + 1))
+		sleep 1
+	done
+	if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
+		qecho "Silen mounting root $rootarg $rootdev"
+		mkdir -p /newroot
+		if mount -o ro "$rootdev" /newroot 2>/dev/null; then
+			mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
+			mount --move /proc /newroot/proc 2>/dev/null || mount -t proc proc /newroot/proc 2>/dev/null || true
+			mount --move /sys /newroot/sys 2>/dev/null || mount -t sysfs sysfs /newroot/sys 2>/dev/null || true
+			mount --move /dev /newroot/dev 2>/dev/null || mount -t devtmpfs devtmpfs /newroot/dev 2>/dev/null || true
+			mount --move /run /newroot/run 2>/dev/null || mount -t tmpfs tmpfs /newroot/run 2>/dev/null || true
+			qecho "Silen switching to /newroot/sbin/init"
+			if [ -n "$QUIET" ]; then
+				clear >/dev/console 2>&1 || printf '\033[H\033[2J' >/dev/console 2>&1 || true
+			fi
+			exec switch_root /newroot /sbin/init
+			echo "Silen: switch_root failed, falling back to live mode"
+		else
+			echo "Silen: could not mount root $rootdev"
+		fi
+	else
+		echo "Silen: root device $rootarg did not appear"
+	fi
+fi
+
+is_mounted() { grep -Fqs " $1 " /proc/mounts 2>/dev/null; }
+is_mounted /proc || mount -t proc proc /proc 2>/dev/null || true
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+is_mounted /dev/pts || mount -t devpts devpts /dev/pts 2>/dev/null || true
+is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
+is_mounted /dev/shm || mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+
+note "Welcome to Silen Linux"
+
+ip link set lo up 2>/dev/null || true
+mkdir -p /run/dbus /run/user /var/lib/iwd
+chmod 755 /run/user 2>/dev/null || true
+if command -v rfkill >/dev/null 2>&1; then
+	rfkill unblock all >/dev/null 2>&1 || true
+fi
+
+if command -v dbus-daemon >/dev/null 2>&1; then
+	echo "Starting D-Bus"
+	[ -s /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
+	dbus-daemon --system --nofork >/dev/null 2>&1 &
+	_i=0
+	while [ ! -S /run/dbus/system_bus_socket ] && [ $_i -lt 50 ]; do
+		_i=$((_i + 1))
+		sleep 0.1 2>/dev/null || sleep 1
+	done
+else
+	echo "dbus-daemon missing wifi/dbus will not work"
+fi
+if command -v iwd >/dev/null 2>&1; then
+	echo "Starting iwd"
+	mkdir -p /var/lib/iwd 2>/dev/null || true
+	iwd >/tmp/iwd.log 2>&1 &
+else
+	echo "iwd missing networking will not work"
+fi
+(sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
+(
+for _w in 1 2 3 4 5 6; do
+	sleep 10
+	rfkill unblock all >/dev/null 2>&1 || true
+done
+) &
+(sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
+
+echo
+note "Mounting install medium"
+
+medium_has_tarball_at() {
+	_dir="$1"
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
+		[ -f "$f" ] && return 0
+	done
+	return 1
+}
+medium_has_tarball() {
+	medium_has_tarball_at /mnt
+}
+find_tarball_at() {
+	_dir="$1"
+	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
+		[ -f "$f" ] && { echo "$f"; return 0; }
+	done
+	return 1
+}
+
+modprobe -q loop 2>/dev/null
+for _i in 0 1 2 3 4 5 6 7; do
+	[ -b "/dev/loop$_i" ] || mknod "/dev/loop$_i" b 7 "$_i" 2>/dev/null
+done
+mkdir -p /mnt /run/ventoy /run/scan /iso /tmp
+
+iso_hint=""
+for _arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$_arg" in
+		iso-scan/filename=*|findiso=*|iso_scan_filename=*|find_iso=*)
+			iso_hint="${_arg#*=}" ;;
+	esac
+done
+iso_hint_base=""
+[ -n "$iso_hint" ] && iso_hint_base="$(basename "$iso_hint" 2>/dev/null)"
+
+enumerate_devices() {
+	candidates=""
+	for blk in /sys/block/*; do
+		[ -d "$blk" ] || continue
+		name="${blk##*/}"
+		case "$name" in
+			loop*|ram*|zram*|fd*) continue ;;
+		esac
+		candidates="$candidates /dev/$name"
+		for part in "$blk/$name"?*; do
+			[ -e "$part" ] || continue
+			_pn="${part##*/}"
+			case "$_pn" in
+				loop*|ram*|zram*) continue ;;
+			esac
+			candidates="$candidates /dev/$_pn"
+		done
+	done
+	for _dm in /dev/mapper/*; do
+		[ -e "$_dm" ] || continue
+		case "$candidates" in
+			*"$_dm"*) ;;
+			*) candidates="$candidates $_dm" ;;
+		esac
+	done
+}
+
+mount_candidate() {
+	_dev="$1"
+	_mp="$2"
+	_t="$(blkid -o value -s TYPE "$_dev" 2>/dev/null)"
+	if [ -n "$_t" ]; then
+		mount -t "$_t" -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	fi
+	mount "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t iso9660 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t exfat -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t vfat -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t ntfs3 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	mount -t ext4 -o ro "$_dev" "$_mp" 2>/dev/null && return 0
+	return 1
+}
+
+mount_iso() {
+	_iso="$1"
+	_mp="$2"
+	mount -o loop,ro "$_iso" "$_mp" 2>/dev/null && return 0
+	mount -o ro,loop "$_iso" "$_mp" 2>/dev/null && return 0
+	mount -o ro "$_iso" "$_mp" 2>/dev/null && return 0
+	_loopdev="$(losetup -f 2>/dev/null)" || return 1
+	losetup -r "$_loopdev" "$_iso" 2>/dev/null || return 1
+	if mount -o ro "$_loopdev" "$_mp" 2>/dev/null; then
+		return 0
+	fi
+	losetup -d "$_loopdev" 2>/dev/null
+	return 1
+}
+
+fast_medium_scan() {
+	enumerate_devices
+	for dev in $candidates; do
+		[ -b "$dev" ] || continue
+		_type="$(blkid -o value -s TYPE "$dev" 2>/dev/null)"
+		_label="$(blkid -o value -s LABEL "$dev" 2>/dev/null)"
+		case "$_type:$_label" in
+			iso9660:*|*:ISOIMAGE) ;;
+			*) continue ;;
+		esac
+		umount /run/scan 2>/dev/null
+		mount_candidate "$dev" /run/scan || continue
+		if medium_has_tarball_at /run/scan; then
+			umount /mnt 2>/dev/null
+			mkdir -p /mnt
+			if mount --move /run/scan /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				mount_candidate "$dev" /mnt || continue
+				umount /run/scan 2>/dev/null
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			[ -n "$stage3" ] || continue
+			note "  install medium is $_dev"
+			echo "$dev" > /run/silen-medium-dev 2>/dev/null || true
+			return 0
+		fi
+		umount /run/scan 2>/dev/null
+	done
+	return 1
+}
+
+try_isos_on_scan() {
+	_srcdev="$1"
+	rm -f /tmp/.isolist
+	touch /tmp/.isolist
+	if [ -n "$iso_hint_base" ]; then
+		find /run/scan -maxdepth 4 -iname "$iso_hint_base" 2>/dev/null >> /tmp/.isolist
+		_hintrel="$(echo "$iso_hint" | sed 's|^/*||')"
+		if [ -n "$_hintrel" ] && [ -f "/run/scan/$_hintrel" ]; then
+			echo "/run/scan/$_hintrel" >> /tmp/.isolist
+		fi
+	fi
+	find /run/scan -maxdepth 4 -iname "*silen*.iso" 2>/dev/null | head -n 20 >> /tmp/.isolist
+	find /run/scan -maxdepth 4 -iname "*.iso" 2>/dev/null | head -n 20 >> /tmp/.isolist
+	_tried=""
+	while IFS= read -r _iso; do
+		[ -n "$_iso" ] || continue
+		[ -f "$_iso" ] || continue
+		case "$_tried" in
+			*"|$_iso|"*) continue ;;
+		esac
+		_tried="$_tried|$_iso|"
+		seen_isos="$seen_isos $(basename "$_iso" 2>/dev/null)"
+		umount /iso 2>/dev/null
+		mount_iso "$_iso" /iso || continue
+		if medium_has_tarball_at /iso; then
+			umount /mnt 2>/dev/null
+			mkdir -p /run/ventoy /mnt
+			if mount --move /run/scan /run/ventoy 2>/dev/null; then
+				:
+			else
+				mount_candidate "$_srcdev" /run/ventoy 2>/dev/null || \
+					mount -o bind /run/scan /run/ventoy 2>/dev/null || true
+			fi
+			if mount --move /iso /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				if ! mount_iso "$_iso" /mnt; then
+					_rel="${_iso#/run/scan/}"
+					if [ "$_rel" != "$_iso" ] && [ -f "/run/ventoy/$_rel" ]; then
+						mount_iso "/run/ventoy/$_rel" /mnt || continue
+					else
+						continue
+					fi
+				fi
+				umount /iso 2>/dev/null
+			fi
+			if grep -qs " /run/scan " /proc/mounts 2>/dev/null && grep -qs " /run/ventoy " /proc/mounts 2>/dev/null; then
+				umount /run/scan 2>/dev/null || true
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			if [ -z "$stage3" ] || [ ! -f "$stage3" ]; then
+				_iso_tar="$(find_tarball_at /iso 2>/dev/null)" || _iso_tar=""
+				if [ -n "$_iso_tar" ] && [ -f "/mnt/$(basename "$_iso_tar")" ]; then
+					stage3="/mnt/$(basename "$_iso_tar")"
+				else
+					stage3=""
+				fi
+			fi
+			[ -n "$stage3" ] || continue
+			note "  install medium is an ISO file on $_srcdev $_iso"
+			echo "$_srcdev" > /run/silen-medium-dev 2>/dev/null || true
+			_rel="${_iso#/run/scan/}"
+			if [ "$_rel" != "$_iso" ] && is_mounted /run/ventoy; then
+				echo "/run/ventoy/$_rel" > /run/silen-medium-iso 2>/dev/null || true
+			else
+				echo "$_iso" > /run/silen-medium-iso 2>/dev/null || true
+			fi
+			return 0
+		fi
+		umount /iso 2>/dev/null
+	done < /tmp/.isolist
+	rm -f /tmp/.isolist
+	return 1
+}
+
+stage3=""
+seen_devices=""
+mounted_devices=""
+seen_isos=""
+iso_searched=""
+i=0
+fast_medium_scan || true
+if [ -z "$stage3" ]; then
+while [ $i -lt 20 ]; do
+	enumerate_devices
+	for dev in $candidates; do
+		[ -b "$dev" ] || continue
+		case " $seen_devices " in
+			*" $dev "*) ;;
+			*) seen_devices="$seen_devices $dev" ;;
+		esac
+		umount /run/scan 2>/dev/null
+		mount_candidate "$dev" /run/scan || continue
+		case " $mounted_devices " in
+			*" $dev "*) ;;
+			*) mounted_devices="$mounted_devices $dev" ;;
+		esac
+		if medium_has_tarball_at /run/scan; then
+			umount /mnt 2>/dev/null
+			mkdir -p /mnt
+			if mount --move /run/scan /mnt 2>/dev/null; then
+				:
+			else
+				umount /mnt 2>/dev/null
+				mount_candidate "$dev" /mnt || continue
+				umount /run/scan 2>/dev/null
+			fi
+			stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+			echo "$dev" > /run/silen-medium-dev 2>/dev/null || true
+			break 2
+		fi
+		case " $iso_searched " in
+			*" $dev "*) umount /run/scan 2>/dev/null; continue ;;
+		esac
+		if try_isos_on_scan "$dev"; then
+			break 2
+		fi
+		iso_searched="$iso_searched $dev"
+		umount /run/scan 2>/dev/null
+	done
+	[ -n "$stage3" ] && break
+	i=$((i + 1))
+	if [ $i -lt 20 ]; then
+		echo "  install medium not here yet, waiting... ($i)"
+		sleep 1
+	fi
+done
+fi
+umount /run/scan 2>/dev/null
+umount /iso 2>/dev/null || true
+
+if [ -n "$stage3" ]; then
+	note "  install medium mounted at /mnt"
+	note "  found Silen tarball $stage3"
+else
+	echo "  no Silen tarball found on any device"
+	echo "  debug block devices seen $seen_devices"
+	echo "  debug devices that mounted $mounted_devices"
+	echo "  debug ISO files seen $seen_isos"
+	if [ -n "$iso_hint" ]; then
+		echo "  debug iso hint from cmdline $iso_hint"
+	fi
+	echo "  hint Ventoy boots the ISO as a FILE if you used Ventoy"
+	echo "  hint this scan loop-mounts silen-*.iso automatically If it"
+	echo "  hint still fails the Ventoy partition may use an unsupported"
+	echo "  hint filesystem or the ISO name was changed Most reliable is"
+	echo "  hint writing the ISO with dd see installer shell mount blkid"
+	if medium_has_tarball; then
+		stage3="$(find_tarball_at /mnt 2>/dev/null)" || stage3=""
+	elif grep -qs " /mnt " /proc/mounts 2>/dev/null; then
+		if umount /mnt 2>/dev/null; then
+			echo "  released the disk from /mnt"
+		fi
+	fi
+fi
+
+echo
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+case " $(cat /proc/cmdline 2>/dev/null) " in
+	*" silen.debug "*)
+		if command -v setsid >/dev/null 2>&1 && [ -c /dev/ttyS0 ]; then
+			setsid sh </dev/ttyS0 >/dev/ttyS0 2>&1 &
+		fi
+		note "debug shell on serial (silen.debug)"
+		;;
+esac
+# boots straight into the gui, no login stuff
+_gui_done=0
+if [ -x /usr/bin/silen-live-wayland ]; then
+	note "Starting graphical live session (instantwm, no login)"
+	note "Starting Window manager, please wait..."
+	echo "  installer auto-launches; if graphics fail you get a shell"
+	[ -x /usr/bin/instantwm ] || note "instantwm missing, graphical session will fail"
+	[ -x /usr/bin/silen-installer ] || note "silen-installer missing, desktop will start without installer"
+	# seatd has to run first or the keyboard stays dead
+	export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+	if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
+		seatd -g root >/tmp/seatd.log 2>&1 &
+		_i=0
+		while [ ! -S "$SEATD_SOCK" ] && [ $_i -lt 50 ]; do
+			_i=$((_i + 1))
+			sleep 0.1 2>/dev/null || sleep 1
+		done
+	fi
+	export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+	export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+	export XDG_CURRENT_DESKTOP=instantwm
+	export XDG_SESSION_DESKTOP=instantwm
+	export XDG_SESSION_TYPE=wayland
+	export HOME="${HOME:-/root}"
+	export USER=root
+	export LOGNAME=root
+	mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+	chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+	if command -v fc-cache >/dev/null 2>&1; then
+		fc-cache -s >/dev/null 2>&1 || true
+	fi
+	if /usr/bin/silen-live-wayland; then
+		_gui_done=1
+	else
+		echo "Graphical session failed (see /tmp/live-gui.log /tmp/instantwm.log), dropping to shell"
+	fi
+	echo
+else
+	note "silen-live-wayland missing, dropping to shell"
+fi
+if [ "$_gui_done" = "1" ] || [ -f /tmp/gui-was-up ]; then
+	note "Graphical session finished, dropping to a shell"
+else
+	note "Graphical session did not start, dropping to a shell"
+fi
+mkdir -p /etc 2>/dev/null || true
+if touch /etc/silen-shrc 2>/dev/null; then
+cat > /etc/silen-shrc <<'EOF'
+reboot() { command reboot -f "$@"; }
+poweroff() { command poweroff -f "$@"; }
+halt() { command halt -f "$@"; }
+EOF
+export ENV=/etc/silen-shrc
+fi
+echo
+echo "Silen Linux live shell type reboot to reboot poweroff to power off"
+echo
+while true; do
+	/bin/sh || true
+	echo
+	echo "Shell exited starting a new shell"
+	sleep 1
+done

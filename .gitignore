@@ -1,0 +1,13 @@
+build/
+spk-pkgs/
+spk/target/
+silen-installer/target/
+.idea/
+*.iml
+
+tarball-silen.xz
+headers-*.tar.zst
+headers-*.tar.gz
+headers-*.tar.xz
+rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
+website/
