@@ -16,7 +16,7 @@ install-base() {
 	for s in /mnt/stage3-*.tar.* /mnt/tarball-*.tar.* /mnt/tarball-*.xz /mnt/*.tar.xz /mnt/*.tar.zst; do
 		[[ -f "$s" ]] || continue
 		case "$(basename "$s")" in
-			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*) continue ;;
+			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*|desktop.tar.*) continue ;;
 		esac
 		stage3="$s" && break
 	done || true
@@ -113,6 +113,7 @@ EOF
 	install-spk
 	install-network
 	install-nvidia-auto
+	install-desktop
 	whiptail --infobox "Installing the system this might take a while...\n(creating users and finishing setup)" 8 60 2>/dev/null || true
 	create-user
 	install-branding
@@ -147,6 +148,7 @@ EOF
 	chmod 644 "$ROOT_PATH"/usr/share/silen/spk-help.txt 2>/dev/null || true
 	setup-root-shell
 	fix-user-session
+	setup-autologin
 	if [[ -n "${_elogind_hint:-}" ]]; then
 		whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
 	fi

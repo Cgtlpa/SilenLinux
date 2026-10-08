@@ -496,3 +496,21 @@ install-nvidia-auto() {
 	fi
 	rm -f "$ROOT_PATH/tmp/nvidia.run" 2>/dev/null || true
 }
+
+install-desktop() {
+	desktop_tar=""
+	for f in /mnt/desktop.tar.*; do
+		[[ -f "$f" ]] && desktop_tar="$f" && break
+	done || true
+	if [[ -n "$desktop_tar" ]]; then
+		whiptail --infobox "Installing the system this might take a while...\n(unpacking desktop)" 8 60 2>/dev/null || true
+		tar -xpf "$desktop_tar" -C "$ROOT_PATH" --no-same-owner --numeric-owner 2>/dev/null || \
+			whiptail --msgbox --title "$title" "couldn't unpack the desktop bundle, continuing without it" 8 60 || true
+	fi
+	if [[ -x "$ROOT_PATH/usr/bin/spk" ]] || chroot "$ROOT_PATH" /bin/bash -c "command -v spk" >/dev/null 2>&1; then
+		whiptail --infobox "Installing the system this might take a while...\n(fetching desktop packages, needs network)" 8 60 2>/dev/null || true
+		chroot "$ROOT_PATH" /bin/bash -c "spk get instantwm instantmenu xorg-server xorg-libs xkb-data dejavu kitty" 2>/dev/null || \
+			whiptail --msgbox --title "$title" "desktop packages had errors (offline?), continuing with what unpacked" 8 60 || true
+	fi
+	chroot "$ROOT_PATH" /bin/bash -c "rc-update add seatd default" >/dev/null 2>&1 || true
+}

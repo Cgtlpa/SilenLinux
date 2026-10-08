@@ -462,6 +462,11 @@ else
 fi
 if [ "$_gui_done" = "1" ] || [ -f /tmp/gui-was-up ]; then
 	note "Graphical session finished, dropping to a shell"
+elif [ -x /installer/main.sh ]; then
+	note "Starting the text installer (the graphical session did not start)"
+	/installer/main.sh || true
+	echo
+	echo "Installer exited, dropping to a shell"
 else
 	note "Graphical session did not start, dropping to a shell"
 fi

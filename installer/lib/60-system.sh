@@ -307,3 +307,39 @@ cleanup-rootfs() {
 		fi
 	done
 }
+
+setup-autologin() {
+	_user="${newuser:-root}"
+	[[ -n "$_user" ]] || _user="root"
+	if [[ -f "$ROOT_PATH"/etc/inittab ]]; then
+		sed -i "s#^c1:.*#c1:12345:respawn:/sbin/agetty --noclear --autologin $_user 38400 tty1 linux#" "$ROOT_PATH"/etc/inittab 2>/dev/null || true
+	fi
+	_snip="$(mktemp /tmp/autologin.XXXXXX 2>/dev/null || echo /tmp/autologin.$$)"
+	cat > "$_snip" <<'EOF' || true
+if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ] && [ "$(tty 2>/dev/null)" = /dev/tty1 ]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null
+    chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null
+    export XDG_CURRENT_DESKTOP=instantwm XDG_SESSION_DESKTOP=instantwm XDG_SESSION_TYPE=wayland
+    exec instantwm --backend drm
+fi
+EOF
+	if ! grep -q "instantwm --backend drm" "$ROOT_PATH"/root/.bash_profile 2>/dev/null; then
+		cat "$_snip" >> "$ROOT_PATH"/root/.bash_profile 2>/dev/null || true
+	fi
+	chown root:root "$ROOT_PATH"/root/.bash_profile 2>/dev/null || true
+	chmod 644 "$ROOT_PATH"/root/.bash_profile 2>/dev/null || true
+	if [[ "$_user" != "root" ]]; then
+		_uprof="$ROOT_PATH/home/$_user/.bash_profile"
+		if [[ ! -f "$_uprof" ]]; then
+			printf '%s\n' '[ -f ~/.bashrc ] && . ~/.bashrc' > "$_uprof" 2>/dev/null || true
+		fi
+		if ! grep -q "instantwm --backend drm" "$_uprof" 2>/dev/null; then
+			cat "$_snip" >> "$_uprof" 2>/dev/null || true
+		fi
+		chroot "$ROOT_PATH" /bin/bash -c "chown $_user /home/$_user/.bash_profile && chmod 644 /home/$_user/.bash_profile" >/dev/null 2>&1 || true
+		chroot "$ROOT_PATH" /bin/bash -c "getent group seat || groupadd -r seat" >/dev/null 2>&1 || true
+		chroot "$ROOT_PATH" /bin/bash -c "usermod -aG seat,video,input $_user" >/dev/null 2>&1 || true
+	fi
+	rm -f "$_snip" 2>/dev/null || true
+}

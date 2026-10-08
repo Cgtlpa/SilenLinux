@@ -600,7 +600,7 @@ mkdir -p "$RAMROOT/installer/lib" || { echo "  ERROR cannot create installer dir
 cp installer/main.sh "$RAMROOT/installer/main.sh" || { echo "  ERROR cannot copy installer"; exit 1; }
 cp -a installer/lib/. "$RAMROOT/installer/lib/" || { echo "  ERROR cannot copy installer libs"; exit 1; }
 chmod 0755 "$RAMROOT/installer/main.sh"
-echo "  bash installer shipped for reference; live boot is GUI-only (silen-installer)"
+echo "  bash installer ships as fallback if graphics fail; live boot prefers silen-installer (Rust+egui)"
 
 if [ -f scripts/wifi-check.sh ]; then
 	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check" || { echo "  ERROR cannot copy wifi-check"; exit 1; }
