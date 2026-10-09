@@ -1033,6 +1033,20 @@ fi
 if dmesg 2>/dev/null | grep -qi "nouveau.*firmware unavailable"; then
 	export LIBGL_ALWAYS_SOFTWARE=1
 	echo "nouveau has no firmware, forcing software rendering" >>"$LOG" 2>&1
+else
+	for _p in /sys/bus/pci/devices/*; do
+		[ "$(cat "$_p/vendor" 2>/dev/null)" = "0x10de" ] || continue
+		case "$(cat "$_p/class" 2>/dev/null)" in
+			0x03*)
+				_drv="$(basename "$(readlink "$_p/driver" 2>/dev/null)" 2>/dev/null)"
+				case "$_drv" in
+					nouveau|"") export LIBGL_ALWAYS_SOFTWARE=1 ;;
+				esac
+				;;
+		esac
+		[ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ] && break
+	done
+	[ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ] && echo "nvidia without acceleration, forcing software rendering" >>"$LOG" 2>&1
 fi
 echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >>"$LOG" 2>&1
 ls /dev/dri/card* >>"$LOG" 2>&1 || echo "no /dev/dri/card* (KMS driver or firmware missing?)" >>"$LOG" 2>&1

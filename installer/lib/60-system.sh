@@ -318,6 +318,18 @@ setup-autologin() {
 	cat > "$_snip" <<'EOF' || true
 if dmesg 2>/dev/null | grep -qi "nouveau.*firmware unavailable"; then
     export LIBGL_ALWAYS_SOFTWARE=1
+else
+    for _p in /sys/bus/pci/devices/*; do
+        if [ "$(cat "$_p/vendor" 2>/dev/null)" = "0x10de" ]; then
+            case "$(cat "$_p/class" 2>/dev/null)" in
+                0x03*)
+                    _d="$(basename "$(readlink "$_p/driver" 2>/dev/null)" 2>/dev/null)"
+                    case "$_d" in nouveau|"") export LIBGL_ALWAYS_SOFTWARE=1 ;; esac
+                    ;;
+            esac
+        fi
+        if [ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ]; then break; fi
+    done
 fi
 if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ] && [ "$(tty 2>/dev/null)" = /dev/tty1 ]; then
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
