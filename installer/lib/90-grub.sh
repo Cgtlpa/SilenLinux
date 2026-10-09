@@ -10,15 +10,32 @@ setup-grub() {
 		return 1
 	fi
 	initramfs_name=""
+	_cp_err=""
 	for i in /mnt/boot/initramfs.*; do
 		[[ -f "$i" ]] || continue
 		if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
 			initramfs_name="$(basename "$i")"
 			break
 		fi
+		_cp_err="1"
 	done || true
 	if [[ -z "$initramfs_name" ]]; then
-		whiptail --msgbox --title "$title" "no initramfs found in the install ISO" 8 40 || true
+		for i in /mnt/initramfs.*; do
+			[[ -f "$i" ]] || continue
+			if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
+				initramfs_name="$(basename "$i")"
+				break
+			fi
+			_cp_err="1"
+		done || true
+	fi
+	if [[ -z "$initramfs_name" ]]; then
+		_ls="$(ls /mnt/boot 2>/dev/null | head -n 8 | tr '\n' ' ' || echo "unlistable")"
+		if [[ -n "$_cp_err" ]]; then
+			whiptail --msgbox --title "$title" "found an initramfs on the medium but couldn't copy it - bad USB write? Reflash and retry. (/mnt/boot: $_ls)" 9 65 || true
+		else
+			whiptail --msgbox --title "$title" "no initramfs found in the install ISO. (/mnt/boot: $_ls)" 8 60 || true
+		fi
 		return 1
 	fi
 
@@ -71,16 +88,6 @@ search --no-floppy --fs-uuid --set=root $bootuuid
 
 menuentry "Silen Linux" {
     linux /vmlinuz root=UUID=$rootuuid ro rootwait loglevel=4 console=ttyS0 console=tty0
-    initrd /$initramfs_name
-}
-
-menuentry "Silen Linux (quiet)" {
-    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=3
-    initrd /$initramfs_name
-}
-
-menuentry "Silen Linux (fallback, nomodeset)" {
-    linux /vmlinuz root=UUID=$rootuuid ro rootwait nomodeset loglevel=4 console=ttyS0 console=tty0
     initrd /$initramfs_name
 }
 EOF

@@ -942,18 +942,27 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
         return Err("no kernel found on the install medium".into());
     }
     let mut initramfs_name = String::new();
-    if let Ok(entries) = fs::read_dir("/mnt/boot") {
-        for e in entries.flatten() {
-            let n = e.file_name().to_string_lossy().to_string();
-            if n.starts_with("initramfs.") && Path::new(&format!("/mnt/boot/{}", n)).is_file() {
-                if fs::copy(format!("/mnt/boot/{}", n), format!("{}/boot/{}", r, n)).is_ok() {
-                    initramfs_name = n;
-                    break;
+    let mut copy_failed = false;
+    for dir in ["/mnt/boot", "/mnt"] {
+        if initramfs_name.is_empty() {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    if n.starts_with("initramfs.") && Path::new(&format!("{}/{}", dir, n)).is_file() {
+                        if fs::copy(format!("{}/{}", dir, n), format!("{}/boot/{}", r, n)).is_ok() {
+                            initramfs_name = n;
+                            break;
+                        }
+                        copy_failed = true;
+                    }
                 }
             }
         }
     }
     if initramfs_name.is_empty() {
+        if copy_failed {
+            return Err("found an initramfs on the medium but couldn't copy it - bad USB write? Reflash and retry".into());
+        }
         return Err("no initramfs found in the install ISO".into());
     }
     if !is_efi() {
@@ -978,7 +987,7 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
         let _ = bootuuid;
         let _ = rootuuid;
     }
-    let grub_cfg = format!("set default=0\nset timeout=10\n\ninsmod part_gpt\ninsmod part_msdos\ninsmod fat\ninsmod ext2\ninsmod search_fs_uuid\ninsmod all_video\ninsmod gfxterm\ninsmod efi_gop\ninsmod efi_uga\nif loadfont $prefix/fonts/unicode.pf2; then\n    set gfxmode=auto\nfi\nterminal_output gfxterm console\nsearch --no-floppy --fs-uuid --set=root {}\n\nmenuentry \"Silen Linux\" {{\n    linux /vmlinuz root=UUID={} ro rootwait loglevel=4 console=ttyS0 console=tty0\n    initrd /{}\n}}\n\nmenuentry \"Silen Linux (quiet)\" {{\n    linux /vmlinuz root=UUID={} ro quiet loglevel=3\n    initrd /{}\n}}\n\nmenuentry \"Silen Linux (fallback, nomodeset)\" {{\n    linux /vmlinuz root=UUID={} ro rootwait nomodeset loglevel=4 console=ttyS0 console=tty0\n    initrd /{}\n}}\n", bootuuid, rootuuid, initramfs_name, rootuuid, initramfs_name, rootuuid, initramfs_name);
+    let grub_cfg = format!("set default=0\nset timeout=10\n\ninsmod part_gpt\ninsmod part_msdos\ninsmod fat\ninsmod ext2\ninsmod search_fs_uuid\ninsmod all_video\ninsmod gfxterm\ninsmod efi_gop\ninsmod efi_uga\nif loadfont $prefix/fonts/unicode.pf2; then\n    set gfxmode=auto\nfi\nterminal_output gfxterm console\nsearch --no-floppy --fs-uuid --set=root {}\n\nmenuentry \"Silen Linux\" {{\n    linux /vmlinuz root=UUID={} ro rootwait loglevel=4 console=ttyS0 console=tty0\n    initrd /{}\n}}\n", bootuuid, rootuuid, initramfs_name);
     let _ = fs::write(format!("{}/boot/grub/grub.cfg", r), grub_cfg);
     let _ = chroot_run(r, "PATH=/usr/local/sbin:/usr/local/bin:$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=Silen >>/tmp/grub-install.log 2>&1");
     let _ = grub_log;
