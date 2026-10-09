@@ -422,7 +422,14 @@ case " $(cat /proc/cmdline 2>/dev/null) " in
 esac
 # boots straight into the gui, no login stuff
 _gui_done=0
-if [ -x /usr/bin/silen-live-wayland ]; then
+_gui_want=1
+case " $(cat /proc/cmdline 2>/dev/null) " in
+	*" silen.tui "*) _gui_want=0 ;;
+esac
+if [ "$_gui_want" = "0" ]; then
+	note "Text installer requested (silen.tui), skipping graphical session"
+fi
+if [ "$_gui_want" = "1" ] && [ -x /usr/bin/silen-live-wayland ]; then
 	note "Starting graphical live session (instantwm, no login)"
 	note "Starting Window manager, please wait..."
 	echo "  installer auto-launches; if graphics fail you get a shell"

@@ -1482,6 +1482,12 @@ menuentry "Silen Linux (fallback, nomodeset)" {
 	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
 	initrd /boot/$INITRAMFS
 }
+
+menuentry "Silen Linux (text installer)" {
+	echo "Booting Silen (text installer)"
+	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.tui
+	initrd /boot/$INITRAMFS
+}
 EOF
 
 echo "  running grub-mkrescue"
