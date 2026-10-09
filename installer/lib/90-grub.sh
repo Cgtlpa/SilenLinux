@@ -13,8 +13,16 @@ setup-grub() {
 	_cp_err=""
 	for i in /mnt/boot/initramfs.*; do
 		[[ -f "$i" ]] || continue
-		if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
-			initramfs_name="$(basename "$i")"
+		_try=0
+		while [[ $_try -lt 3 ]]; do
+			_try=$((_try + 1))
+			if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
+				initramfs_name="$(basename "$i")"
+				break
+			fi
+			sleep 1 2>/dev/null || true
+		done || true
+		if [[ -n "$initramfs_name" ]]; then
 			break
 		fi
 		_cp_err="1"
@@ -22,8 +30,16 @@ setup-grub() {
 	if [[ -z "$initramfs_name" ]]; then
 		for i in /mnt/initramfs.*; do
 			[[ -f "$i" ]] || continue
-			if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
-				initramfs_name="$(basename "$i")"
+			_try=0
+			while [[ $_try -lt 3 ]]; do
+				_try=$((_try + 1))
+				if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
+					initramfs_name="$(basename "$i")"
+					break
+				fi
+				sleep 1 2>/dev/null || true
+			done || true
+			if [[ -n "$initramfs_name" ]]; then
 				break
 			fi
 			_cp_err="1"

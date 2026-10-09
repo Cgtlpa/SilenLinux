@@ -949,7 +949,14 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
                 for e in entries.flatten() {
                     let n = e.file_name().to_string_lossy().to_string();
                     if n.starts_with("initramfs.") && Path::new(&format!("{}/{}", dir, n)).is_file() {
-                        if fs::copy(format!("{}/{}", dir, n), format!("{}/boot/{}", r, n)).is_ok() {
+                        let mut ok = false;
+                        for _ in 0..3 {
+                            if fs::copy(format!("{}/{}", dir, n), format!("{}/boot/{}", r, n)).is_ok() {
+                                ok = true;
+                                break;
+                            }
+                        }
+                        if ok {
                             initramfs_name = n;
                             break;
                         }
