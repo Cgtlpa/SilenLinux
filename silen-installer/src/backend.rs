@@ -178,7 +178,7 @@ pub fn disk_label(dev: &str) -> String {
 }
 
 pub fn medium_has_tarball_at(dir: &str) -> bool {
-    let skip = ["kernel-", "headers-", "network.tar", "spk.tar", "nvidia-kmods-"];
+    let skip = ["kernel-", "headers-", "network.tar", "spk.tar", "nvidia-kmods-", "desktop.tar"];
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return false,
@@ -218,7 +218,7 @@ pub fn find_tarball() -> Option<String> {
         if !is_tar {
             continue;
         }
-        if name.starts_with("kernel-") || name.starts_with("headers-") || name.starts_with("network.tar") || name.starts_with("spk.tar") || name.starts_with("nvidia-kmods-") {
+        if name.starts_with("kernel-") || name.starts_with("headers-") || name.starts_with("network.tar") || name.starts_with("spk.tar") || name.starts_with("nvidia-kmods-") || name.starts_with("desktop.tar") {
             continue;
         }
         cands.push(p);
@@ -984,8 +984,8 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
     let bootuuid = run_capture("blkid", &["-s", "UUID", "-o", "value", &s.bootp]);
     let rootuuid = run_capture("blkid", &["-s", "UUID", "-o", "value", &s.rootp]);
     if bootuuid.is_empty() || rootuuid.is_empty() {
-        let _ = bootuuid;
-        let _ = rootuuid;
+        cleanup();
+        return Err("couldn't read the partition UUIDs".into());
     }
     let grub_cfg = format!("set default=0\nset timeout=10\n\ninsmod part_gpt\ninsmod part_msdos\ninsmod fat\ninsmod ext2\ninsmod search_fs_uuid\ninsmod all_video\ninsmod gfxterm\ninsmod efi_gop\ninsmod efi_uga\nif loadfont $prefix/fonts/unicode.pf2; then\n    set gfxmode=auto\nfi\nterminal_output gfxterm console\nsearch --no-floppy --fs-uuid --set=root {}\n\nmenuentry \"Silen Linux\" {{\n    linux /vmlinuz root=UUID={} ro rootwait loglevel=4 console=ttyS0 console=tty0\n    initrd /{}\n}}\n", bootuuid, rootuuid, initramfs_name);
     let _ = fs::write(format!("{}/boot/grub/grub.cfg", r), grub_cfg);
@@ -1064,7 +1064,6 @@ pub fn do_install(s: &mut InstallSettings, log: &mut LogFn) -> Result<(), String
     let bootuuid = run_capture("blkid", &["-s", "UUID", "-o", "value", &s.bootp]);
     let rootuuid = run_capture("blkid", &["-s", "UUID", "-o", "value", &s.rootp]);
     if bootuuid.is_empty() || rootuuid.is_empty() {
-        cleanup();
         return Err("couldn't read the partition UUIDs".into());
     }
     let fspass = if s.fstype == "ext4" { "0 1" } else { "0 0" };
