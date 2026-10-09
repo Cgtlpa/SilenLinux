@@ -1516,7 +1516,7 @@ menuentry "Silen GUI debug" {
 }
 
 menuentry "Silen GUI (basic graphics)" {
-	echo "Booting Silen basic graphics, no proprietary or nouveau driver"
+	echo "Booting Silen basic graphics, nouveau off, software rendering"
 	linux /boot/vmlinuz modprobe.blacklist=nouveau loglevel=4 console=ttyS0 console=tty0
 	initrd /boot/$INITRAMFS
 }
