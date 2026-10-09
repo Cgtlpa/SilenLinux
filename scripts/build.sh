@@ -1496,6 +1496,12 @@ menuentry "Silen GUI debug" {
 	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.debug
 	initrd /boot/$INITRAMFS
 }
+
+menuentry "Silen GUI (basic graphics)" {
+	echo "Booting Silen basic graphics, no proprietary or nouveau driver"
+	linux /boot/vmlinuz modprobe.blacklist=nouveau loglevel=4 console=ttyS0 console=tty0
+	initrd /boot/$INITRAMFS
+}
 EOF
 
 echo "  running grub-mkrescue"
