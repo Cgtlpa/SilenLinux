@@ -961,7 +961,12 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
     }
     if initramfs_name.is_empty() {
         if copy_failed {
-            return Err("found an initramfs on the medium but couldn't copy it - bad USB write? Reflash and retry".into());
+            let probe = format!("{}/boot/.writetest", r);
+            if fs::write(&probe, "x").is_ok() {
+                let _ = fs::remove_file(&probe);
+                return Err("found an initramfs on the medium but couldn't read it - bad USB write? Reflash and retry".into());
+            }
+            return Err("can't write to the new boot partition - repartition and retry".into());
         }
         return Err("no initramfs found in the install ISO".into());
     }

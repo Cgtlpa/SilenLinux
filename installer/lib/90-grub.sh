@@ -32,7 +32,12 @@ setup-grub() {
 	if [[ -z "$initramfs_name" ]]; then
 		_ls="$(ls /mnt/boot 2>/dev/null | head -n 8 | tr '\n' ' ' || echo "unlistable")"
 		if [[ -n "$_cp_err" ]]; then
-			whiptail --msgbox --title "$title" "found an initramfs on the medium but couldn't copy it - bad USB write? Reflash and retry. (/mnt/boot: $_ls)" 9 65 || true
+			if touch "$ROOT_PATH/boot/.writetest" 2>/dev/null; then
+				rm -f "$ROOT_PATH/boot/.writetest" 2>/dev/null || true
+				whiptail --msgbox --title "$title" "found an initramfs on the medium but couldn't read it - bad USB write? Reflash and retry. (/mnt/boot: $_ls)" 9 65 || true
+			else
+				whiptail --msgbox --title "$title" "can't write to the new boot partition - repartition and retry. (/mnt/boot: $_ls)" 8 65 || true
+			fi
 		else
 			whiptail --msgbox --title "$title" "no initramfs found in the install ISO. (/mnt/boot: $_ls)" 8 60 || true
 		fi
