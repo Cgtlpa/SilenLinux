@@ -112,6 +112,16 @@ if command -v iwd >/dev/null 2>&1; then
 	echo "Starting iwd"
 	mkdir -p /var/lib/iwd 2>/dev/null || true
 	iwd >/tmp/iwd.log 2>&1 &
+	_i=0
+	while [ ! -d /sys/class/ieee80211 ] && [ $_i -lt 10 ]; do
+		_i=$((_i + 1))
+		sleep 1 2>/dev/null || sleep 1
+	done
+	if [ -d /sys/class/ieee80211 ]; then
+		note "Wi-Fi radio found ($(ls /sys/class/ieee80211 2>/dev/null | tr '\n' ' '))"
+	else
+		note "No Wi-Fi radio found, skipping wireless (cable still works)"
+	fi
 else
 	echo "iwd missing networking will not work"
 fi
