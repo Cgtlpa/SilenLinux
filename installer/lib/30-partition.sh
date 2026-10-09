@@ -174,13 +174,13 @@ partitioning() {
 	# writes the gpt table, esp first then root
 	if ! sfdisk --no-reread "$disk" <<EOF
 label: gpt
-, 512M, U
+, 1G, U
 , , L
 EOF
 	then
 		if ! sfdisk "$disk" <<EOF
 label: gpt
-, 512M, U
+, 1G, U
 , , L
 EOF
 		then

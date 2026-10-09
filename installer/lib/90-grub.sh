@@ -11,8 +11,10 @@ setup-grub() {
 	fi
 	initramfs_name=""
 	_cp_err=""
+	_need=0
 	for i in /mnt/boot/initramfs.*; do
 		[[ -f "$i" ]] || continue
+		_need="$(stat -c%s "$i" 2>/dev/null || echo 0)"
 		_try=0
 		while [[ $_try -lt 3 ]]; do
 			_try=$((_try + 1))
@@ -30,6 +32,7 @@ setup-grub() {
 	if [[ -z "$initramfs_name" ]]; then
 		for i in /mnt/initramfs.*; do
 			[[ -f "$i" ]] || continue
+			_need="$(stat -c%s "$i" 2>/dev/null || echo 0)"
 			_try=0
 			while [[ $_try -lt 3 ]]; do
 				_try=$((_try + 1))
@@ -50,7 +53,18 @@ setup-grub() {
 		if [[ -n "$_cp_err" ]]; then
 			if touch "$ROOT_PATH/boot/.writetest" 2>/dev/null; then
 				rm -f "$ROOT_PATH/boot/.writetest" 2>/dev/null || true
-				whiptail --msgbox --title "$title" "found an initramfs on the medium but couldn't read it - bad USB write? Reflash and retry. (/mnt/boot: $_ls)" 9 65 || true
+				_need_mb=0
+				_have_kb=0
+				if [[ $_need =~ ^[0-9]+$ ]]; then
+					_need_mb=$((_need / 1024 / 1024))
+				fi
+				_have_kb="$(df -k "$ROOT_PATH/boot" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+				[[ $_have_kb =~ ^[0-9]+$ ]] || _have_kb=0
+				if [[ "$_need_mb" -gt 0 ]] && [[ $((_have_kb / 1024)) -lt "$_need_mb" ]]; then
+					whiptail --msgbox --title "$title" "initramfs needs ${_need_mb}M but the new boot partition only has $((_have_kb / 1024))M free - repartition with a bigger ESP and retry. (/mnt/boot: $_ls)" 9 65 || true
+				else
+					whiptail --msgbox --title "$title" "found an initramfs on the medium but couldn't read it - bad USB write? Reflash and retry. (/mnt/boot: $_ls)" 9 65 || true
+				fi
 			else
 				whiptail --msgbox --title "$title" "can't write to the new boot partition - repartition and retry. (/mnt/boot: $_ls)" 8 65 || true
 			fi

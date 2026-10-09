@@ -72,7 +72,7 @@ Live boot auto-starts instantwm (Wayland DRM, as root, no login) and auto-launch
 
 - `10-medium.sh` — finds the install medium / tarball, handles Ventoy ISO-file boot + loop-mount.
 - `20-ui.sh` — offline menu (Install/Shell/Reboot).
-- `30-partition.sh` — disk pick, wipe confirm, GPT layout: 1MiB–513MiB ESP (`fat32`, `esp on`) + root to 100%. Handles `nvme/mmcblk` `p1/p2` naming.
+- `30-partition.sh` — disk pick, wipe confirm, GPT layout: 1MiB–1025MiB ESP (`fat32`, `esp on`) + root to 100%. Handles `nvme/mmcblk` `p1/p2` naming.
 - `40-base.sh` — mounts target, extracts tarball (strips single top-level dir).
 - `50-settings.sh` — hostname, root password, optional user, locale/keymap/timezone, swapfile.
 - `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`/usr/local/bin/silenfetch` → `fastfetch -l /usr/share/silen/fastfetch_logo.txt`; plain `fastfetch` also shows it via `/etc/fastfetch/config.jsonc`).

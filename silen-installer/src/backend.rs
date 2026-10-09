@@ -323,7 +323,7 @@ pub fn do_partition(s: &mut InstallSettings, log: &mut LogFn) -> Result<(), Stri
         }
     }
     let _ = run("wipefs", &["-a", &s.disk]);
-    let sfdisk_input = "label: gpt\n, 512M, U\n, , L\n";
+    let sfdisk_input = "label: gpt\n, 1G, U\n, , L\n";
     let ok = Command::new("sfdisk")
         .args(["--no-reread", &s.disk])
         .stdin(Stdio::piped())

@@ -127,7 +127,7 @@ impl eframe::App for InstallerApp {
                 }
                 Page::Welcome => {
                     ui.label("Welcome to the Silen Linux installer (instantwm live edition).");
-                    ui.label("This will wipe the selected disk: GPT with a 512M ESP (FAT32) + root.");
+                    ui.label("This will wipe the selected disk: GPT with a 1G ESP (FAT32) + root.");
                     ui.label("Live session runs as root with no login; the installer auto-launched on boot.");
                     ui.add_space(8.0);
                     if ui.button("Install Silen").clicked() {
