@@ -316,6 +316,9 @@ setup-autologin() {
 	fi
 	_snip="$(mktemp /tmp/autologin.XXXXXX 2>/dev/null || echo /tmp/autologin.$$)"
 	cat > "$_snip" <<'EOF' || true
+if dmesg 2>/dev/null | grep -qi "nouveau.*firmware unavailable"; then
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
 if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ] && [ "$(tty 2>/dev/null)" = /dev/tty1 ]; then
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
     mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null

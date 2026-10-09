@@ -593,7 +593,7 @@ pub fn setup_autologin(s: &InstallSettings, log: &mut LogFn) {
         let _ = fs::write(&inittab, out);
         sh_log(log, &format!("tty1 autologin as {} (no display manager)", user));
     }
-    let snippet = "if [ -z \"$WAYLAND_DISPLAY\" ] && [ -z \"$DISPLAY\" ] && [ \"$(tty 2>/dev/null)\" = /dev/tty1 ]; then\n    export XDG_RUNTIME_DIR=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}\"\n    mkdir -p \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    chmod 700 \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    export XDG_CURRENT_DESKTOP=instantwm XDG_SESSION_DESKTOP=instantwm XDG_SESSION_TYPE=wayland\n    exec instantwm --backend drm\nfi\n";
+    let snippet = "if dmesg 2>/dev/null | grep -qi \"nouveau.*firmware unavailable\"; then\n    export LIBGL_ALWAYS_SOFTWARE=1\nfi\nif [ -z \"$WAYLAND_DISPLAY\" ] && [ -z \"$DISPLAY\" ] && [ \"$(tty 2>/dev/null)\" = /dev/tty1 ]; then\n    export XDG_RUNTIME_DIR=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}\"\n    mkdir -p \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    chmod 700 \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    export XDG_CURRENT_DESKTOP=instantwm XDG_SESSION_DESKTOP=instantwm XDG_SESSION_TYPE=wayland\n    exec instantwm --backend drm\nfi\n";
     if user == "root" {
         let p = format!("{}/root/.bash_profile", r);
         let cur = fs::read_to_string(&p).unwrap_or_default();

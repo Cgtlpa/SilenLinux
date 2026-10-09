@@ -1030,6 +1030,10 @@ if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
 		sleep 0.1 2>/dev/null || sleep 1
 	done
 fi
+if dmesg 2>/dev/null | grep -qi "nouveau.*firmware unavailable"; then
+	export LIBGL_ALWAYS_SOFTWARE=1
+	echo "nouveau has no firmware, forcing software rendering" >>"$LOG" 2>&1
+fi
 echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >>"$LOG" 2>&1
 ls /dev/dri/card* >>"$LOG" 2>&1 || echo "no /dev/dri/card* (KMS driver or firmware missing?)" >>"$LOG" 2>&1
 try_drm() {

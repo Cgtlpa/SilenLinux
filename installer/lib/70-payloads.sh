@@ -320,6 +320,12 @@ EOF
 		echo "$_mid" > "$ROOT_PATH"/etc/machine-id 2>/dev/null || true
 		cp "$ROOT_PATH"/etc/machine-id "$ROOT_PATH"/var/lib/dbus/machine-id 2>/dev/null || true
 	fi
+	for _k in /var/lib/iwd/*.psk /var/lib/iwd/*.open /var/lib/iwd/*.8021x; do
+		[[ -f "$_k" ]] || continue
+		mkdir -p "$ROOT_PATH"/var/lib/iwd 2>/dev/null || true
+		cp -a "$_k" "$ROOT_PATH"/var/lib/iwd/ 2>/dev/null || true
+		chmod 600 "$ROOT_PATH"/var/lib/iwd/"$(basename "$_k")" 2>/dev/null || true
+	done || true
 	cat > "$ROOT_PATH"/etc/init.d/dbus <<'EOF'
 #!/sbin/openrc-run
 command=/usr/bin/dbus-daemon

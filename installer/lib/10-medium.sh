@@ -218,3 +218,76 @@ ensure_medium() {
 	fi
 	return 1
 }
+
+_have_route() {
+	ip route show default 2>/dev/null | grep -q .
+}
+
+setup-live-wifi() {
+	_have_route && return 0
+	for _iface_path in /sys/class/net/*; do
+		_iface="${_iface_path##*/}"
+		case "$_iface" in lo*|wlan*|wlp*|wls*|wwan*) continue ;; esac
+		[[ -f "$_iface_path/carrier" ]] || continue
+		[[ "$(cat "$_iface_path/carrier" 2>/dev/null)" = "1" ]] || continue
+		ip link set "$_iface" up 2>/dev/null || true
+		if command -v dhcpcd >/dev/null 2>&1; then
+			dhcpcd -t 15 "$_iface" 2>/dev/null || true
+		elif command -v udhcpc >/dev/null 2>&1; then
+			udhcpc -i "$_iface" -t 3 -T 5 -n -q 2>/dev/null || true
+		fi
+		_have_route && return 0
+	done || true
+	_have_route && return 0
+	_wifi=""
+	for _iface_path in /sys/class/net/*; do
+		_iface="${_iface_path##*/}"
+		[[ -e "$_iface_path/phy80211" ]] || [[ -e "$_iface_path/wireless" ]] || continue
+		_wifi="$_iface"
+		break
+	done || true
+	[[ -n "$_wifi" ]] || return 0
+	command -v iwctl >/dev/null 2>&1 || return 0
+	ip link set "$_wifi" up 2>/dev/null || true
+	iwctl station "$_wifi" scan 2>/dev/null || true
+	sleep 3 2>/dev/null || true
+	_menu=()
+	while IFS= read -r _line; do
+		[[ -n "$_line" ]] || continue
+		case "$_line" in *"Network name"*|*"--"*) continue ;; esac
+		_sec="$(printf '%s' "$_line" | awk '{print $(NF-1)}')"
+		_ssid="$(printf '%s' "$_line" | awk '{$(NF-1)=""; $NF=""; sub(/[ \t]+$/, ""); print}')"
+		[[ -n "$_ssid" ]] || continue
+		_menu+=("$_ssid" "$_sec")
+	done < <(iwctl station "$_wifi" get-networks 2>/dev/null || true) || true
+	[[ ${#_menu[@]} -gt 0 ]] || return 0
+	_pick=$(whiptail --title "$title" --menu "Select Wi-Fi network" 20 70 10 "${_menu[@]}" 3>&1 1>&2 2>&3 || true)
+	[[ -n "$_pick" ]] || return 0
+	_psec=""
+	_i=0
+	while [[ $_i -lt ${#_menu[@]} ]]; do
+		if [[ "${_menu[$_i]}" = "$_pick" ]]; then
+			_psec="${_menu[$((_i + 1))]}"
+			break
+		fi
+		_i=$((_i + 2))
+	done || true
+	_pass=""
+	case "$_psec" in
+		*[Pp][Ss][Kk]*|*8021x*|*SAE*)
+			_pass=$(whiptail --title "$title" --passwordbox "Password for $_pick" 10 60 3>&1 1>&2 2>&3 || true) ;;
+	esac
+	if [[ -n "$_pass" ]]; then
+		iwctl --passphrase "$_pass" station "$_wifi" connect "$_pick" 2>/dev/null || true
+	else
+		iwctl station "$_wifi" connect "$_pick" 2>/dev/null || true
+	fi
+	_pass=""
+	sleep 4 2>/dev/null || true
+	if _have_route; then
+		whiptail --msgbox --title "$title" "connected, continuing install" 8 40 || true
+	else
+		whiptail --msgbox --title "$title" "couldn't connect, continuing offline" 8 40 || true
+	fi
+	return 0
+}

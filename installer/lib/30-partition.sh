@@ -150,6 +150,7 @@ partitioning() {
 		main_screen
 		return
 	fi
+	setup-live-wifi
 
 	for part in $(mount 2>/dev/null | awk -v d="$disk" '($1==d || $1 ~ ("^" d "[0-9][0-9]*$") || $1 ~ ("^" d "p[0-9][0-9]*$")) {print $1}' || true); do
 		[[ -n "$part" ]] || continue
