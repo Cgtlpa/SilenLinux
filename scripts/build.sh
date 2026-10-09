@@ -1471,6 +1471,12 @@ fi
 # no gfxpayload line, uefi chokes on it so leave it out
 terminal_output gfxterm console
 
+menuentry "Silen text installer" {
+	echo "Booting Silen text installer"
+	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.tui
+	initrd /boot/$INITRAMFS
+}
+
 menuentry "Silen GUI installer" {
 	echo "Booting Silen GUI installer"
 	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
