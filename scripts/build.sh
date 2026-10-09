@@ -534,6 +534,7 @@ if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr
 fi
 
 mkdir -p "$RAMROOT/var/lib/dbus" "$RAMROOT/etc"
+ln -sfn /run "$RAMROOT/var/run" 2>/dev/null || true
 # no fixed machine-id, every boot makes its own or clones break stuff
 rm -f "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id" 2>/dev/null || true
 
@@ -967,6 +968,13 @@ if command -v fc-cache >/dev/null 2>&1; then
 	_FC="$(command -v fc-cache)"
 	cp --dereference "$_FC" "$RAMROOT/usr/bin/fc-cache" 2>/dev/null || true
 	copy_libs "$_FC"
+fi
+if command -v setxkbmap >/dev/null 2>&1; then
+	_SKM="$(command -v setxkbmap)"
+	cp --dereference "$_SKM" "$RAMROOT/usr/bin/setxkbmap" 2>/dev/null || echo "  ! cannot copy setxkbmap (x11 keymaps may fail)"
+	copy_libs "$_SKM"
+else
+	echo "  ! setxkbmap not on host (x11 keymaps may fail on live)"
 fi
 mkdir -p "$RAMROOT/etc/skel/.config/instantwm" "$RAMROOT/root/.config/instantwm" "$RAMROOT/usr/share/wayland-sessions" "$RAMROOT/etc/instantwm" || true
 if [ -f "$RAMROOT/usr/share/doc/instantwm/config.toml.example" ]; then
