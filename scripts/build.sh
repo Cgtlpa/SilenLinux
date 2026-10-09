@@ -1471,21 +1471,15 @@ fi
 # no gfxpayload line, uefi chokes on it so leave it out
 terminal_output gfxterm console
 
-menuentry "Silen Linux" {
-	echo "Booting Silen"
+menuentry "Silen GUI installer" {
+	echo "Booting Silen GUI installer"
 	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
 	initrd /boot/$INITRAMFS
 }
 
-menuentry "Silen Linux (fallback, nomodeset)" {
-	echo "Booting Silen (no KMS)"
-	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
-	initrd /boot/$INITRAMFS
-}
-
-menuentry "Silen Linux (text installer)" {
-	echo "Booting Silen (text installer)"
-	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.tui
+menuentry "Silen GUI debug" {
+	echo "Booting Silen GUI debug"
+	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.debug
 	initrd /boot/$INITRAMFS
 }
 EOF
