@@ -445,6 +445,28 @@ install-nvidia-auto() {
 		whiptail --msgbox --title "$title" "no NVIDIA GPU found, skipping the proprietary driver (nouveau stays active)" 8 60 || true
 		return 0
 	fi
+	# DEBUG: fixed modern driver breaking pre-Maxwell GPUs, Fermi/Kepler need 390 legacy so stay on nouveau
+	_nv_major="$(basename "${_nv_run:-}" | sed -n 's/^nvidia-\([0-9][0-9]*\)\..*\.run$/\1/p')"
+	[[ "$_nv_major" =~ ^[0-9]+$ ]] || _nv_major="999"
+	if [[ "$_nv_major" -ge 550 ]]; then
+		_nv_supported="0"
+		for d in /sys/bus/pci/devices/*; do
+			[[ -f "$d/vendor" ]] || continue
+			[[ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ]] || continue
+			case "$(cat "$d/class" 2>/dev/null)" in
+				0x03*) ;;
+				*) continue ;;
+			esac
+			_devid="$(cat "$d/device" 2>/dev/null || echo 0x0000)"
+			if [[ "$_devid" > "0x133f" ]]; then
+				_nv_supported="1" && break
+			fi
+		done || true
+		if [[ "$_nv_supported" != "1" ]]; then
+			whiptail --msgbox --title "$title" "NVIDIA GPU predates $_nv_major.x support (needs the 390 legacy driver), staying on nouveau. nvidia-smi will not work with this driver - the desktop uses software rendering instead." 9 70 || true
+			return 0
+		fi
+	fi
 	_kver="${kver:-$(ls "$ROOT_PATH"/lib/modules 2>/dev/null | head -n1)}"
 	if [[ -z "$_kver" ]] || [[ ! -f "$ROOT_PATH/usr/src/linux-$_kver/Makefile" ]]; then
 		whiptail --msgbox --title "$title" "kernel headers missing in the new system, skipping the NVIDIA driver (nouveau stays active)" 8 60 || true
@@ -481,13 +503,61 @@ install-nvidia-auto() {
 		whiptail --msgbox --title "$title" "prebuilt NVIDIA modules missing after unpack, continuing with nouveau" 8 60 || true
 		return 0
 	fi
+	# DEBUG: fixed blacklisting nouveau for a GPU the driver cannot see, probe first
+	# NOTE: keep the insmod inside if-condition, a bare _x=$(failing) exits under set -e
+	if [[ -f "$ROOT_PATH/lib/modules/$_kver/updates/nvidia.ko" ]]; then
+		if _ins_out="$(insmod "$ROOT_PATH/lib/modules/$_kver/updates/nvidia.ko" 2>&1)"; then
+			rmmod nvidia 2>/dev/null || true
+		elif printf '%s' "$_ins_out" | grep -q "No such device"; then
+			rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+			whiptail --msgbox --title "$title" "the NVIDIA driver cannot see any supported GPU here (probe: No such device), staying on nouveau so the display keeps working" 8 70 || true
+			return 0
+		fi
+		# any other result (busy GPU, version skew) keeps the install, PCI gate already passed
+	fi
 	if ! cp "$_nv_run" "$ROOT_PATH/tmp/nvidia.run" 2>/dev/null; then
 		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
 		whiptail --msgbox --title "$title" "couldn't stage the NVIDIA installer (disk full?), continuing with nouveau" 8 60 || true
 		return 0
 	fi
-	if chroot "$ROOT_PATH" /bin/bash -c "sh /tmp/nvidia.run --silent --accept-license --no-questions -z --no-x-check --no-dkms --no-systemd --no-distro-scripts --no-kernel-modules" >>"$ROOT_PATH/tmp/nvidia-install.log" 2>&1; then
+	if chroot "$ROOT_PATH" /bin/bash -c "sh /tmp/nvidia.run --silent --accept-license --no-questions -z --no-x-check --no-dkms --no-systemd --no-distro-scripts --no-kernel-modules --no-nouveau-check" >>"$ROOT_PATH/tmp/nvidia-install.log" 2>&1; then
 		chroot "$ROOT_PATH" /bin/bash -c "depmod -a $_kver" 2>/dev/null || true
+		chroot "$ROOT_PATH" /bin/bash -c "ldconfig" 2>/dev/null || true
+		# DEBUG: fixed nvidia-smi failing, modules never loaded and nouveau kept the GPU
+		mkdir -p "$ROOT_PATH"/etc/modules-load.d 2>/dev/null || true
+		printf 'nvidia\nnvidia_modeset\nnvidia_drm\nnvidia_uvm\n' > "$ROOT_PATH"/etc/modules-load.d/nvidia.conf 2>/dev/null || true
+		if [[ -f "$ROOT_PATH"/etc/conf.d/modules ]]; then
+			if ! grep -q 'nvidia' "$ROOT_PATH"/etc/conf.d/modules 2>/dev/null; then
+				printf '\nmodules="$modules nvidia nvidia_modeset nvidia_drm nvidia_uvm"\n' >> "$ROOT_PATH"/etc/conf.d/modules 2>/dev/null || \
+				printf 'modules="nvidia nvidia_modeset nvidia_drm nvidia_uvm"\n' >> "$ROOT_PATH"/etc/conf.d/modules 2>/dev/null || true
+			fi
+		fi
+		# DEBUG: fixed dead display when nvidia never binds, first healthy boot keeps it, else nouveau returns
+		mkdir -p "$ROOT_PATH"/etc/local.d 2>/dev/null || true
+		cat > "$ROOT_PATH"/etc/local.d/nvidia-fallback.start <<'EOF' || true
+#!/bin/sh
+# if the proprietary modules never bound, unblock nouveau so the next boot has a GPU
+LOG=/var/log/nvidia-fallback.log
+CONF=/etc/modprobe.d/nvidia-disable-nouveau.conf
+[ -f "$CONF" ] || exit 0
+_nv_alive=""
+if command -v lsmod >/dev/null 2>&1; then
+	lsmod 2>/dev/null | grep -q "^nvidia " && _nv_alive="1"
+fi
+[ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ] && _nv_alive="1"
+[ -n "$_nv_alive" ] && exit 0
+echo "$(date -u 2>/dev/null || date): nvidia absent, removing nouveau blacklist (reboot to apply)" >>"$LOG" 2>&1
+rm -f "$CONF" /etc/modprobe.d/nvidia-installer-disable-nouveau.conf 2>/dev/null
+rm -f /etc/modules-load.d/nvidia.conf 2>/dev/null
+if [ -f /etc/conf.d/modules ]; then
+	sed -i 's/ nvidia_modeset//g; s/ nvidia_drm//g; s/ nvidia_uvm//g; s/ nvidia//g' /etc/conf.d/modules 2>/dev/null || true
+fi
+if [ -f /boot/grub/grub.cfg ]; then
+	sed -i 's/ modprobe\.blacklist=nouveau//g; s/ nvidia-drm\.modeset=1//g; s/ nvidia-drm\.fbdev=1//g' /boot/grub/grub.cfg 2>/dev/null || true
+fi
+echo "$(date -u 2>/dev/null || date): blacklist removed, nouveau returns next boot" >>"$LOG" 2>&1
+EOF
+		chmod 0755 "$ROOT_PATH"/etc/local.d/nvidia-fallback.start 2>/dev/null || true
 		cp "$ROOT_PATH/tmp/nvidia-install.log" /tmp/nvidia-install.log 2>/dev/null || true
 		mkdir -p "$ROOT_PATH/var/log" 2>/dev/null || true
 		cp "$ROOT_PATH/tmp/nvidia-install.log" "$ROOT_PATH/var/log/nvidia-install.log" 2>/dev/null || true
@@ -512,11 +582,13 @@ install-desktop() {
 		whiptail --infobox "Installing the system this might take a while...\n(unpacking desktop)" 8 60 2>/dev/null || true
 		tar -xpf "$desktop_tar" -C "$ROOT_PATH" --no-same-owner --numeric-owner 2>/dev/null || \
 			whiptail --msgbox --title "$title" "couldn't unpack the desktop bundle, continuing without it" 8 60 || true
+	else
+		whiptail --msgbox --title "$title" "no desktop bundle on the install medium, continuing without it" 8 60 || true
 	fi
-	if [[ -x "$ROOT_PATH/usr/bin/spk" ]] || chroot "$ROOT_PATH" /bin/bash -c "command -v spk" >/dev/null 2>&1; then
-		whiptail --infobox "Installing the system this might take a while...\n(fetching desktop packages, needs network)" 8 60 2>/dev/null || true
-		chroot "$ROOT_PATH" /bin/bash -c "spk get instantwm instantmenu xorg-server xorg-libs xkb-data dejavu kitty" 2>/dev/null || \
-			whiptail --msgbox --title "$title" "desktop packages had errors (offline?), continuing with what unpacked" 8 60 || true
-	fi
+	# DEBUG: fixed install needing network, desktop comes from the ISO bundle only
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add seatd default" >/dev/null 2>&1 || true
+	# DEBUG: fixed silent desktop missing on target
+	if [[ ! -x "$ROOT_PATH/usr/bin/instantwm" ]]; then
+		whiptail --msgbox --title "$title" "instantwm missing on target, desktop autostart will drop to shell until you run: spk get instantwm seatd" 8 65 || true
+	fi
 }

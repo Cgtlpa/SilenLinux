@@ -15,7 +15,7 @@ Silen Linux instantwm edition: boots straight into a graphical Wayland live sess
 | Live init | Custom BusyBox-based initramfs, `/init` from `rootfs/init` — auto-starts instantwm Wayland + `silen-installer`, no login |
 | Live desktop | instantwm 0.5.0 Wayland (`spk-pkgs/packages/instantwm/`, `scripts/mkspk-instantwm.sh:1`), instantMENU 5.1.5 (`spk-pkgs/packages/instantmenu/`, `scripts/mkspk-instantmenu.sh:1`), DRM/KMS modules in `scripts/build.sh:ALLOW` |
 | Installer | Rust+egui `silen-installer/` (loading splash → disk → settings → confirm → install; full port of `installer/*.sh`); bash `installer/` is fallback only, never shown after the GUI was up |
-| Installed desktop | instantwm auto-starts on tty1 via agetty autologin, no display manager; passwords still set for su/sudo; seatd daemon runs for non-root sessions |
+| Installed desktop | none — installed system is a clean base that boots to a tty login; no WM auto-installed. NVIDIA driver auto-installs from the nvidia ISO (nvidia-smi works after reboot). Add a desktop later with `spk`. |
 | Arch | x86_64, UEFI only (installer refuses legacy boot, `silen-installer/src/backend.rs:setup_grub`) |
 | Bootloader | GRUB2 via `grub-mkrescue`, EFI bundle from `grub-bundle/` |
 | Base system | `tarball-silen.xz` / `stage3-*.tar.*` unpacked onto target |
@@ -53,7 +53,6 @@ Built by `scripts/build.sh` into `build/silen-linux.iso` via `grub-mkrescue`:
 /boot/grub/grub.cfg        "Silen Linux" + "Silen Linux (fallback, nomodeset)"
 /kernel-*.tar.zst          kernel + full module tree for the installed system
 /network.tar.zst           iwd/iwctl/iwmon/dbus bundle
-/desktop.tar.zst           instantwm Wayland stack for the installed system (new in instant edition)
 /silen-installer           Rust+egui installer binary (also in live initramfs at /usr/bin/silen-installer)
 /firmware/                 Wi-Fi + GPU firmware copied to target on offline installs
 /spk                       prebuilt spk binary (also re-packed into the initramfs at scripts/build.sh:931)
@@ -164,8 +163,7 @@ branding/                 fastfetch logo + distro info
 3. Boot the USB in **UEFI mode**.
 4. Install (base only, offline).
 5. Select disk (it will be wiped → GPT + ESP + root), hostname, root password, user.
-6. Optionally pick GPU driver and desktop + display manager.
-7. Reboot into Silen. Run `iwctl` if Wi-Fi needs configuring, `silenfetch` for the logo.
+6. Reboot into Silen (tty login — no desktop preinstalled). Run `iwctl` if Wi-Fi needs configuring, `silenfetch` for the logo. On NVIDIA GPUs (nvidia ISO) verify with `nvidia-smi`.
 
 QEMU smoke test: `make qemu` (needs `qemu-system-x86_64` + OVMF, creates `build/disk.img` on first run).
 

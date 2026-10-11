@@ -53,7 +53,7 @@ _install_mount_iso() {
 medium_on_disk() {
 	_disk="$1"
 	if [[ -f /run/silen-medium-dev ]]; then
-		_rec="$(cat /run/silen-medium-dev 2>/dev/null)"
+		_rec="$(cat /run/silen-medium-dev 2>/dev/null || true)"
 		if [[ -n "$_rec" ]]; then
 			case "$_rec" in
 				"$_disk"|"$_disk"[0-9]*|"$_disk"p[0-9]*) return 0 ;;

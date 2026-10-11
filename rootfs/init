@@ -92,7 +92,15 @@ note "Welcome to Silen Linux"
 ip link set lo up 2>/dev/null || true
 mkdir -p /run/dbus /run/user /var/lib/iwd
 chmod 755 /run/user 2>/dev/null || true
-if command -v rfkill >/dev/null 2>&1; then
+# Check for silen.nowifi kernel parameter to skip WiFi setup in live session
+nowifi=0
+for _p in $(cat /proc/cmdline 2>/dev/null); do
+	case "$_p" in
+		silen.nowifi) nowifi=1 ;;
+	esac
+done
+
+if [ "$nowifi" = "0" ] && command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
 fi
 
@@ -108,7 +116,7 @@ if command -v dbus-daemon >/dev/null 2>&1; then
 else
 	echo "dbus-daemon missing wifi/dbus will not work"
 fi
-if command -v iwd >/dev/null 2>&1; then
+if [ "$nowifi" = "0" ] && command -v iwd >/dev/null 2>&1; then
 	echo "Starting iwd"
 	mkdir -p /var/lib/iwd 2>/dev/null || true
 	iwd >/tmp/iwd.log 2>&1 &
@@ -123,16 +131,18 @@ if command -v iwd >/dev/null 2>&1; then
 		note "No Wi-Fi radio found, skipping wireless (cable still works)"
 	fi
 else
-	echo "iwd missing networking will not work"
+	echo "iwd missing or disabled (silen.nowifi), networking via cable only"
 fi
-(sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
-(
-for _w in 1 2 3 4 5 6; do
-	sleep 10
-	rfkill unblock all >/dev/null 2>&1 || true
-done
-) &
-(sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
+if [ "$nowifi" = "0" ]; then
+	(sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
+	(
+	for _w in 1 2 3 4 5 6; do
+		sleep 10
+		rfkill unblock all >/dev/null 2>&1 || true
+	done
+	) &
+	(sleep 12; [ -x /usr/bin/silen-wifi-check ] && /usr/bin/silen-wifi-check /tmp/silen-wifi.log >/dev/null 2>&1 || true) &
+fi
 
 echo
 note "Mounting install medium"
@@ -430,14 +440,14 @@ case " $(cat /proc/cmdline 2>/dev/null) " in
 		note "debug shell on serial (silen.debug)"
 		;;
 esac
-# boots straight into the gui, no login stuff
+# DEBUG: fixed tui only until gui stable, needs silen.gui to enable graphics
 _gui_done=0
-_gui_want=1
+_gui_want=0
 case " $(cat /proc/cmdline 2>/dev/null) " in
-	*" silen.tui "*) _gui_want=0 ;;
+	*" silen.gui "*) _gui_want=1 ;;
 esac
 if [ "$_gui_want" = "0" ]; then
-	note "Text installer requested (silen.tui), skipping graphical session"
+	note "Text installer (default, use silen.gui for graphics)"
 fi
 if [ "$_gui_want" = "1" ] && [ -x /usr/bin/silen-live-wayland ]; then
 	note "Starting graphical live session (instantwm, no login)"

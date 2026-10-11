@@ -33,6 +33,7 @@ FORCE="${FORCE:-0}"
 MIN_RAM_MB="${MIN_RAM_MB:-2048}"
 MIN_DISK_MB="${MIN_DISK_MB:-2048}"
 NVIDIA="${NVIDIA:-0}"
+NO_WIFI="${NO_WIFI:-1}"
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common vmd
@@ -274,7 +275,12 @@ if [ "$FULL" = "1" ]; then
 		queue+=("$(mod_name_from_path "$path")")
 	done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 else
-	queue=($ALLOW $ALLOW_WIFI)
+	if [ "$NO_WIFI" = "1" ]; then
+		queue=($ALLOW)
+		echo "  NO_WIFI=1 (default): excluding WiFi modules from initramfs"
+	else
+		queue=($ALLOW $ALLOW_WIFI)
+	fi
 	if [ "$AUTO_HOST" = "1" ]; then
 		for _mp in /sys/module/*; do
 			[ -e "$_mp" ] || continue
@@ -433,40 +439,44 @@ if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash 
 copy_app whiptail /usr/bin/whiptail
 copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
 
-_IWD_DAEMON=""
-for _cand in "$IWD_ROOT/usr/libexec/iwd" /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
-	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
-	_IWD_DAEMON="$_cand"
-	break
-done
-_IWCTL=""
-for _cand in "$IWD_ROOT/usr/bin/iwctl" /usr/bin/iwctl /usr/sbin/iwctl; do
-	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
-	_IWCTL="$_cand"
-	break
-done
-_IWMON=""
-for _cand in "$IWD_ROOT/usr/bin/iwmon" /usr/bin/iwmon /usr/sbin/iwmon; do
-	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
-	_IWMON="$_cand"
-	break
-done
-if [ -z "$_IWD_DAEMON" ]; then
-	echo "  ERROR iwd daemon not found (checked $IWD_ROOT and the host)"
-	echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
-	exit 1
+if [ "$NO_WIFI" = "1" ]; then
+	echo "  NO_WIFI=1 (default): skipping iwd/iwctl in live initramfs"
+else
+	_IWD_DAEMON=""
+	for _cand in "$IWD_ROOT/usr/libexec/iwd" /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
+		[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+		_IWD_DAEMON="$_cand"
+		break
+	done
+	_IWCTL=""
+	for _cand in "$IWD_ROOT/usr/bin/iwctl" /usr/bin/iwctl /usr/sbin/iwctl; do
+		[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+		_IWCTL="$_cand"
+		break
+	done
+	_IWMON=""
+	for _cand in "$IWD_ROOT/usr/bin/iwmon" /usr/bin/iwmon /usr/sbin/iwmon; do
+		[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+		_IWMON="$_cand"
+		break
+	done
+	if [ -z "$_IWD_DAEMON" ]; then
+		echo "  ERROR iwd daemon not found (checked $IWD_ROOT and the host)"
+		echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
+		exit 1
+	fi
+	if [ -z "$_IWCTL" ]; then
+		echo "  ERROR iwctl not found (checked $IWD_ROOT and the host)"
+		echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
+		exit 1
+	fi
+	mkdir -p "$RAMROOT/usr/libexec" || { echo "  ERROR cannot create $RAMROOT/usr/libexec"; exit 1; }
+	cp --dereference "$_IWD_DAEMON" "$RAMROOT/usr/libexec/iwd" || { echo "  ERROR cannot copy iwd (disk full?)"; exit 1; }
+	ln -sf /usr/libexec/iwd "$RAMROOT/usr/bin/iwd" 2>/dev/null || true
+	copy_libs "$_IWD_DAEMON"
+	copy_app iwctl "$_IWCTL"
+	[ -n "$_IWMON" ] && copy_opt iwmon "$_IWMON"
 fi
-if [ -z "$_IWCTL" ]; then
-	echo "  ERROR iwctl not found (checked $IWD_ROOT and the host)"
-	echo "  Build it first with ./scripts/build-iwd.sh or install iwd on the host"
-	exit 1
-fi
-mkdir -p "$RAMROOT/usr/libexec" || { echo "  ERROR cannot create $RAMROOT/usr/libexec"; exit 1; }
-cp --dereference "$_IWD_DAEMON" "$RAMROOT/usr/libexec/iwd" || { echo "  ERROR cannot copy iwd (disk full?)"; exit 1; }
-ln -sf /usr/libexec/iwd "$RAMROOT/usr/bin/iwd" 2>/dev/null || true
-copy_libs "$_IWD_DAEMON"
-copy_app iwctl "$_IWCTL"
-[ -n "$_IWMON" ] && copy_opt iwmon "$_IWMON"
 
 copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
 copy_app mkfs.vfat /usr/sbin/mkfs.vfat
@@ -512,10 +522,12 @@ mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin";
 for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
 	ln -sf "/usr/bin/$_sbin_link" "$RAMROOT/usr/sbin/$_sbin_link" 2>/dev/null || true
 done
-[ -f /usr/bin/rfkill ] && copy_opt rfkill /usr/bin/rfkill
-[ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
-[ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
-[ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+if [ "$NO_WIFI" != "1" ]; then
+	[ -f /usr/bin/rfkill ] && copy_opt rfkill /usr/bin/rfkill
+	[ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
+	[ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
+	[ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+fi
 [ -f /usr/bin/efibootmgr ] && copy_opt efibootmgr /usr/bin/efibootmgr
 [ -f /usr/sbin/efibootmgr ] && { copy_opt efibootmgr /usr/sbin/efibootmgr; ln -sf /usr/bin/efibootmgr "$RAMROOT/usr/sbin/efibootmgr" 2>/dev/null || true; }
 for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
@@ -769,24 +781,36 @@ if in_chosen cfg80211; then
 	copy_firmware "regulatory.db.p7s"
 fi
 
-if [ -d "$FIRMWARE_SOURCE" ]; then
+if [ "$NO_WIFI" != "1" ] && [ -d "$FIRMWARE_SOURCE" ]; then
 	echo "  copying ALL wifi firmware from rootfs to initramfs for live ISO"
 	mkdir -p "$RAMROOT/lib/firmware" || { echo "  ERROR cannot create firmware dir"; exit 1; }
 	find "$RAMROOT/lib/firmware" -xtype l -delete 2>/dev/null || true
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
+elif [ "$NO_WIFI" = "1" ] && [ -d "$FIRMWARE_SOURCE" ]; then
+	echo "  NO_WIFI=1: copying only GPU firmware to initramfs"
+	mkdir -p "$RAMROOT/lib/firmware" || { echo "  ERROR cannot create firmware dir"; exit 1; }
+	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau nvidia radeon; do
+		for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
+			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
+			mkdir -p "$RAMROOT/lib/firmware/$_gpu_fw" || { echo "  ERROR cannot create firmware dir $_gpu_fw"; exit 1; }
+			cp -an "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ 2>/dev/null || \
+			cp -a "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw"; exit 1; }
+			done
+		done
 fi
 
 # gpu firmware has to ride along or the screen just stays black after grub
 # no nvidia blobs here, way too fat and they need the proprietary driver anyway
-for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
-	for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
-		[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
-		mkdir -p "$RAMROOT/lib/firmware/$_gpu_fw" || { echo "  ERROR cannot create firmware dir $_gpu_fw"; exit 1; }
-		cp -an "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ 2>/dev/null || \
-		cp -a "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw"; exit 1; }
-	done
-done
-
+if [ "$NO_WIFI" != "1" ]; then
+	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau nvidia radeon; do
+		for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
+			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
+			mkdir -p "$RAMROOT/lib/firmware/$_gpu_fw" || { echo "  ERROR cannot create firmware dir $_gpu_fw"; exit 1; }
+			cp -an "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ 2>/dev/null || \
+			cp -a "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw"; exit 1; }
+			done
+		done
+fi
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
@@ -871,7 +895,8 @@ else
 fi
 
 echo "  unpacking instantwm + Wayland stack into live ramroot"
-for _lp in instantwm instantmenu wl-libs gtk-libs xorg-libs xorg-server xorg-drivers xinit xkb-data dejavu kitty seatd wlroots scenefx vulkan-loader llvm; do
+# DEBUG: fixed mesa missing from live/desktop (instantwm needs it)
+for _lp in instantwm instantmenu wl-libs gtk-libs mesa xorg-libs xorg-server xorg-drivers xinit xkb-data dejavu kitty seatd wlroots scenefx vulkan-loader llvm pipewire yazi bottom swaylock; do
 	_spk="spk-pkgs/packages/$_lp/$_lp.spk"
 	[ -f "$_spk" ] || continue
 	echo "    + $_lp"
@@ -977,6 +1002,21 @@ else
 	echo "  ! setxkbmap not on host (x11 keymaps may fail on live)"
 fi
 mkdir -p "$RAMROOT/etc/skel/.config/instantwm" "$RAMROOT/root/.config/instantwm" "$RAMROOT/usr/share/wayland-sessions" "$RAMROOT/etc/instantwm" || true
+# DEBUG: fixed instantwm warning about missing default apps, seed what the ISO ships (no nano in live env, so no editor here)
+for _h in "$RAMROOT/etc/skel" "$RAMROOT/root"; do
+	mkdir -p "$_h/.config/instantos/default" 2>/dev/null || continue
+	[ -x "$RAMROOT/usr/bin/kitty" ] && ln -sf /usr/bin/kitty "$_h/.config/instantos/default/terminal" 2>/dev/null || true
+	[ -x "$RAMROOT/usr/bin/yazi" ] && ln -sf /usr/bin/yazi "$_h/.config/instantos/default/termfilemanager" 2>/dev/null || true
+	if [ -x "$RAMROOT/usr/bin/kitty" ] && [ -x "$RAMROOT/usr/bin/yazi" ]; then
+		printf '#!/bin/sh\nexec kitty -e yazi "$@"\n' > "$_h/.config/instantos/default/filemanager" 2>/dev/null || true
+	fi
+	[ -x "$RAMROOT/usr/bin/instantmenu_run" ] && ln -sf /usr/bin/instantmenu_run "$_h/.config/instantos/default/appmenu" 2>/dev/null || true
+	[ -x "$RAMROOT/usr/bin/swaylock" ] && ln -sf /usr/bin/swaylock "$_h/.config/instantos/default/lockscreen" 2>/dev/null || true
+	if [ -x "$RAMROOT/usr/bin/kitty" ] && [ -x "$RAMROOT/usr/bin/btm" ]; then
+		printf '#!/bin/sh\nexec kitty -e btm "$@"\n' > "$_h/.config/instantos/default/systemmonitor" 2>/dev/null || true
+	fi
+	chmod 755 "$_h"/.config/instantos/default/* 2>/dev/null || true
+done || true
 if [ -f "$RAMROOT/usr/share/doc/instantwm/config.toml.example" ]; then
 	cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$RAMROOT/etc/skel/.config/instantwm/config.toml" 2>/dev/null || true
 	cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$RAMROOT/root/.config/instantwm/config.toml" 2>/dev/null || true
@@ -1152,9 +1192,9 @@ if command -v kitty >/dev/null 2>&1; then
 	(kitty sh -c 'echo Silen live terminal; exec sh' >>/tmp/kitty.log 2>&1 &) || true
 fi
 if [ -x /usr/bin/silen-installer ]; then
-	echo "launching installer" >>"$LOG" 2>&1
-	/usr/bin/silen-installer >>/tmp/silen-installer.log 2>&1
-	echo "installer exited rc=$?" >>"$LOG" 2>&1
+	echo "launching installer in background" >>"$LOG" 2>&1
+	/usr/bin/silen-installer >>/tmp/silen-installer.log 2>&1 &
+	echo "installer pid=$! (bg)" >>"$LOG" 2>&1
 fi
 echo "holding desktop session" >>"$LOG" 2>&1
 while [ -f /tmp/instantwm.pid ]; do
@@ -1194,11 +1234,10 @@ if ! command -v "$COMPRESS" >/dev/null 2>&1; then
 	exit 1
 fi
 
-CPIO_FILE="build/initramfs.cpio"
-
+CPIO_FILE="$(pwd)/build/initramfs.cpio"
 if ! (
 	cd "$RAMROOT"
-	find . -print0 | cpio --null -o --format=newc --owner=0:0
+		find . -print0 | cpio --null -o --format=newc --owner=0:0
 ) > "$CPIO_FILE"; then
 	echo "  ERROR cpio failed (need cpio package, disk space)"
 	exit 1
@@ -1206,7 +1245,7 @@ fi
 [ -s "$CPIO_FILE" ] || { echo "  ERROR cpio produced empty archive"; exit 1; }
 
 if [ "$COMPRESS" = "zstd" ]; then
-	zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd compression failed (need RAM/disk, try FORCE=1)"; exit 1; }
+	zstd -3 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd compression failed (need RAM/disk, try FORCE=1)"; exit 1; }
 elif [ "$COMPRESS" = "gzip" ]; then
 	gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR gzip compression failed"; exit 1; }
 else
@@ -1312,7 +1351,7 @@ if [ -d "$FIRMWARE_SOURCE" ]; then
 	mkdir -p "$ISO_DIR/firmware" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
 	cp -a "$FIRMWARE_SOURCE"/. "$ISO_DIR/firmware"/ || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
 	# same gpu firmware as the initramfs or installed systems go black
-	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
+	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau nvidia radeon; do
 		for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
 			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
 			mkdir -p "$ISO_DIR/firmware/$_gpu_fw" || { echo "  ERROR cannot create ISO firmware dir $_gpu_fw"; exit 1; }
@@ -1376,6 +1415,7 @@ if command -v cargo >/dev/null 2>&1; then
 			echo "  re-packing initramfs to include spk"
 			copy_libs "$RAMROOT/usr/bin/spk"
 			ldconfig -r "$RAMROOT" 2>/dev/null || { echo "  ERROR ldconfig failed after spk merge"; exit 1; }
+			CPIO_FILE="$(pwd)/build/initramfs.cpio"
 			if ! (
 				cd "$RAMROOT"
 				find . -print0 | cpio --null -o --format=newc --owner=0:0
@@ -1384,7 +1424,7 @@ if command -v cargo >/dev/null 2>&1; then
 				exit 1
 			fi
 			if [ "$COMPRESS" = "zstd" ]; then
-				zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd re-pack failed"; exit 1; }
+				zstd -3 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd re-pack failed"; exit 1; }
 			elif [ "$COMPRESS" = "gzip" ]; then
 				gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR gzip re-pack failed"; exit 1; }
 			else
@@ -1400,59 +1440,146 @@ else
 	echo "  ! cargo not found skipping spk build installer will try to fetch it"
 fi
 
-echo "  packing network bundle iwd/iwctl + deps for the installed system"
+echo "  packing network bundle iwd/iwctl + deps for the installed system (from host)"
 NETROOT="build/network-root"
 rm -rf "$NETROOT"
 mkdir -p "$NETROOT"
-for _np in \
-	usr/libexec/iwd \
-	usr/bin/iwd \
-	usr/bin/iwctl usr/bin/iwmon \
-	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
-	usr/bin/rfkill usr/bin/iw \
-	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper \
-	usr/lib64 \
-	etc/iwd \
-	usr/share/dbus-1 \
-	usr/share/terminfo \
-	etc/machine-id \
-; do
-	[ -e "$RAMROOT/$_np" ] || [ -L "$RAMROOT/$_np" ] || continue
-	mkdir -p "$NETROOT/$(dirname "$_np")" || { echo "  ERROR cannot create $NETROOT/$(dirname "$_np")"; exit 1; }
-	cp -a "$RAMROOT/$_np" "$NETROOT/$_np" || { echo "  ERROR cannot copy $_np to network bundle"; exit 1; }
+# Always build network bundle from host tools so installed system gets WiFi
+# This runs regardless of NO_WIFI (which only affects live initramfs)
+_IWD_DAEMON=""
+for _cand in "$IWD_ROOT/usr/libexec/iwd" /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWD_DAEMON="$_cand"
+	break
 done
-if [ -x "$NETROOT/usr/libexec/iwd" ]; then
+_IWCTL=""
+for _cand in "$IWD_ROOT/usr/bin/iwctl" /usr/bin/iwctl /usr/sbin/iwctl; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWCTL="$_cand"
+	break
+done
+_IWMON=""
+for _cand in "$IWD_ROOT/usr/bin/iwmon" /usr/bin/iwmon /usr/sbin/iwmon; do
+	[ -x "$_cand" ] || [ -f "$_cand" ] || continue
+	_IWMON="$_cand"
+	break
+done
+if [ -n "$_IWD_DAEMON" ] && [ -n "$_IWCTL" ]; then
+	mkdir -p "$NETROOT/usr/libexec" "$NETROOT/usr/bin" "$NETROOT/usr/lib64" "$NETROOT/etc/iwd" "$NETROOT/usr/share/dbus-1/system.d" "$NETROOT/var/lib/iwd" "$NETROOT/var/lib/dbus" "$NETROOT/run/dbus" "$NETROOT/run/user" "$NETROOT/etc/init.d"
+	cp --dereference "$_IWD_DAEMON" "$NETROOT/usr/libexec/iwd"
+	ln -sf /usr/libexec/iwd "$NETROOT/usr/bin/iwd"
+	# copy libs for iwd
+	for _lib in $(ldd "$_IWD_DAEMON" 2>/dev/null | grep -o '/[^ ]*' | sort -u); do
+		cp --dereference "$_lib" "$NETROOT/usr/lib64/" 2>/dev/null || true
+	done
+	cp --dereference "$_IWCTL" "$NETROOT/usr/bin/iwctl"
+	for _lib in $(ldd "$_IWCTL" 2>/dev/null | grep -o '/[^ ]*' | sort -u); do
+		cp --dereference "$_lib" "$NETROOT/usr/lib64/" 2>/dev/null || true
+	done
+	[ -n "$_IWMON" ] && cp --dereference "$_IWMON" "$NETROOT/usr/bin/iwmon"
+	# dbus
+	for _dbin in /usr/bin/dbus-daemon /usr/bin/dbus-uuidgen; do
+		[ -f "$_dbin" ] && cp --dereference "$_dbin" "$NETROOT/usr/bin/"
+		for _lib in $(ldd "$_dbin" 2>/dev/null | grep -o '/[^ ]*' | sort -u); do
+			cp --dereference "$_lib" "$NETROOT/usr/lib64/" 2>/dev/null || true
+		done
+	done
+	# dbus launch helper
+	for _helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
+		[ -f "$_helper" ] && cp -a "$_helper" "$NETROOT/$_helper" && chmod 4755 "$NETROOT/$_helper" 2>/dev/null || true
+	done
+	# rfkill, iw
+	for _bin in /usr/bin/rfkill /usr/bin/iw /usr/sbin/rfkill /usr/sbin/iw; do
+		[ -f "$_bin" ] && cp --dereference "$_bin" "$NETROOT/usr/bin/"
+	done
+	# iwd config
+	cat > "$NETROOT/etc/iwd/main.conf" <<'EOF'
+[General]
+EnableNetworkConfiguration=true
+EOF
+	# dbus policy
+	[ -f /usr/share/dbus-1/system.d/iwd-dbus.conf ] && cp /usr/share/dbus-1/system.d/iwd-dbus.conf "$NETROOT/usr/share/dbus-1/system.d/"
+	# init scripts
+	cat > "$NETROOT/etc/init.d/dbus" <<'EOF'
+#!/sbin/openrc-run
+command=/usr/bin/dbus-daemon
+command_args="--system --fork"
+pidfile=/run/dbus/pid
+name="D-Bus system daemon"
+
+depend() {
+	need localmount
+	after bootmisc
+}
+
+start_pre() {
+	mkdir -p /run/dbus
+	if [ ! -s /etc/machine-id ] && [ -x /usr/bin/dbus-uuidgen ]; then
+		/usr/bin/dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || /usr/bin/dbus-uuidgen --ensure 2>/dev/null || true
+	fi
+	if [ ! -s /var/lib/dbus/machine-id ] && [ -s /etc/machine-id ]; then
+		cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true
+	fi
+}
+EOF
+	IWD_CMD="/usr/libexec/iwd"
+	cat > "$NETROOT/etc/init.d/iwd" <<EOF
+#!/sbin/openrc-run
+command=$IWD_CMD
+pidfile=/run/iwd.pid
+command_background="yes"
+name="iwd wireless daemon"
+
+depend() {
+	need dbus localmount
+	after bootmisc modules
+	provide net
+}
+
+start_pre() {
+	mkdir -p /var/lib/iwd 2>/dev/null || true
+	if command -v rfkill >/dev/null 2>&1; then
+		rfkill unblock all >/dev/null 2>/dev/null || true
+	fi
+}
+EOF
+	chmod 755 "$NETROOT/etc/init.d/dbus" "$NETROOT/etc/init.d/iwd"
 	NETWORK_TAR="$ISO_DIR/network.tar.zst"
 	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" . || { echo "  ERROR network bundle creation failed"; exit 1; }
 	echo "  network bundle $(du -h "$NETWORK_TAR" | cut -f1)"
 else
-	echo "  ! iwd missing from ramroot installed system gets no wifi stack"
-fi
+	echo "  ! iwd/iwctl not found on host, network bundle will be empty (install iwd on build host)"
+	# create minimal bundle with just dbus
+	mkdir -p "$NETROOT/usr/bin" "$NETROOT/usr/lib64" "$NETROOT/etc/init.d" "$NETROOT/run/dbus" "$NETROOT/var/lib/dbus"
+	for _dbin in /usr/bin/dbus-daemon /usr/bin/dbus-uuidgen; do
+		[ -f "$_dbin" ] && cp --dereference "$_dbin" "$NETROOT/usr/bin/"
+	done
+	cat > "$NETROOT/etc/init.d/dbus" <<'EOF'
+#!/sbin/openrc-run
+command=/usr/bin/dbus-daemon
+command_args="--system --fork"
+pidfile=/run/dbus/pid
+name="D-Bus system daemon"
 
-echo "  packing desktop bundle (instantwm Wayland stack for the installed system)"
-DESKROOT="build/desktop-root"
-rm -rf "$DESKROOT"
-mkdir -p "$DESKROOT"
-for _dp in \
-	usr/bin/instantwm usr/bin/instantwmctl \
-	usr/bin/instantmenu usr/bin/instantmenu_run usr/bin/instantmenu_path usr/bin/instantmenu_smartrun \
-	usr/bin/seatd usr/bin/seatd-launch etc/init.d/seatd \
-	usr/bin/silen-installer usr/bin/silen-live-wayland \
-	usr/bin/kitty usr/bin/wofi usr/bin/waybar \
-	usr/share/wayland-sessions usr/share/applications \
-	usr/share/doc/instantwm \
-	etc/skel \
-; do
-	[ -e "$RAMROOT/$_dp" ] || [ -L "$RAMROOT/$_dp" ] || continue
-	mkdir -p "$DESKROOT/$(dirname "$_dp")" || { echo "  ERROR cannot create $DESKROOT/$(dirname "$_dp")"; exit 1; }
-	cp -a "$RAMROOT/$_dp" "$DESKROOT/$_dp" || { echo "  ERROR cannot copy $_dp to desktop bundle"; exit 1; }
-done
-if [ -x "$DESKROOT/usr/bin/instantwm" ]; then
-	DESKTOP_TAR="$ISO_DIR/desktop.tar.zst"
-	tar -C "$DESKROOT" -I 'zstd -19' -cf "$DESKTOP_TAR" . || { echo "  ERROR desktop bundle creation failed"; exit 1; }
-	echo "  desktop bundle $(du -h "$DESKTOP_TAR" | cut -f1)"
-else
-	echo "  ! instantwm missing from ramroot installed system gets no desktop bundle"
+depend() {
+	need localmount
+	after bootmisc
+}
+
+start_pre() {
+	mkdir -p /run/dbus
+	if [ ! -s /etc/machine-id ] && [ -x /usr/bin/dbus-uuidgen ]; then
+		/usr/bin/dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || /usr/bin/dbus-uuidgen --ensure 2>/dev/null || true
+	fi
+	if [ ! -s /var/lib/dbus/machine-id ] && [ -s /etc/machine-id ]; then
+		cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true
+	fi
+}
+EOF
+	chmod 755 "$NETROOT/etc/init.d/dbus"
+	NETWORK_TAR="$ISO_DIR/network.tar.zst"
+	tar -C "$NETROOT" -I 'zstd -19' -cf "$NETWORK_TAR" . || { echo "  ERROR network bundle creation failed"; exit 1; }
+	echo "  network bundle (dbus only) $(du -h "$NETWORK_TAR" | cut -f1)"
 fi
 if [ -f build/silen-installer ]; then
 	cp build/silen-installer "$ISO_DIR/silen-installer" 2>/dev/null || true
@@ -1502,25 +1629,8 @@ menuentry "Silen text installer" {
 	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.tui
 	initrd /boot/$INITRAMFS
 }
-
-menuentry "Silen GUI installer" {
-	echo "Booting Silen GUI installer"
-	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
-	initrd /boot/$INITRAMFS
-}
-
-menuentry "Silen GUI debug" {
-	echo "Booting Silen GUI debug"
-	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.debug
-	initrd /boot/$INITRAMFS
-}
-
-menuentry "Silen GUI (basic graphics)" {
-	echo "Booting Silen basic graphics, nouveau off, software rendering"
-	linux /boot/vmlinuz modprobe.blacklist=nouveau loglevel=4 console=ttyS0 console=tty0
-	initrd /boot/$INITRAMFS
-}
 EOF
+# DEBUG: fixed gui entries removed, tui only until stable
 
 echo "  running grub-mkrescue"
 grub-mkrescue -o "$RESULT" "$ISO_DIR" || { echo "  ERROR grub-mkrescue failed (need xorriso mtools dosfstools)"; exit 1; }

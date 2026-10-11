@@ -1,11 +1,16 @@
 .PHONY: iso nvidia-iso qemu clean
 
 # make iso builds it, make qemu boots it
+# Default: NO_WIFI=1 (live ISO has no WiFi, installed system gets WiFi via bundles)
 iso:
 	sudo nice -n 10 ionice -c 3 ./scripts/build.sh
 
+# NVIDIA variant: adds proprietary driver payload
 nvidia-iso:
 	sudo NVIDIA=1 nice -n 10 ionice -c 3 ./scripts/build.sh
+
+# Override WiFi in live session: NO_WIFI=0 make iso
+# (not a separate target, just an env var)
 
 qemu:
 	# hunts down whatever ovmf firmware your distro ships

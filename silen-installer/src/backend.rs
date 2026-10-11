@@ -449,7 +449,12 @@ pub fn fix_permissions(log: &mut LogFn) {
         }
         let _ = Command::new("chmod").args(["644", &p]).status();
     }
-    let _ = chroot_run(r, "getent group wheel || groupadd -r wheel");
+    // DEBUG: fixed wheel/sudo groups missing on target
+    for g in ["wheel", "sudo"] {
+        if !chroot_run(r, &format!("getent group {}", g)) {
+            let _ = chroot_run(r, &format!("groupadd -r {}", g));
+        }
+    }
     sh_log(log, "permissions fixed");
 }
 
@@ -484,6 +489,7 @@ pub fn apply_settings(s: &InstallSettings, log: &mut LogFn) {
     let _ = fs::write(format!("{}/etc/motd", r), "Welcome to Silen Linux\n");
     let _ = fs::create_dir_all(format!("{}/etc/sudoers.d", r));
     let _ = fs::write(format!("{}/etc/sudoers.d/10-silen", r), "%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n");
+    let _ = Command::new("chown").args(["root:root", &format!("{}/etc/sudoers.d/10-silen", r)]).status();
     let _ = Command::new("chmod").args(["0440", &format!("{}/etc/sudoers.d/10-silen", r)]).status();
     let _ = fs::write(format!("{}/etc/profile.d/silen-hostname.sh", r), "if [ -f /etc/hostname ]; then\n    HOSTNAME=$(cat /etc/hostname 2>/dev/null)\n    export HOSTNAME\nfi\n");
     let _ = fs::write(format!("{}/etc/bash.bashrc", r), "[ -f /etc/profile.d/silen-hostname.sh ] && . /etc/profile.d/silen-hostname.sh\nif [ -f /etc/bash_completion ]; then\n    . /etc/bash_completion\nfi\n");
@@ -498,6 +504,12 @@ pub fn create_user(s: &InstallSettings, log: &mut LogFn) {
         sh_log(log, &format!("couldn't create user {} (no useradd)", s.newuser));
         return;
     }
+    // DEBUG: fixed wheel/sudo groups missing before useradd
+    for g in ["wheel", "sudo"] {
+        if !chroot_run(r, &format!("getent group {}", g)) {
+            let _ = chroot_run(r, &format!("groupadd -r {}", g));
+        }
+    }
     let mut groups: Vec<String> = Vec::new();
     for g in ["wheel", "sudo", "audio", "video", "network", "plugdev"] {
         if chroot_run(r, &format!("getent group {}", g)) {
@@ -509,11 +521,38 @@ pub fn create_user(s: &InstallSettings, log: &mut LogFn) {
         sh_log(log, &format!("couldn't create user {}", s.newuser));
         return;
     }
-    let script = format!("printf '%s:%s\\n' '{}' '{}' | chpasswd", s.newuser, s.userpass);
+    // DEBUG: fixed chpasswd quoting breaking on ' in password
+    let esc_user = s.newuser.replace('\'', "'\\''");
+    let esc_pass = s.userpass.replace('\'', "'\\''");
+    let script = format!("printf '%s:%s\\n' '{}' '{}' | chpasswd", esc_user, esc_pass);
     if !chroot_run(r, &script) {
         sh_log(log, &format!("user {} created but password couldn't be set", s.newuser));
     }
-    let _ = chroot_run(r, &format!("usermod -aG wheel {}", s.newuser));
+    // DEBUG: fixed locked account never unlocked (passwd -S pattern)
+    if chroot_run(r, &format!("passwd -S {} 2>/dev/null | grep -q '^{} L[[:space:]]'", s.newuser, s.newuser)) {
+        let _ = chroot_run(r, &format!("passwd -u {} 2>/dev/null", s.newuser));
+    }
+    let _ = chroot_run(r, &format!("usermod -aG wheel {0} 2>/dev/null || gpasswd -a {0} wheel 2>/dev/null", s.newuser));
+    if chroot_run(r, "getent group sudo") {
+        let _ = chroot_run(r, &format!("usermod -aG sudo {0} 2>/dev/null || gpasswd -a {0} sudo 2>/dev/null", s.newuser));
+    }
+    if !chroot_run(r, &format!("id -nG {} 2>/dev/null | grep -qw wheel", s.newuser)) {
+        sh_log(log, &format!("user {} is not in wheel, run: usermod -aG wheel {}", s.newuser, s.newuser));
+    }
+    // DEBUG: fixed sudo test failing even when sudoers is correct
+    let _ = fs::create_dir_all(format!("{}/etc/sudoers.d", r));
+    if !Path::new(&format!("{}/etc/sudoers.d/10-silen", r)).exists() {
+        let _ = fs::write(format!("{}/etc/sudoers.d/10-silen", r), "%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n");
+    }
+    let _ = Command::new("chown").args(["root:root", &format!("{}/etc/sudoers", r)]).status();
+    let _ = Command::new("chmod").args(["440", &format!("{}/etc/sudoers", r)]).status();
+    let _ = Command::new("chown").args(["root:root", &format!("{}/etc/sudoers.d/10-silen", r)]).status();
+    let _ = Command::new("chmod").args(["440", &format!("{}/etc/sudoers.d/10-silen", r)]).status();
+    if !chroot_run(r, &format!("sudo -U {} -l 2>/dev/null | grep -q '(ALL'", s.newuser))
+        && !chroot_run(r, &format!("su -s /bin/sh {} -c 'sudo -n true' 2>/dev/null", s.newuser))
+    {
+        sh_log(log, &format!("sudo doesn't work for {} yet, run: passwd {}; chown root:root /etc/sudoers /etc/sudoers.d/*; chmod 440 /etc/sudoers /etc/sudoers.d/*", s.newuser, s.newuser));
+    }
     let _ = fs::create_dir_all(format!("{}/home/{}/.local/bin", r, s.newuser));
     let _ = chroot_run(r, &format!("chown -R {0}:{0} /home/{0}/.local 2>/dev/null; chown {0} /home/{0} 2>/dev/null; chmod 755 /home/{0} 2>/dev/null", s.newuser));
     sh_log(log, &format!("user {} created", s.newuser));
@@ -574,49 +613,19 @@ pub fn setup_quiet_boot() {
             let _ = fs::write(&inittab, t);
         }
     }
+    // DEBUG: fixed blind service failures, always ensure boot logging exists
+    let rcconf = format!("{}/etc/rc.conf", r);
+    let has_active = fs::read_to_string(&rcconf).map(|t| t.lines().any(|l| { let s = l.trim_start(); s.starts_with("rc_logger=") })).unwrap_or(false);
+    if !has_active {
+        let mut cur = fs::read_to_string(&rcconf).unwrap_or_default();
+        if !cur.is_empty() && !cur.ends_with('\n') {
+            cur.push('\n');
+        }
+        cur.push_str("rc_logger=\"YES\"\n");
+        let _ = fs::write(&rcconf, cur);
+    }
 }
 
-pub fn setup_autologin(s: &InstallSettings, log: &mut LogFn) {
-    let r = ROOT_PATH;
-    let user = if s.newuser.is_empty() { "root".to_string() } else { s.newuser.clone() };
-    let inittab = format!("{}/etc/inittab", r);
-    if let Ok(t) = fs::read_to_string(&inittab) {
-        let mut out = String::new();
-        for line in t.lines() {
-            if line.starts_with("c1:") {
-                out.push_str(&format!("c1:12345:respawn:/sbin/agetty --noclear --autologin {} 38400 tty1 linux\n", user));
-            } else {
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-        let _ = fs::write(&inittab, out);
-        sh_log(log, &format!("tty1 autologin as {} (no display manager)", user));
-    }
-    let snippet = "if dmesg 2>/dev/null | grep -qi \"nouveau.*firmware unavailable\"; then\n    export LIBGL_ALWAYS_SOFTWARE=1\nelse\n    for _p in /sys/bus/pci/devices/*; do\n        if [ \"$(cat \"$_p/vendor\" 2>/dev/null)\" = \"0x10de\" ]; then\n            case \"$(cat \"$_p/class\" 2>/dev/null)\" in\n                0x03*)\n                    _d=\"$(basename \"$(readlink \"$_p/driver\" 2>/dev/null)\" 2>/dev/null)\"\n                    case \"$_d\" in nouveau|\"\") export LIBGL_ALWAYS_SOFTWARE=1 ;; esac\n                    ;;\n            esac\n        fi\n        if [ \"${LIBGL_ALWAYS_SOFTWARE:-0}\" = \"1\" ]; then break; fi\n    done\nfi\nif [ -z \"$WAYLAND_DISPLAY\" ] && [ -z \"$DISPLAY\" ] && [ \"$(tty 2>/dev/null)\" = /dev/tty1 ]; then\n    export XDG_RUNTIME_DIR=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}\"\n    mkdir -p \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    chmod 700 \"$XDG_RUNTIME_DIR\" 2>/dev/null\n    export XDG_CURRENT_DESKTOP=instantwm XDG_SESSION_DESKTOP=instantwm XDG_SESSION_TYPE=wayland\n    exec instantwm --backend drm\nfi\n";
-    if user == "root" {
-        let p = format!("{}/root/.bash_profile", r);
-        let cur = fs::read_to_string(&p).unwrap_or_default();
-        if !cur.contains("instantwm --backend drm") {
-            let _ = fs::write(&p, format!("{}{}", cur, snippet));
-        }
-    } else {
-        let p = format!("{}/home/{}/.bash_profile", r, user);
-        let cur = fs::read_to_string(&p).unwrap_or_default();
-        let head = "[ -f ~/.bashrc ] && . ~/.bashrc\n";
-        let body = if cur.contains("instantwm --backend drm") { cur } else { format!("{}{}{}", head, cur, snippet) };
-        let _ = fs::write(&p, body);
-        let _ = chroot_run(r, &format!("chown {}:{} /home/{}/.bash_profile 2>/dev/null; chmod 644 /home/{}/.bash_profile 2>/dev/null", user, user, user, user));
-        let _ = chroot_run(r, "getent group seat || groupadd -r seat");
-        let _ = chroot_run(r, &format!("usermod -aG seat,video,input {} 2>/dev/null", user));
-        if Path::new(&format!("{}/usr/bin/seatd", r)).exists() {
-            let _ = chroot_run(r, "rc-update add seatd default");
-            sh_log(log, "seatd enabled for user session");
-        } else {
-            sh_log(log, "seatd missing on target, user session may fail without it");
-        }
-    }
-}
 
 pub fn install_modules(s: &mut InstallSettings, log: &mut LogFn) {
     let r = ROOT_PATH;
@@ -832,6 +841,40 @@ pub fn install_nvidia_auto(s: &InstallSettings, log: &mut LogFn) {
         sh_log(log, "no NVIDIA GPU found, skipping proprietary driver");
         return;
     }
+    // DEBUG: fixed modern driver breaking pre-Maxwell GPUs, Fermi/Kepler need 390 legacy so stay on nouveau
+    let nv_major: u32 = nv_run
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches("nvidia-")
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .parse()
+        .unwrap_or(999);
+    if nv_major >= 550 {
+        let mut supported = false;
+        if let Ok(entries) = fs::read_dir("/sys/bus/pci/devices") {
+            for e in entries.flatten() {
+                let vend = fs::read_to_string(e.path().join("vendor")).unwrap_or_default();
+                let class = fs::read_to_string(e.path().join("class")).unwrap_or_default();
+                if vend.trim() != "0x10de" || !class.trim().starts_with("0x03") {
+                    continue;
+                }
+                let dev = fs::read_to_string(e.path().join("device")).unwrap_or_default();
+                if let Ok(id) = u32::from_str_radix(dev.trim().trim_start_matches("0x"), 16) {
+                    if id > 0x133f {
+                        supported = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !supported {
+            sh_log(log, &format!("NVIDIA GPU predates {}.x support (needs 390 legacy), staying on nouveau; nvidia-smi will not work, desktop uses software rendering", nv_major));
+            return;
+        }
+    }
     let kver = if s.kver.is_empty() {
         fs::read_dir(format!("{}/lib/modules", ROOT_PATH)).ok().and_then(|mut it| it.next()).and_then(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).unwrap_or_default()
     } else {
@@ -855,6 +898,12 @@ pub fn install_nvidia_auto(s: &InstallSettings, log: &mut LogFn) {
         sh_log(log, "no prebuilt NVIDIA driver, continuing with nouveau");
         return;
     }
+    let km_base = kmods.rsplit('/').next().unwrap_or("");
+    let km_kver = km_base.trim_start_matches("nvidia-kmods-").split(".tar.").next().unwrap_or("").to_string();
+    if !km_kver.is_empty() && km_kver != kver {
+        sh_log(log, &format!("prebuilt NVIDIA driver is for {} but the system is {}, continuing with nouveau", km_kver, kver));
+        return;
+    }
     sh_log(log, "installing NVIDIA driver");
     let _ = fs::write(format!("{}/etc/modprobe.d/nvidia-disable-nouveau.conf", ROOT_PATH), "blacklist nouveau\noptions nouveau modeset=0\n");
     if !run("tar", &["-xpf", &kmods, "-C", ROOT_PATH, "--no-same-owner", "--numeric-owner"]) {
@@ -863,75 +912,81 @@ pub fn install_nvidia_auto(s: &InstallSettings, log: &mut LogFn) {
         return;
     }
     let _ = chroot_run(ROOT_PATH, &format!("depmod -a {}", kver));
+    let has_ko = Command::new("find").args([format!("{}/lib/modules", ROOT_PATH), "-iname".to_string(), "nvidia.ko*".to_string()]).output().map(|o| !o.stdout.is_empty()).unwrap_or(false);
+    if !has_ko {
+        let _ = fs::remove_file(format!("{}/etc/modprobe.d/nvidia-disable-nouveau.conf", ROOT_PATH));
+        sh_log(log, "prebuilt NVIDIA modules missing after unpack, continuing with nouveau");
+        return;
+    }
+    // DEBUG: fixed blacklisting nouveau for a GPU the driver cannot see, probe first
+    let ko = format!("{}/lib/modules/{}/updates/nvidia.ko", ROOT_PATH, kver);
+    if Path::new(&ko).exists() {
+        match Command::new("insmod").arg(&ko).output() {
+            Ok(o) if o.status.success() => {
+                let _ = run("rmmod", &["nvidia"]);
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr).to_string();
+                if err.contains("No such device") {
+                    let _ = fs::remove_file(format!("{}/etc/modprobe.d/nvidia-disable-nouveau.conf", ROOT_PATH));
+                    sh_log(log, "NVIDIA driver cannot see any supported GPU here (probe: No such device), staying on nouveau");
+                    return;
+                }
+            }
+            Err(_) => {}
+        }
+    }
     let _ = fs::copy(&nv_run, format!("{}/tmp/nvidia.run", ROOT_PATH));
-    let ok = chroot_run(ROOT_PATH, "sh /tmp/nvidia.run --silent --accept-license --no-questions -z --no-x-check --no-dkms --no-systemd --no-distro-scripts --no-kernel-modules >>/tmp/nvidia-install.log 2>&1");
+    // DEBUG: fixed .run refusing while live nouveau holds the GPU, blacklist+reboot handles it instead
+    let ok = chroot_run(ROOT_PATH, "sh /tmp/nvidia.run --silent --accept-license --no-questions -z --no-x-check --no-dkms --no-systemd --no-distro-scripts --no-kernel-modules --no-nouveau-check >>/tmp/nvidia-install.log 2>&1");
     if ok {
         let _ = chroot_run(ROOT_PATH, &format!("depmod -a {}", kver));
+        let _ = chroot_run(ROOT_PATH, "ldconfig");
+        let _ = fs::create_dir_all(format!("{}/var/log", ROOT_PATH));
+        let _ = fs::copy(format!("{}/tmp/nvidia-install.log", ROOT_PATH), format!("{}/var/log/nvidia-install.log", ROOT_PATH));
+        let _ = fs::create_dir_all(format!("{}/usr/src", ROOT_PATH));
+        if let Some(base) = nv_run.rsplit('/').next() {
+            let _ = fs::copy(&nv_run, format!("{}/usr/src/{}", ROOT_PATH, base));
+        }
+        // DEBUG: fixed nvidia-smi failing, modules never loaded and nouveau kept the GPU
+        let _ = fs::create_dir_all(format!("{}/etc/modules-load.d", ROOT_PATH));
+        let _ = fs::write(format!("{}/etc/modules-load.d/nvidia.conf", ROOT_PATH), "nvidia\nnvidia_modeset\nnvidia_drm\nnvidia_uvm\n");
+        let confd = format!("{}/etc/conf.d/modules", ROOT_PATH);
+        if Path::new(&confd).exists() {
+            let cur = fs::read_to_string(&confd).unwrap_or_default();
+            if !cur.contains("nvidia") {
+                let add = if cur.contains("modules=") { "\nmodules=\"$modules nvidia nvidia_modeset nvidia_drm nvidia_uvm\"\n" } else { "modules=\"nvidia nvidia_modeset nvidia_drm nvidia_uvm\"\n" };
+                let _ = fs::write(&confd, format!("{}{}", cur, add));
+            }
+        }
+        // DEBUG: fixed dead display when nvidia never binds, first healthy boot keeps it, else nouveau returns
+        let _ = fs::create_dir_all(format!("{}/etc/local.d", ROOT_PATH));
+        let _ = fs::write(format!("{}/etc/local.d/nvidia-fallback.start", ROOT_PATH), "#!/bin/sh\n# if the proprietary modules never bound, unblock nouveau so the next boot has a GPU\nLOG=/var/log/nvidia-fallback.log\nCONF=/etc/modprobe.d/nvidia-disable-nouveau.conf\n[ -f \"$CONF\" ] || exit 0\n_nv_alive=\"\"\nif command -v lsmod >/dev/null 2>&1; then\n\tlsmod 2>/dev/null | grep -q \"^nvidia \" && _nv_alive=\"1\"\nfi\n[ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ] && _nv_alive=\"1\"\n[ -n \"$_nv_alive\" ] && exit 0\necho \"$(date -u 2>/dev/null || date): nvidia absent, removing nouveau blacklist (reboot to apply)\" >>\"$LOG\" 2>&1\nrm -f \"$CONF\" /etc/modprobe.d/nvidia-installer-disable-nouveau.conf 2>/dev/null\nrm -f /etc/modules-load.d/nvidia.conf 2>/dev/null\nif [ -f /etc/conf.d/modules ]; then\n\tsed -i 's/ nvidia_modeset//g; s/ nvidia_drm//g; s/ nvidia_uvm//g; s/ nvidia//g' /etc/conf.d/modules 2>/dev/null || true\nfi\nif [ -f /boot/grub/grub.cfg ]; then\n\tsed -i 's/ modprobe\\.blacklist=nouveau//g; s/ nvidia-drm\\.modeset=1//g; s/ nvidia-drm\\.fbdev=1//g' /boot/grub/grub.cfg 2>/dev/null || true\nfi\necho \"$(date -u 2>/dev/null || date): blacklist removed, nouveau returns next boot\" >>\"$LOG\" 2>&1\n");
+        let _ = Command::new("chmod").args(["0755", &format!("{}/etc/local.d/nvidia-fallback.start", ROOT_PATH)]).status();
         sh_log(log, "NVIDIA driver installed");
     } else {
         let _ = fs::remove_file(format!("{}/etc/modprobe.d/nvidia-disable-nouveau.conf", ROOT_PATH));
+        let _ = fs::remove_file(format!("{}/etc/modules-load.d/nvidia.conf", ROOT_PATH));
+        let confd = format!("{}/etc/conf.d/modules", ROOT_PATH);
+        if let Ok(cur) = fs::read_to_string(&confd) {
+            let scrubbed = cur.replace(" nvidia_modeset", "").replace(" nvidia_drm", "").replace(" nvidia_uvm", "").replace(" nvidia", "").replace("modules=\"\"", "");
+            let _ = fs::write(&confd, scrubbed);
+        }
         sh_log(log, "NVIDIA install failed, continuing with nouveau");
     }
     let _ = fs::remove_file(format!("{}/tmp/nvidia.run", ROOT_PATH));
 }
 
-pub fn install_desktop(s: &InstallSettings, log: &mut LogFn) {
-    let r = ROOT_PATH;
-    sh_log(log, "installing instantwm desktop");
-    let mut desktop_tar = String::new();
-    if let Ok(entries) = fs::read_dir("/mnt") {
-        for e in entries.flatten() {
-            let n = e.file_name().to_string_lossy().to_string();
-            if n.starts_with("desktop.tar") {
-                desktop_tar = format!("/mnt/{}", n);
-                break;
-            }
-        }
-    }
-    if !desktop_tar.is_empty() {
-        sh_log(log, "unpacking desktop bundle");
-        if !run("tar", &["-xpf", &desktop_tar, "-C", r, "--no-same-owner", "--numeric-owner"]) {
-            sh_log(log, "couldn't unpack the desktop bundle");
-        }
-    }
-    let pkgs = ["instantwm", "xorg-server", "xorg-libs", "xkb-data", "dejavu", "kitty", "wl-libs", "mesa"];
-    let mut missing: Vec<String> = Vec::new();
-    for pkg in pkgs {
-        let mut found = false;
-        for cand in [format!("/mnt/{}.spk", pkg), format!("/mnt/{}-{}.spk", pkg, "1")] {
-            if Path::new(&cand).exists() {
-                found = true;
-                break;
-            }
-        }
-        if Path::new(&format!("/mnt/{}/{}.spk", pkg, pkg)).exists() {
-            found = true;
-        }
-        if !found {
-            for entry in fs::read_dir("/mnt").into_iter().flatten().flatten() {
-                let n = entry.file_name().to_string_lossy().to_string();
-                if n.starts_with(&format!("{}-", pkg)) || n == format!("{}.spk", pkg) {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if !found {
-            missing.push(pkg.to_string());
-        }
-    }
-    if chroot_run(r, "command -v spk") || Path::new(&format!("{}/usr/bin/spk", r)).exists() {
-        let pkglist = ["instantwm", "instantmenu", "xorg-server", "xorg-libs", "xkb-data", "dejavu", "kitty"];
-        let cmd = format!("spk get {}", pkglist.join(" "));
-        sh_log(log, &format!("running: {}", cmd));
-        if !chroot_run(r, &cmd) {
-            sh_log(log, "desktop install via spk had errors, continuing");
-        }
+
+// DEBUG: fixed nouveau binding the GPU before nvidia loads (live initramfs loads nouveau early)
+fn nvidia_cmdline() -> String {
+    if Path::new("/mnt/nvidia-auto").exists()
+        && Path::new(&format!("{}/etc/modprobe.d/nvidia-disable-nouveau.conf", ROOT_PATH)).exists()
+    {
+        " modprobe.blacklist=nouveau nvidia-drm.modeset=1 nvidia-drm.fbdev=1".to_string()
     } else {
-        sh_log(log, "spk not in target, skipping online desktop install");
+        String::new()
     }
-    let _ = chroot_run(r, "rc-update add seatd default 2>/dev/null; rc-update add elogind boot 2>/dev/null || true");
-    let _ = s;
 }
 
 pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
@@ -999,7 +1054,7 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
         cleanup();
         return Err("couldn't read the partition UUIDs".into());
     }
-    let grub_cfg = format!("set default=0\nset timeout=10\n\ninsmod part_gpt\ninsmod part_msdos\ninsmod fat\ninsmod ext2\ninsmod search_fs_uuid\ninsmod all_video\ninsmod gfxterm\ninsmod efi_gop\ninsmod efi_uga\nif loadfont $prefix/fonts/unicode.pf2; then\n    set gfxmode=auto\nfi\nterminal_output gfxterm console\nsearch --no-floppy --fs-uuid --set=root {}\n\nmenuentry \"Silen Linux\" {{\n    linux /vmlinuz root=UUID={} ro rootwait loglevel=4 console=ttyS0 console=tty0\n    initrd /{}\n}}\n", bootuuid, rootuuid, initramfs_name);
+    let grub_cfg = format!("set default=0\nset timeout=10\n\ninsmod part_gpt\ninsmod part_msdos\ninsmod fat\ninsmod ext2\ninsmod search_fs_uuid\ninsmod all_video\ninsmod gfxterm\ninsmod efi_gop\ninsmod efi_uga\nif loadfont $prefix/fonts/unicode.pf2; then\n    set gfxmode=auto\nfi\nterminal_output gfxterm console\nsearch --no-floppy --fs-uuid --set=root {}\n\nmenuentry \"Silen Linux\" {{\n    linux /vmlinuz root=UUID={} ro rootwait loglevel=4 console=ttyS0 console=tty0{}\n    initrd /{}\n}}\n", bootuuid, rootuuid, nvidia_cmdline(), initramfs_name);
     let _ = fs::write(format!("{}/boot/grub/grub.cfg", r), grub_cfg);
     let _ = chroot_run(r, "PATH=/usr/local/sbin:/usr/local/bin:$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=Silen >>/tmp/grub-install.log 2>&1");
     let _ = grub_log;
@@ -1097,12 +1152,10 @@ pub fn do_install(s: &mut InstallSettings, log: &mut LogFn) -> Result<(), String
     sh_log(log, "creating users and finishing setup");
     create_user(s, log);
     install_branding(s, log);
-    install_desktop(s, log);
     let _ = fs::create_dir_all(format!("{}/usr/share/silen", r));
-    let _ = fs::write(format!("{}/usr/share/silen/spk-help.txt", r), "spk - Silen package manager\n\n  sudo spk get <package>   install\n  sudo spk rm <package>    remove\n  sudo spk update          update all\n\nWi-Fi: iwctl, diagnostics: silen-wifi-check\nNVIDIA: sudo spk get nvidia-drivers, then reboot.\n");
+    let _ = fs::write(format!("{}/usr/share/silen/spk-help.txt", r), "spk - Silen package manager\n\n  sudo spk get <package>   install\n  sudo spk rm <package>    remove\n  sudo spk update          update all\n\nWi-Fi: iwctl, diagnostics: silen-wifi-check\nNVIDIA: proprietary driver auto-installed from this ISO on NVIDIA GPUs (see /var/log/nvidia-install.log).\nNo desktop is installed: boot lands on a tty login, add one later with spk.\n");
     setup_root_shell();
     setup_quiet_boot();
-    setup_autologin(s, log);
     let _ = fs::remove_dir_all(format!("{}/lost+found", r));
     if !setup_grub_result(s, log) {
         cleanup();

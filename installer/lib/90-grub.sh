@@ -164,6 +164,10 @@ EOF
 			cp "$ROOT_PATH/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
 		fi
 		if [[ -f /mnt/nvidia-auto ]] && [[ -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf ]]; then
+			# DEBUG: fixed nouveau binding the GPU before nvidia loads (live initramfs loads nouveau early)
+			if ! grep -q 'modprobe.blacklist=nouveau' "$ROOT_PATH"/boot/grub/grub.cfg 2>/dev/null; then
+				sed -i '/nomodeset/b; s|^\([[:space:]]*linux .*\)|\1 modprobe.blacklist=nouveau|' "$ROOT_PATH"/boot/grub/grub.cfg 2>/dev/null || true
+			fi
 			if ! grep -q 'nvidia-drm.modeset=1' "$ROOT_PATH"/boot/grub/grub.cfg 2>/dev/null; then
 				sed -i '/nomodeset/b; s|^\([[:space:]]*linux .*\)|\1 nvidia-drm.modeset=1 nvidia-drm.fbdev=1|' "$ROOT_PATH"/boot/grub/grub.cfg 2>/dev/null || true
 			fi

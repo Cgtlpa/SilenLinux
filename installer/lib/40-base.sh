@@ -149,6 +149,7 @@ EOF
 	setup-root-shell
 	fix-user-session
 	setup-autologin
+	seed-instantwm-defaults
 	if [[ -n "${_elogind_hint:-}" ]]; then
 		whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
 	fi
