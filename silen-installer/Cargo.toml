@@ -1,0 +1,17 @@
+[package]
+name = "silen-installer"
+version = "1.0.0"
+edition = "2021"
+description = "Silen Linux graphical installer (Rust + egui port of installer/*.sh)"
+
+[[bin]]
+name = "silen-installer"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.32"
+egui = "0.32"
+
+[profile.release]
+strip = true
+opt-level = "z"
