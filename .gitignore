@@ -1,7 +1,18 @@
 build/
+spk-pkgs/
 spk/target/
 .idea/
 *.iml
 
 tarball-silen.xz
+tarball-silen.xz.bak
+*.bak
+*.run
+*.iso
+nvidia-*.run
+headers-*.tar.zst
+headers-*.tar.gz
+headers-*.tar.xz
 rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
+website/
+silenctl/target/

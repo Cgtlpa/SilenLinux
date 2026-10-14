@@ -1,4 +1,4 @@
-.PHONY: iso qemu clean
+.PHONY: iso nvidia-iso qemu clean
 
 # Silen Linux - build tools
 #
@@ -8,6 +8,9 @@
 
 iso:
 	sudo nice -n 10 ionice -c 3 ./scripts/build.sh
+
+nvidia-iso:
+	sudo NVIDIA=1 nice -n 10 ionice -c 3 ./scripts/build.sh
 
 qemu:
 	@test -f build/silen-linux.iso || { echo "ERROR: build/silen-linux.iso missing run make iso first"; exit 1; }

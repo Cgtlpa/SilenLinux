@@ -22,6 +22,9 @@ IWD_ROOT="${IWD_ROOT:-build/iwd-root}"
 RAMROOT="build/initramfs-root"
 ISO_DIR="build/iso"
 RESULT="build/silen-linux.iso"
+if [ "${NVIDIA:-0}" = "1" ]; then
+	RESULT="build/silen-linux-nvidia.iso"
+fi
 
 COMPRESS="${COMPRESS:-zstd}"   
 AUTO_HOST="${AUTO_HOST:-0}"    
@@ -29,6 +32,7 @@ FULL="${FULL:-0}"
 FORCE="${FORCE:-0}"            
 MIN_RAM_MB="${MIN_RAM_MB:-2048}"
 MIN_DISK_MB="${MIN_DISK_MB:-2048}"
+NVIDIA="${NVIDIA:-0}"
 
 ALLOW="
 	ahci libahci ata_piix sd_mod sr_mod cdrom nvme nvme_core nvme_auth nvme_common vmd
@@ -167,7 +171,7 @@ fi
 echo "[1/7] Cleaning old build"
 
 _IWD_KEEP=""
-for _keep in iwd-root iwd-src; do
+for _keep in iwd-root iwd-src nvidia-dl; do
 	[ -e "build/$_keep" ] || continue
 	if [ -z "$_IWD_KEEP" ]; then
 		_IWD_KEEP="$(mktemp -d /tmp/silen-iwd-keep.XXXXXX 2>/dev/null || echo /tmp/silen-iwd-keep.$$)" || true
@@ -192,7 +196,7 @@ fi
 
 if [ -n "$_IWD_KEEP" ]; then
 	mkdir -p build 2>/dev/null || true
-	for _keep in iwd-root iwd-src; do
+	for _keep in iwd-root iwd-src nvidia-dl; do
 		[ -e "$_IWD_KEEP/$_keep" ] || continue
 		mv "$_IWD_KEEP/$_keep" "build/$_keep" 2>/dev/null || true
 	done || true
@@ -504,6 +508,8 @@ done
 [ -f /usr/bin/iw ] && copy_opt iw /usr/bin/iw
 [ -f /usr/sbin/rfkill ] && { copy_opt rfkill /usr/sbin/rfkill; ln -sf /usr/bin/rfkill "$RAMROOT/usr/sbin/rfkill" 2>/dev/null || true; }
 [ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
+[ -f /usr/bin/efibootmgr ] && copy_opt efibootmgr /usr/bin/efibootmgr
+[ -f /usr/sbin/efibootmgr ] && { copy_opt efibootmgr /usr/sbin/efibootmgr; ln -sf /usr/bin/efibootmgr "$RAMROOT/usr/sbin/efibootmgr" 2>/dev/null || true; }
 for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
 	[ -f "$_dbus_helper" ] || continue
 	_helper_rel="${_dbus_helper#/}"
@@ -581,6 +587,18 @@ chmod 0755 "$RAMROOT/installer/main.sh"
 if [ -f scripts/wifi-check.sh ]; then
 	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check" || { echo "  ERROR cannot copy wifi-check"; exit 1; }
 	chmod 0755 "$RAMROOT/usr/bin/silen-wifi-check"
+fi
+if [ -f scripts/nvidia-check.sh ]; then
+	cp scripts/nvidia-check.sh "$RAMROOT/usr/bin/silen-nvidia-check" || { echo "  ERROR cannot copy nvidia-check"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/silen-nvidia-check"
+fi
+if [ -f scripts/lock-ssd.sh ]; then
+	cp scripts/lock-ssd.sh "$RAMROOT/usr/bin/lock-ssd" || { echo "  ERROR cannot copy lock-ssd"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/lock-ssd"
+fi
+if [ -f scripts/unlock-ssd.sh ]; then
+	cp scripts/unlock-ssd.sh "$RAMROOT/usr/bin/unlock-ssd" || { echo "  ERROR cannot copy unlock-ssd"; exit 1; }
+	chmod 0755 "$RAMROOT/usr/bin/unlock-ssd"
 fi
 
 cp "$INIT_SOURCE" "$RAMROOT/init" || { echo "  ERROR cannot copy init"; exit 1; }
@@ -862,16 +880,78 @@ if modules_ok "$MODULES_SOURCE"; then
 	mkdir -p "$KROOT/boot" "$KROOT/lib/modules"
 	cp "$KERNEL_SOURCE" "$KROOT/boot/vmlinuz" || { echo "  ERROR cannot copy kernel image"; exit 1; }
 	cp -a "$MODULES_SOURCE" "$KROOT/lib/modules/$KERNEL_VERSION" || { echo "  ERROR cannot copy module tree"; exit 1; }
-	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/build" \
-	       "$KROOT/lib/modules/$KERNEL_VERSION/source" \
-	       "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
+	rm -rf "$KROOT/lib/modules/$KERNEL_VERSION/vmlinuz"
 	find "$KROOT/lib/modules" \( -name '*.ko' -o -name '*.ko.zst' -o -name '*.ko.xz' \) -exec strip --strip-debug {} + 2>/dev/null || true
 	KERNEL_TAR="$ISO_DIR/kernel-$KERNEL_VERSION.tar.zst"
-	tar -C "$KROOT" --exclude='./lib/modules/*/build' --exclude='./lib/modules/*/source' \
-		--exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" . || { echo "  ERROR kernel tarball creation failed (disk full?)"; exit 1; }
+	tar -C "$KROOT" --exclude='./lib/modules/*/vmlinuz' -I 'zstd -19' -cf "$KERNEL_TAR" . || { echo "  ERROR kernel tarball creation failed (disk full?)"; exit 1; }
 	echo "  kernel bundle: $(du -h "$KERNEL_TAR" | cut -f1)"
 else
 	echo "  no module tree found to add to ISO installed system gets the initramfs set"
+fi
+
+_HEADERS_TAR=""
+for _h in headers-*.tar.zst headers-*.tar.gz headers-*.tar.xz; do
+	[ -f "$_h" ] || continue
+	_HEADERS_TAR="$_h"
+	break
+done
+if [ -n "$_HEADERS_TAR" ]; then
+	echo "  adding kernel headers to ISO ($_HEADERS_TAR)"
+	cp "$_HEADERS_TAR" "$ISO_DIR/" || { echo "  ERROR cannot copy headers bundle"; exit 1; }
+else
+	echo "  ! no headers-*.tar.zst found - run scripts/make-headers-bundle.sh or nvidia module builds will fail"
+fi
+
+if [ "$NVIDIA" = "1" ]; then
+	echo "  nvidia variant: staging driver payload"
+	[ -n "$_HEADERS_TAR" ] || { echo "  ERROR nvidia variant needs headers-*.tar.zst (run KERNEL_SRC=... scripts/make-headers-bundle.sh first)"; exit 1; }
+	_NVIDIA_RUN=""
+	for _r in nvidia-*.run; do
+		[ -f "$_r" ] || continue
+		_NVIDIA_RUN="$_r"
+		break
+	done
+	if [ -z "$_NVIDIA_RUN" ] && ls build/nvidia-dl/nvidia-*.run >/dev/null 2>&1; then
+		_NVIDIA_RUN="$(ls build/nvidia-dl/nvidia-*.run 2>/dev/null | head -n1)"
+	fi
+	if [ -z "$_NVIDIA_RUN" ]; then
+		_SPK_BASE="${SPK_BASE_URL:-https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages}"
+		_NVIDIA_MANIFEST="$(curl -sSL --max-time 60 "$_SPK_BASE/nvidia-drivers/package.json" 2>/dev/null)" || _NVIDIA_MANIFEST=""
+		_NVIDIA_PARTS="$(printf '%s' "$_NVIDIA_MANIFEST" | sed -n 's/.*"parts"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')"
+		_NVIDIA_SHA="$(printf '%s' "$_NVIDIA_MANIFEST" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]*\)".*/\1/p')"
+		[ -n "$_NVIDIA_PARTS" ] || { echo "  ERROR cannot fetch nvidia-drivers manifest (network down?) - drop nvidia-*.run in the repo root instead"; exit 1; }
+		mkdir -p build/nvidia-dl || { echo "  ERROR cannot create build/nvidia-dl"; exit 1; }
+		_i=0
+		while [ "$_i" -lt "$_NVIDIA_PARTS" ]; do
+			_part="$(printf '%s.%03d' "nvidia-drivers.spk" "$_i")"
+			curl -sSL --max-time 600 -o "build/nvidia-dl/$_part" "$_SPK_BASE/nvidia-drivers/$_part" || { echo "  ERROR download failed: $_part"; exit 1; }
+			_i=$((_i + 1))
+		done
+		cat build/nvidia-dl/nvidia-drivers.spk.* > build/nvidia-dl/nvidia-drivers.spk || { echo "  ERROR cannot join parts"; exit 1; }
+		if [ -n "$_NVIDIA_SHA" ]; then
+			_got="$(sha256sum build/nvidia-dl/nvidia-drivers.spk 2>/dev/null | awk '{print $1}')"
+			[ "$_got" = "$_NVIDIA_SHA" ] || { echo "  ERROR sha256 mismatch on nvidia-drivers.spk"; exit 1; }
+		fi
+		_NVIDIA_TMP="$(mktemp -d /tmp/silen-nvidia.XXXXXX 2>/dev/null || echo /tmp/silen-nvidia.$$)"
+		tar -xzf build/nvidia-dl/nvidia-drivers.spk -C "$_NVIDIA_TMP" || { echo "  ERROR cannot unpack spk"; exit 1; }
+		_NVIDIA_RUN_FILE="$(find "$_NVIDIA_TMP" -name 'nvidia-*.run' | head -n1)"
+		[ -n "$_NVIDIA_RUN_FILE" ] || { echo "  ERROR no .run inside spk"; exit 1; }
+		cp "$_NVIDIA_RUN_FILE" build/nvidia-dl/ || { echo "  ERROR cannot stage .run"; exit 1; }
+		rm -rf "$_NVIDIA_TMP" build/nvidia-dl/nvidia-drivers.spk* 2>/dev/null || true
+		_NVIDIA_RUN="$(ls build/nvidia-dl/nvidia-*.run 2>/dev/null | head -n1)"
+		[ -n "$_NVIDIA_RUN" ] || { echo "  ERROR nvidia .run staging failed"; exit 1; }
+	fi
+	cp "$_NVIDIA_RUN" "$ISO_DIR/$(basename "$_NVIDIA_RUN")" || { echo "  ERROR cannot copy nvidia .run to ISO"; exit 1; }
+	touch "$ISO_DIR/nvidia-auto" || { echo "  ERROR cannot write nvidia-auto flag"; exit 1; }
+	if bash scripts/build-nvidia-kmods.sh "$KERNEL_VERSION" "$_HEADERS_TAR" "$_NVIDIA_RUN" "$ISO_DIR/nvidia-kmods-$KERNEL_VERSION.tar.zst"; then
+		echo "  nvidia prebuilt kmods ready"
+	else
+		echo "  ! nvidia kmods prebuild failed - installer will compile on target"
+		echo "  ! see build/nvidia-kmods-build.log:"
+		tail -n 15 build/nvidia-kmods-build.log 2>/dev/null | sed 's/^/    /' || true
+		rm -f "$ISO_DIR/nvidia-kmods-$KERNEL_VERSION.tar.zst" 2>/dev/null || true
+	fi
+	echo "  nvidia payload: $(du -h "$ISO_DIR/$(basename "$_NVIDIA_RUN")" | cut -f1)"
 fi
 
 if [ -d rootfs/lib/firmware ]; then
@@ -934,6 +1014,32 @@ if command -v cargo >/dev/null 2>&1; then
 			_CARGO_OK=1
 		fi
 	fi
+	IWTUI_SRC="${IWTUI_SRC:-}"
+	if [ -z "$IWTUI_SRC" ]; then
+		if [ -n "${SUDO_USER:-}" ]; then
+			_IWTUI_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+			if [ -n "$_IWTUI_HOME" ] && [ -f "$_IWTUI_HOME/iwtui/Cargo.toml" ]; then
+				IWTUI_SRC="$_IWTUI_HOME/iwtui"
+			fi
+		fi
+		[ -n "$IWTUI_SRC" ] || { [ -f ./iwtui/Cargo.toml ] && IWTUI_SRC="./iwtui"; }
+		[ -n "$IWTUI_SRC" ] || { [ -f ../iwtui/Cargo.toml ] && IWTUI_SRC="../iwtui"; }
+	fi
+	_IWTUI_OK=0
+	if [ -n "$IWTUI_SRC" ] && [ -f "$IWTUI_SRC/Cargo.toml" ]; then
+		echo "  building iwtui ($IWTUI_SRC)"
+		if [ -n "$CARGO_AS_USER" ]; then
+			if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
+				_IWTUI_OK=1
+			fi
+		else
+			if env "${CARGO_ENV[@]}" cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
+				_IWTUI_OK=1
+			fi
+		fi
+	else
+		echo "  ! iwtui sources not found (set IWTUI_SRC=/path/to/iwtui), skipping iwtui"
+	fi
 	if [ "$_CARGO_OK" = "1" ]; then
 		echo "  copying spk onto the ISO and into the live initramfs"
 		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
@@ -942,11 +1048,18 @@ if command -v cargo >/dev/null 2>&1; then
 			cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs (live spk will rely on /mnt/spk)"
 			chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
 		fi
+		if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
+			echo "  copying iwtui into the live initramfs"
+			mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
+			cp "$IWTUI_SRC/target/release/iwtui" "$RAMROOT/usr/bin/iwtui" || echo "  ! cannot copy iwtui to initramfs"
+			chmod 0755 "$RAMROOT/usr/bin/iwtui" 2>/dev/null || true
+		fi
 		# cargo runs after [6/7] packed the initramfs, so re-pack to include
 		# /usr/bin/spk in the live env (the later ISO copy picks this up).
-		if [ -f "$RAMROOT/usr/bin/spk" ] && [ -f "build/$INITRAMFS" ]; then
-			echo "  re-packing initramfs to include spk"
-			copy_libs "$RAMROOT/usr/bin/spk"
+		if { [ -f "$RAMROOT/usr/bin/spk" ] || [ -f "$RAMROOT/usr/bin/iwtui" ]; } && [ -f "build/$INITRAMFS" ]; then
+			echo "  re-packing initramfs to include spk/iwtui"
+			[ -f "$RAMROOT/usr/bin/spk" ] && copy_libs "$RAMROOT/usr/bin/spk"
+			[ -f "$RAMROOT/usr/bin/iwtui" ] && copy_libs "$RAMROOT/usr/bin/iwtui"
 			if ! (
 				cd "$RAMROOT"
 				find . -print0 | cpio --null -o --format=newc --owner=0:0
@@ -966,6 +1079,12 @@ if command -v cargo >/dev/null 2>&1; then
 		fi
 	else
 		echo "  ! spk build failed installer will try to fetch it another way"
+	fi
+	if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
+		echo "  copying iwtui onto the ISO"
+		cp "$IWTUI_SRC/target/release/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO (target gets it via spk instead)"
+	elif [ -n "$IWTUI_SRC" ]; then
+		echo "  ! iwtui build failed, live ISO ships without iwtui"
 	fi
 else
 	echo "  ! cargo not found skipping spk build installer will try to fetch it"
@@ -1014,6 +1133,12 @@ if [ -f branding/fastfetch_logo.txt ]; then
 	mkdir -p "$ISO_DIR/branding"
 	cp branding/fastfetch_logo.txt "$ISO_DIR/branding/" || { echo "  ERROR cannot copy branding"; exit 1; }
 	[ -f branding/info.txt ] && cp branding/info.txt "$ISO_DIR/branding/" || true
+fi
+
+if [ -d target-scripts ]; then
+	echo "  adding target scripts to ISO at target-scripts"
+	mkdir -p "$ISO_DIR/target-scripts"
+	cp -a target-scripts/. "$ISO_DIR/target-scripts/" || { echo "  ERROR cannot copy target-scripts"; exit 1; }
 fi
 
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz" || { echo "  ERROR cannot copy kernel to ISO"; exit 1; }

@@ -3,7 +3,7 @@ medium_has_tarball_at() {
 	for f in "$_d"/stage3-*.tar.* "$_d"/tarball-*.tar.* "$_d"/tarball-*.xz "$_d"/*.tar.xz "$_d"/*.tar.zst; do
 		[[ -f "$f" ]] || continue
 		case "$(basename "$f")" in
-			kernel-*.tar.*|network.tar.*|spk.tar.*) continue ;;
+			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*) continue ;;
 		esac
 		return 0
 	done

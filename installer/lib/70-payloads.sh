@@ -24,6 +24,21 @@ install-modules() {
 	if [[ -n "$kver" ]] && chroot "$ROOT_PATH" /bin/bash -c "command -v depmod" >/dev/null 2>&1; then
 		chroot "$ROOT_PATH" /bin/bash -c "depmod -a $kver" 2>/dev/null || true
 	fi
+	headers_tar=""
+	for f in /mnt/headers-*.tar.*; do
+		[[ -f "$f" ]] && headers_tar="$f" && break
+	done || true
+	if [[ -n "$headers_tar" ]]; then
+		if tar -xpf "$headers_tar" -C "$ROOT_PATH" --no-same-owner --numeric-owner 2>/dev/null; then
+			if [[ -n "${kver:-}" ]] && [[ -d "$ROOT_PATH/usr/src/linux-$kver" ]]; then
+				mkdir -p "$ROOT_PATH"/lib/modules 2>/dev/null || true
+				ln -sfn "/usr/src/linux-$kver" "$ROOT_PATH/lib/modules/$kver/build" 2>/dev/null || true
+				ln -sfn "/usr/src/linux-$kver" "$ROOT_PATH/lib/modules/$kver/source" 2>/dev/null || true
+			fi
+		else
+			whiptail --msgbox --title "$title" "couldn't unpack the kernel headers, nvidia module builds will fail until headers are provided" 9 60 || true
+		fi
+	fi
 	if [[ -d /mnt/firmware ]] && [[ -n "$(ls /mnt/firmware 2>/dev/null)" ]]; then
 		mkdir -p "$ROOT_PATH"/lib/firmware
 		cp -a /mnt/firmware/. "$ROOT_PATH"/lib/firmware/ 2>/dev/null || true
@@ -45,39 +60,15 @@ install-modules() {
 		done || true
 	fi
 	mkdir -p "$ROOT_PATH"/etc/modprobe.d 2>/dev/null || true
-	# DEBUG-MARK: RTW88-QUIRK v1
 	cat > "$ROOT_PATH"/etc/modprobe.d/silen-rtw88.conf <<'EOF'
 options rtw88_pci disable_aspm=Y
 options rtw88_core disable_lps_deep=Y
 EOF
-	record-target-modules() {
-		_mods="$1"
-		_out="$2"
-		[[ -n "${kver:-}" ]] || return 0
-		_dep="$ROOT_PATH/lib/modules/$kver/modules.dep"
-		[[ -f "$_dep" ]] || return 0
-		_builtin="$ROOT_PATH/lib/modules/$kver/modules.builtin"
-		mkdir -p "$ROOT_PATH"/etc/modules-load.d 2>/dev/null || true
-		: > "$ROOT_PATH$_out" 2>/dev/null || true
-		for _m in $_mods; do
-			_n="$(printf '%s' "$_m" | tr '-' '_')"
-			if [[ -f "$_builtin" ]] && grep -q "/$_n\.ko" "$_builtin" 2>/dev/null; then
-				continue
-			fi
-			grep -q "/$_n\.ko" "$_dep" 2>/dev/null || continue
-			printf '%s\n' "$_m" >> "$ROOT_PATH$_out" 2>/dev/null || true
-		done || true
-	}
-	if [[ -f /etc/modules ]]; then
-		_netmods="$(grep -E '^(cfg80211|mac80211|rfkill|iwlwifi|iwlmvm|iwlmld|iwldvm|iwlegacy|ipw2100|ipw2200|ath9k|ath5k|ath10k|ath11k|ath12k|ath6kl|carl9170|ar5523|wil6210|zd1211|mt7|mt76|rtw88|rtw89|rtl8|rtlwifi|rtl_pci|rtl_usb|brcmfmac|brcmsmac|b43|bcma|ssb|wl12xx|wl18xx|wlcore|wl1251|mwifiex|mwl8k|libertas|usb8xxx|p54|at76c50x|adm8211|rsi|wfx|wilc|rt2|rt3|rt6|rt7|virtio_net|e1000|e1000e|r8169|tg3|igb|ixgbe|r8152|ax88179_178a|cdc_ether|rndis_host|rndis_wlan|alx|8139too|via-rhine)' /etc/modules 2>/dev/null | sort -u | tr '\n' ' ' || true)"
-		record-target-modules "$_netmods" /etc/modules-load.d/silen-net.conf
-		if [[ -s "$ROOT_PATH/etc/modules-load.d/silen-net.conf" ]] && [[ -f "$ROOT_PATH/etc/conf.d/modules" ]]; then
-			_wifi_mods="$(tr '\n' ' ' < "$ROOT_PATH/etc/modules-load.d/silen-net.conf" 2>/dev/null)"
-			if [[ -n "$_wifi_mods" ]] && ! grep -q '^modules=' "$ROOT_PATH/etc/conf.d/modules" 2>/dev/null; then
-				printf 'modules="%s"\n' "$_wifi_mods" >> "$ROOT_PATH/etc/conf.d/modules" 2>/dev/null || true
-			fi
-		fi
-	fi
+	# No static module lists on the target: OpenRC loads every entry with
+	# `modprobe --first-time`, which errors for anything udev/modalias
+	# already loaded (or pulled in as a dependency) and spams the boot log.
+	# Drivers autoload via modalias; drop any stale list instead.
+	rm -f "$ROOT_PATH"/etc/modules-load.d/silen-net.conf 2>/dev/null || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev sysinit" >/dev/null 2>&1 || true
 }
 
@@ -189,7 +180,7 @@ install-network-from-live() {
 		fi
 		cp -a "$_src" "$ROOT_PATH"/usr/bin/ 2>/dev/null || net_missing="$net_missing $_b"
 	done || true
-	for _b in rfkill iw ip; do
+	for _b in rfkill iw ip efibootmgr; do
 		_src=""
 		if [[ -e "/usr/bin/$_b" ]] || [[ -L "/usr/bin/$_b" ]]; then _src="/usr/bin/$_b"; fi
 		if [[ -z "$_src" ]] && { [[ -e "/usr/sbin/$_b" ]] || [[ -L "/usr/sbin/$_b" ]]; }; then
@@ -276,7 +267,6 @@ EOF
 		fi
 	fi
 	if [[ -e "$ROOT_PATH"/usr/lib/dbus-daemon-launch-helper ]]; then
-		# DEBUG-MARK: DBUS-HELPER-SUID v1
 		chown root:root "$ROOT_PATH"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
 		chmod 4755 "$ROOT_PATH"/usr/lib/dbus-daemon-launch-helper 2>/dev/null || true
 	fi
@@ -288,6 +278,20 @@ EOF
 		mkdir -p "$ROOT_PATH"/usr/local/bin 2>/dev/null || true
 		cp /usr/bin/silen-wifi-check "$ROOT_PATH"/usr/local/bin/silen-wifi-check 2>/dev/null || true
 		chmod 0755 "$ROOT_PATH"/usr/local/bin/silen-wifi-check 2>/dev/null || true
+	fi
+	if [[ -f /usr/bin/silen-nvidia-check ]]; then
+		mkdir -p "$ROOT_PATH"/usr/local/bin 2>/dev/null || true
+		cp /usr/bin/silen-nvidia-check "$ROOT_PATH"/usr/local/bin/silen-nvidia-check 2>/dev/null || true
+		chmod 0755 "$ROOT_PATH"/usr/local/bin/silen-nvidia-check 2>/dev/null || true
+	fi
+	if [[ -x /usr/bin/iwtui ]]; then
+		mkdir -p "$ROOT_PATH"/usr/local/bin 2>/dev/null || true
+		cp /usr/bin/iwtui "$ROOT_PATH"/usr/local/bin/iwtui 2>/dev/null || true
+		chmod 0755 "$ROOT_PATH"/usr/local/bin/iwtui 2>/dev/null || true
+	elif [[ -f /mnt/iwtui ]]; then
+		mkdir -p "$ROOT_PATH"/usr/local/bin 2>/dev/null || true
+		cp /mnt/iwtui "$ROOT_PATH"/usr/local/bin/iwtui 2>/dev/null || true
+		chmod 0755 "$ROOT_PATH"/usr/local/bin/iwtui 2>/dev/null || true
 	fi
 	chroot "$ROOT_PATH" /bin/bash -c "ldconfig" 2>/dev/null || true
 	_mid=""
@@ -313,6 +317,7 @@ depend() {
 
 start_pre() {
 	mkdir -p /run/dbus
+	rm -f /run/dbus/pid
 	if [ ! -s /etc/machine-id ] && [ -x /usr/bin/dbus-uuidgen ]; then
 		/usr/bin/dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || /usr/bin/dbus-uuidgen --ensure 2>/dev/null || true
 	fi
@@ -321,6 +326,14 @@ start_pre() {
 	fi
 }
 EOF
+	# Some dbus configs reference the netdev group; without it the daemon
+	# refuses to start and takes iwd/netmount down with it.
+	chroot "$ROOT_PATH" /bin/bash -c "getent group netdev >/dev/null 2>&1 || groupadd -r netdev" >/dev/null 2>&1 || true
+	# dhcpcd looks for hooks under /lib/dhcpcd but the tree ships them
+	# under /usr/lib/dhcpcd; link it so wired setup is quiet.
+	if [[ -d "$ROOT_PATH/usr/lib/dhcpcd" ]] && [[ ! -e "$ROOT_PATH/lib/dhcpcd" ]]; then
+		ln -sfn /usr/lib/dhcpcd "$ROOT_PATH/lib/dhcpcd" 2>/dev/null || true
+	fi
 	_iwd_cmd=/usr/libexec/iwd
 	[[ -x "$ROOT_PATH"/usr/libexec/iwd ]] || _iwd_cmd=/usr/sbin/iwd
 	[[ -x "$ROOT_PATH$_iwd_cmd" ]] || _iwd_cmd=/usr/bin/iwd
@@ -353,6 +366,17 @@ if command -v rfkill >/dev/null 2>&1; then
 fi
 EOF
 	chmod 0755 "$ROOT_PATH"/etc/local.d/wifi-unblock.start 2>/dev/null || true
+	cat > "$ROOT_PATH"/etc/local.d/dns-fallback.start <<'EOF'
+#!/bin/sh
+if grep -q '127\.0\.0\.53' /etc/resolv.conf 2>/dev/null; then
+	rm -f /etc/resolv.conf 2>/dev/null || true
+fi
+if ! grep -q '^nameserver' /etc/resolv.conf 2>/dev/null; then
+	printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf 2>/dev/null || true
+	chmod 644 /etc/resolv.conf 2>/dev/null || true
+fi
+EOF
+	chmod 0755 "$ROOT_PATH"/etc/local.d/dns-fallback.start 2>/dev/null || true
 	_net_broken=""
 	for _bin in /usr/bin/dbus-daemon /usr/bin/iwctl /usr/bin/iwmon; do
 		if [[ -x "$ROOT_PATH$_bin" ]] && ! chroot "$ROOT_PATH" "${_bin#/usr/bin/}" --help >/dev/null 2>&1; then
@@ -368,12 +392,131 @@ EOF
 	_rc_ok="1"
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || _rc_ok=""
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add iwd default" >/dev/null 2>&1 || _rc_ok=""
+	if [[ -x "$ROOT_PATH"/usr/bin/dhcpcd ]] || [[ -x "$ROOT_PATH"/sbin/dhcpcd ]]; then
+		chroot "$ROOT_PATH" /bin/bash -c "rc-update add dhcpcd default" >/dev/null 2>&1 || true
+	fi
+	if [[ -f "$ROOT_PATH"/etc/dhcpcd.conf ]] && ! grep -q 'denyinterfaces wlan' "$ROOT_PATH"/etc/dhcpcd.conf 2>/dev/null; then
+		printf '\ndenyinterfaces wlan* wlp*\n' >> "$ROOT_PATH"/etc/dhcpcd.conf 2>/dev/null || true
+	fi
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add modules boot" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add local default" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update del wpa_supplicant default" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update del NetworkManager default" >/dev/null 2>&1 || true
-	rm -f "$ROOT_PATH"/etc/runlevels/*/net.* "$ROOT_PATH"/etc/runlevels/*/dhcpcd 2>/dev/null || true
+	rm -f "$ROOT_PATH"/etc/runlevels/*/net.* 2>/dev/null || true
 	if [[ -z "$_rc_ok" ]]; then
-		whiptail --msgbox --title "$title" "iwd was copied but couldn't be enabled; after reboot run: rc-update add dbus default; rc-update add iwd default" 9 70 || true
+		whiptail --msgbox --title "$title" "iwd was copied but couldn't be enabled; after reboot run: rc-update add dbus default; rc-update add iwd default; for wired also: rc-update add dhcpcd default" 9 70 || true
 	fi
+}
+
+install-nvidia-auto() {
+	[[ -f /mnt/nvidia-auto ]] || return 0
+	_nv_run=""
+	for f in /mnt/nvidia-*.run; do
+		[[ -f "$f" ]] && _nv_run="$f" && break
+	done || true
+	if [[ -z "$_nv_run" ]]; then
+		whiptail --msgbox --title "$title" "nvidia variant flag found but no nvidia-*.run on the medium, continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	_has_nv="0"
+	for d in /sys/bus/pci/devices/*; do
+		[[ -f "$d/vendor" ]] || continue
+		[[ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ]] || continue
+		case "$(cat "$d/class" 2>/dev/null)" in
+			0x03*) _has_nv="1" && break ;;
+		esac
+	done || true
+	if [[ "$_has_nv" != "1" ]]; then
+		whiptail --msgbox --title "$title" "no NVIDIA GPU found, skipping the proprietary driver (nouveau stays active)" 8 60 || true
+		return 0
+	fi
+	_kver="${kver:-$(ls "$ROOT_PATH"/lib/modules 2>/dev/null | head -n1)}"
+	if [[ -z "$_kver" ]] || [[ ! -f "$ROOT_PATH/usr/src/linux-$_kver/Makefile" ]]; then
+		whiptail --msgbox --title "$title" "kernel headers missing in the new system, skipping the NVIDIA driver (nouveau stays active)" 8 60 || true
+		return 0
+	fi
+	mkdir -p "$ROOT_PATH"/etc/modprobe.d 2>/dev/null || true
+	printf 'blacklist nouveau\noptions nouveau modeset=0\n' > "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+	_nv_kmods=""
+	for f in /mnt/nvidia-kmods-*.tar.*; do
+		[[ -f "$f" ]] && _nv_kmods="$f" && break
+	done || true
+	if [[ -z "$_nv_kmods" ]]; then
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "no prebuilt NVIDIA driver on the medium for this kernel, continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	_km_base="$(basename "$_nv_kmods")"
+	_km_kver="${_km_base#nvidia-kmods-}"
+	_km_kver="${_km_kver%%.tar.*}"
+	if [[ "$_km_kver" != "$_kver" ]]; then
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "prebuilt NVIDIA driver is for $_km_kver but the system is $_kver, continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	whiptail --infobox "Installing the NVIDIA driver into the new system..." 8 60 2>/dev/null || true
+	if ! tar -xpf "$_nv_kmods" -C "$ROOT_PATH" --no-same-owner --numeric-owner 2>/dev/null; then
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "couldn't unpack the prebuilt NVIDIA driver, continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	chroot "$ROOT_PATH" /bin/bash -c "depmod -a $_kver" 2>/dev/null || true
+	if [[ ! -f "$ROOT_PATH/lib/modules/$_kver/updates/nvidia.ko" ]] && ! find "$ROOT_PATH"/lib/modules -iname 'nvidia.ko*' 2>/dev/null | grep -q .; then
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "prebuilt NVIDIA modules missing after unpack, continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	if ! cp "$_nv_run" "$ROOT_PATH/tmp/nvidia.run" 2>/dev/null; then
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "couldn't stage the NVIDIA installer (disk full?), continuing with nouveau" 8 60 || true
+		return 0
+	fi
+	if chroot "$ROOT_PATH" /bin/bash -c "sh /tmp/nvidia.run --silent --accept-license --no-questions -z --no-x-check --no-dkms --no-systemd --no-distro-scripts --no-kernel-modules" >>"$ROOT_PATH/tmp/nvidia-install.log" 2>&1; then
+		chroot "$ROOT_PATH" /bin/bash -c "depmod -a $_kver" 2>/dev/null || true
+		cp "$ROOT_PATH/tmp/nvidia-install.log" /tmp/nvidia-install.log 2>/dev/null || true
+		mkdir -p "$ROOT_PATH/var/log" 2>/dev/null || true
+		cp "$ROOT_PATH/tmp/nvidia-install.log" "$ROOT_PATH/var/log/nvidia-install.log" 2>/dev/null || true
+		mkdir -p "$ROOT_PATH/usr/src" 2>/dev/null || true
+		cp "$_nv_run" "$ROOT_PATH/usr/src/$(basename "$_nv_run")" 2>/dev/null || true
+		mkdir -p "$ROOT_PATH"/etc/local.d 2>/dev/null || true
+		cat > "$ROOT_PATH"/etc/local.d/nvidia-fallback.start <<'EOF'
+#!/bin/sh
+# Fail-safe: if the proprietary modules never bound, unblock nouveau so the
+# next boot has a working display instead of a black screen.
+LOG=/var/log/nvidia-fallback.log
+CONF=/etc/modprobe.d/nvidia-disable-nouveau.conf
+[ -f "$CONF" ] || exit 0
+_nv_alive=""
+if command -v lsmod >/dev/null 2>&1; then
+	lsmod 2>/dev/null | grep -q "^nvidia " && _nv_alive="1"
+fi
+[ -e /dev/nvidia0 ] || [ -e /dev/nvidiactl ] && _nv_alive="1"
+[ -n "$_nv_alive" ] && exit 0
+echo "$(date -u 2>/dev/null || date): nvidia absent, removing nouveau blacklist (reboot to apply)" >>"$LOG" 2>&1
+rm -f "$CONF" /etc/modprobe.d/nvidia-installer-disable-nouveau.conf 2>/dev/null
+if [ -f /boot/grub/grub.cfg ]; then
+	sed -i 's/ nvidia-drm\.modeset=1//g; s/ nvidia-drm\.fbdev=1//g' /boot/grub/grub.cfg 2>/dev/null || true
+fi
+echo "$(date -u 2>/dev/null || date): blacklist removed, nouveau returns next boot" >>"$LOG" 2>&1
+EOF
+		chmod 0755 "$ROOT_PATH"/etc/local.d/nvidia-fallback.start 2>/dev/null || true
+	else
+		cp "$ROOT_PATH/tmp/nvidia-install.log" /tmp/nvidia-install.log 2>/dev/null || true
+		mkdir -p "$ROOT_PATH/var/log" 2>/dev/null || true
+		cp "$ROOT_PATH/tmp/nvidia-install.log" "$ROOT_PATH/var/log/nvidia-install.log" 2>/dev/null || true
+		rm -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf "$ROOT_PATH"/etc/modprobe.d/nvidia-installer-disable-nouveau.conf 2>/dev/null || true
+		whiptail --msgbox --title "$title" "NVIDIA driver install failed (live: /tmp/nvidia-install.log, installed: /var/log/nvidia-install.log), continuing with nouveau" 8 70 || true
+	fi
+	rm -f "$ROOT_PATH/tmp/nvidia.run" 2>/dev/null || true
+}
+
+install-target-scripts() {
+	[[ -d /mnt/target-scripts ]] || return 0
+	mkdir -p "$ROOT_PATH"/usr/local/bin 2>/dev/null || true
+	for _s in /mnt/target-scripts/*; do
+		[[ -f "$_s" ]] || continue
+		[[ "$(basename "$_s")" = "README.md" ]] && continue
+		cp "$_s" "$ROOT_PATH"/usr/local/bin/ 2>/dev/null || true
+		chmod 0755 "$ROOT_PATH/usr/local/bin/$(basename "$_s")" 2>/dev/null || true
+	done || true
 }

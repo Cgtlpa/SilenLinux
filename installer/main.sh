@@ -5,6 +5,27 @@ set -e
 title="Silen Linux"
 ROOT_PATH="/silen"
 
+# Ultraviolet whiptail theme (magenta monochrome, inverted selection).
+export NEWT_COLORS='
+root=black,black
+window=magenta,black
+border=magenta,black
+shadow=black,black
+title=magenta,black
+button=magenta,black
+actbutton=black,magenta
+checkbox=magenta,black
+actcheckbox=black,magenta
+entry=magenta,black
+label=magenta,black
+listbox=magenta,black
+actlistbox=black,magenta
+textbox=magenta,black
+acttextbox=black,magenta
+helptag=magenta,black
+roottext=magenta,black
+'
+
 if [[ ! -d /sys/firmware/efi ]]; then
 	printf "Powering off system...\n"
 	sleep 0.1
@@ -22,6 +43,7 @@ for _l in 00-common 10-medium 20-ui 30-partition 40-base 50-settings 60-system 7
 done
 
 trap cleanup EXIT
+trap on_int_term INT TERM
 
 [[ "$(id -u)" = "0" ]] || {
 	whiptail --msgbox --title "$title" "this installer needs root" 8 40 2>/dev/null || true

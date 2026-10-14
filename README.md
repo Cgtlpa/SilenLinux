@@ -32,10 +32,10 @@ Silen Linux is an independent, lightweight Linux distribution focused on simplic
   - Storage: AHCI, NVMe, virtio-blk/scsi, MMC/SDHCI, USB-storage/UAS (`scripts/build.sh:32`).
   - Wired + USB tethering: `e1000/e1000e`, `r8169`, `igb`, `ixgbe`, `r8152`, `alx`, `cdc_ether`, `rndis_host` (`scripts/build.sh:37`).
   - Wi-Fi: Intel `iwlwifi`, Atheros `ath9k/ath10k/ath11k/ath12k`, MediaTek `mt76/mt79xx`, Realtek `rtw88/rtw89/rtlwifi/rtl8xxxu`, Broadcom `brcmfmac/b43`, Marvell, Ralink, TI, etc. (`scripts/build.sh:44`, `scripts/add-wifi.sh:38`).
-  - GPU firmware merged for live + offline installs: `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon` (`scripts/build.sh:739`). NVIDIA blobs are intentionally excluded (~200M) — install later via `spk get nvidia-drivers` after reboot.
+  - GPU firmware merged for live + offline installs: `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon` (`scripts/build.sh:739`). NVIDIA blobs are intentionally excluded (~200M) — install later via `spk get nvidia-drivers` after reboot, or build the opt-in NVIDIA variant with `make nvidia-iso` (needs `headers-*.tar.zst`, prebuilds the driver kmods for the ISO kernel via `scripts/build-nvidia-kmods.sh` and installs them into the target with no on-target compile, fallback to compile if prebuilt is missing).
 - **Offline installer** — whiptail TUI (`installer/lib/20-ui.sh:1`): base system only, no network needed. Filesystem choice (ext4/btrfs/vfat), 15 timezones, 15 keymaps, hostname defaults to `silen`.
 - **`spk` package manager** — `spk get / find / rm` (`spk/src/get.rs:1`, `spk/src/find.rs:1`, `spk/src/remove.rs:1`). System packages (kernels, drivers, DEs, DMs) install to `/`; leaf apps go isolated to `/spk_pkgs/<name>` with shims in `/usr/local/bin`.
-- **Post-install via `spk`** (after reboot, with network): `spk get linux-firmware`, Wi-Fi drivers, GPU drivers, desktops (KDE Plasma, GNOME, XFCE, i3, Sway) + DMs (SDDM/GDM/LightDM).
+- **Post-install via `spk`** (after reboot, with network): `spk get linux-firmware`, Wi-Fi drivers, GPU drivers, desktops (KDE Plasma, GNOME, XFCE, i3, Sway) + DMs (SDDM/GDM/LightDM). Lightweight X11 path: `spk get mesa xorg-libs xorg-server xkb-data dejavu xorg-drivers xinit dwm` (+ `dmenu`, `st`, optional `llvm` for software/3D GL), then `startx` or pick dwm in ly.
 - **Diagnostics built in** — `silen-wifi-check` (from `scripts/wifi-check.sh`) dumps `lsmod`, `ip link`, `rfkill`, `lspci/lsusb`, `dmesg`, `iwctl`, `iwd`, D-Bus helper status to `/tmp/silen-wifi.log`.
 
 ---
@@ -70,7 +70,7 @@ Entry: `/installer/main.sh` in the live env (started by `rootfs/init:354`). Modu
 - `30-partition.sh` — disk pick, wipe confirm, GPT layout: 1MiB–513MiB ESP (`fat32`, `esp on`) + root to 100%. Handles `nvme/mmcblk` `p1/p2` naming.
 - `40-base.sh` — mounts target, extracts tarball (strips single top-level dir).
 - `50-settings.sh` — hostname, root password, optional user, locale/keymap/timezone, swapfile.
-- `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`fastfetch -l ~/.ascii` with `branding/fastfetch_logo.txt`).
+- `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`/usr/local/bin/silenfetch` → `fastfetch -l /usr/share/silen/fastfetch_logo.txt`; plain `fastfetch` also shows it via `/etc/fastfetch/config.jsonc`).
 - `70-payloads.sh` — installs kernel bundle, firmware, network bundle, `spk` binary, writes OpenRC services for `dbus`/`iwd`.
 - Extra drivers, firmware, and desktops are installed after reboot via `spk` (needs network).
 - `90-grub.sh` — copies kernel/initramfs to target, requires UEFI (`/sys/firmware/efi`), installs GRUB from `/mnt/grub`.
@@ -104,9 +104,10 @@ spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, hostnam
 ### Commands
 
 ```sh
-make iso    # sudo nice -n 10 ionice -c 3 ./scripts/build.sh  (Makefile:9)
-make qemu   # boot build/silen-linux.iso in UEFI QEMU (4G RAM, q35, 8G disk.img)
-make clean  # rm -rf build
+make iso         # sudo nice -n 10 ionice -c 3 ./scripts/build.sh  (Makefile:9)
+make nvidia-iso  # NVIDIA variant: auto-installs the proprietary driver on NVIDIA GPUs
+make qemu        # boot build/silen-linux.iso in UEFI QEMU (4G RAM, q35, 8G disk.img)
+make clean       # rm -rf build
 ```
 
 Place your kernel at `boot/vmlinuz`, modules at `rootfs/lib/modules/<ver>/`, firmware at `rootfs/lib/firmware/`, and `tarball-silen.xz` (or `stage3-*.tar.*`) in the repo root before building — otherwise the ISO boots but the installer refuses to install (`scripts/build.sh:889`).
@@ -129,7 +130,9 @@ Place your kernel at `boot/vmlinuz`, modules at `rootfs/lib/modules/<ver>/`, fir
 
 - `scripts/add-wifi.sh` — sync Wi-Fi modules + firmware from the host into `rootfs/` (run before `make iso` when adding new drivers).
 - `scripts/make-grub-bundle.sh` — build `grub-bundle/` from a compiled GRUB tree (`GRUB_SRC=~/grub`), required for the installer to set up EFI boot.
+- `scripts/make-headers-bundle.sh` — build `headers-<kver>.tar.zst` from the exact prepared kernel source (`KERNEL_SRC=...`), shipped on the ISO so `spk get nvidia-drivers` can compile.
 - `scripts/wifi-check.sh` — live Wi-Fi diagnostics, installed as `/usr/bin/silen-wifi-check`.
+- `scripts/nvidia-check.sh` — GPU/driver diagnostics, installed as `/usr/local/bin/silen-nvidia-check`.
 
 ---
 
