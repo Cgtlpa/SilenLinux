@@ -36,7 +36,7 @@ fi
 _here="$(dirname "$0" 2>/dev/null || echo /installer)"
 [[ -d "$_here/lib" ]] || _here="/installer"
 
-for _l in 00-common 10-medium 20-ui 30-partition 40-base 50-settings 60-system 70-payloads 90-grub; do
+for _l in 00-common 10-medium 20-ui 30-partition 40-base 50-settings 60-system 70-payloads 75-extras 90-grub; do
 	_f="$_here/lib/$_l.sh"
 	[[ -f "$_f" ]] || { echo "Wtf is that? installer lib missing: $_l.sh" >&2; exit 1; }
 	. "$_f"

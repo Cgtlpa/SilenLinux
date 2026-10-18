@@ -116,6 +116,7 @@ EOF
 	create-user
 	install-branding
 	install-target-scripts
+	install-extras
 	mkdir -p "$ROOT_PATH"/usr/share/silen 2>/dev/null || true
 	cat > "$ROOT_PATH"/usr/share/silen/spk-help.txt <<'EOF'
 spk - Silen package manager (spark)
@@ -125,6 +126,7 @@ spk - Silen package manager (spark)
   sudo spk update                       update every installed package
   sudo spk update <package> [...]       update (or install) specific packages
   spk find <pattern>                   search installed packages
+  spk search [pattern]                 search the remote package index
   spk list                              list installed packages with versions
 
 System packages (desktops, drivers, firmware, dbus, iwd) install into /.
@@ -176,13 +178,13 @@ EOF
 		return
 	fi
 
-	whiptail --msgbox --title "$title" "Wi-Fi: use iwctl in the installed Silen Linux (help: silen-wifi-check).\n\nspk usage (as root, use sudo):\n  sudo spk update              update all packages\n  sudo spk update <package>    update one package\n  sudo spk get <package>       install\n  sudo spk rm <package>        remove\n  spk find <name> / spk list   search / list\n\nGuide saved to /usr/share/silen/spk-help.txt" 14 70 || true
+	whiptail --msgbox --title "$title" "Wi-Fi: use iwctl in the installed Silen Linux (help: silen-wifi-check).\n\nspk usage (as root, use sudo):\n  sudo spk update              update all packages\n  sudo spk update <package>    update one package\n  sudo spk get <package>       install\n  sudo spk rm <package>        remove\n  spk find / spk search / spk list   search / list\n\nGuide saved to /usr/share/silen/spk-help.txt" 14 70 || true
 	_nv_note=""
 	if find "$ROOT_PATH"/lib/modules -iname 'nvidia.ko*' 2>/dev/null | grep -q .; then
 		_nv_note="\nNVIDIA driver installed - verify after reboot with nvidia-smi.\n"
 	fi
 	sync 2>/dev/null || true
 	cleanup
-	whiptail --msgbox --title "$title" "Silen is installed. Reboot to use it.\n\nAfter reboot (as root):\n  sudo spk update               update all\n  sudo spk update <package>    update one\n  sudo spk get <package>       install (try: sudo spk get fastfetch)\n  sudo spk rm <package>        remove\n  spk find <name> / spk list   search / list\n\nFull guide: /usr/share/silen/spk-help.txt\nWi-Fi: iwctl, DNS: /etc/resolv.conf$_nv_note" 16 70 || true
+	whiptail --msgbox --title "$title" "Silen is installed. Reboot to use it.\n\nAfter reboot (as root):\n  sudo spk update               update all\n  sudo spk update <package>    update one\n  sudo spk get <package>       install (try: sudo spk get fastfetch)\n  sudo spk rm <package>        remove\n  spk find / spk search / spk list   search / list\n\nFull guide: /usr/share/silen/spk-help.txt\nWi-Fi: iwctl, DNS: /etc/resolv.conf$_nv_note" 16 70 || true
 	main_screen
 }

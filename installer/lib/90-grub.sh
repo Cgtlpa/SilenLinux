@@ -42,6 +42,12 @@ setup-grub() {
 	fi
 
 	mkdir -p "$ROOT_PATH/tmp" 2>/dev/null || true
+	ucode_img="${ucode_img:-}"
+	resume_param="${resume_param:-}"
+	initrd_line="initrd /$initramfs_name"
+	if [[ -n "$ucode_img" ]]; then
+		initrd_line="initrd /$ucode_img /$initramfs_name"
+	fi
 	mkdir -p "$ROOT_PATH"/sys/firmware/efi/efivars 2>/dev/null || true
 	mount -t efivarfs efivarfs "$ROOT_PATH"/sys/firmware/efi/efivars 2>/dev/null || true
 	if chroot "$ROOT_PATH" /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >"$ROOT_PATH/tmp/grub-install.log" 2>&1 || chroot "$ROOT_PATH" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --removable" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1; then
@@ -81,18 +87,18 @@ terminal_output gfxterm console
 search --no-floppy --fs-uuid --set=root $bootuuid
 
 menuentry "Silen Linux" {
-    linux /vmlinuz root=UUID=$rootuuid ro rootwait loglevel=4 console=ttyS0 console=tty0
-    initrd /$initramfs_name
+    linux /vmlinuz root=UUID=$rootuuid ro rootwait loglevel=4 console=ttyS0 console=tty0$resume_param
+    $initrd_line
 }
 
 menuentry "Silen Linux (quiet)" {
-    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=3
-    initrd /$initramfs_name
+    linux /vmlinuz root=UUID=$rootuuid ro quiet loglevel=3$resume_param
+    $initrd_line
 }
 
 menuentry "Silen Linux (fallback, nomodeset)" {
-    linux /vmlinuz root=UUID=$rootuuid ro rootwait nomodeset loglevel=4 console=ttyS0 console=tty0
-    initrd /$initramfs_name
+    linux /vmlinuz root=UUID=$rootuuid ro rootwait nomodeset loglevel=4 console=ttyS0 console=tty0$resume_param
+    $initrd_line
 }
 EOF
 		_silen_disk=""
