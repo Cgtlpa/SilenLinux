@@ -2,12 +2,7 @@ use super::Layout;
 use std::fs;
 use std::path::Path;
 
-// Arch-like rules: remove exactly what the registry recorded (files+shims),
-// prune empty parents, drop ld.so conf, refresh ldconfig. Protected system
-// configs are never deleted (passwd/shadow/group/fstab/machine-id/hostname).
-// Returns true on full success, false when the package was missing — the
-// multi-package caller (`spk rm a b c`) uses this to keep going and exit 1
-// at the end instead of aborting mid-list.
+// remove exactly what the registry recorded
 const PROTECTED_BASENAMES: &[&str] = &[
     "passwd",
     "shadow",
@@ -21,11 +16,7 @@ const PROTECTED_BASENAMES: &[&str] = &[
 ];
 
 fn is_protected(path: &str) -> bool {
-    // FIX 2026-09-20 RM-PROTECT-SCOPE: only guard real configs under /etc/.
-    // The old basename-only check also matched binaries that share a name
-    // (e.g. /usr/bin/passwd from a system package), leaving them behind on
-    // `spk rm`. Configs like /etc/passwd, /etc/shadow, /etc/fstab,
-    // /etc/machine-id, /etc/hostname are still never deleted.
+    // only guard real configs under etc
     if !path.contains("/etc/") {
         return false;
     }
@@ -193,8 +184,7 @@ fn remove_lib_conf(name: &str, layout: &Layout) {
 }
 
 fn legacy_remove(name: &str, layout: &Layout) -> bool {
-    // only left a single binary behind, so remove that + any stray dirs.
-    // Returns false (caller exits 1) when nothing is found.
+    // remove lone binaries left by old installs
     remove_lib_conf(name, layout);
     let mut dirs: Vec<String> = Vec::new();
     if layout.user_mode {

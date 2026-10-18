@@ -16,38 +16,29 @@ use sha2::Sha256;
 
 const DEFAULT_BASE: &str = "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages";
 
-// Rule (arch-like): system packages install straight into / (like `pacman -S`)
-// so daemons/DMs/DEs/drivers keep their absolute paths (/usr/bin/sddm,
-// /etc/sddm.conf.d, /lib/modules, ...). Leaf apps stay isolated in
-// /spk_pkgs/<name> (or ~/.local/share/spk/apps/<name> with --user) with
-// shims in /usr/local/bin. `system` is true when the manifest says so OR
-// when the name matches the well-known system set below. This stops a
-// mis-packed manifest (e.g. sddm without system=true) from landing isolated
-// and never starting.
+// system packages go to root. leaf apps stay isolated
 const SYSTEM_EXACT: &[&str] = &[
-    // display managers / greeters — MUST be system or no graphical login
+    // login managers
     "sddm", "gdm", "lightdm", "lxdm", "ly", "greetd", "tuigreet", "emptty", "xdm", "slim", "dm-openrc",
     "lightdm-gtk-greeter", "sddm-kcm",
-    // desktops / sessions / compositors
+    // desktops and compositors
     "plasma-desktop", "plasma-workspace", "plasma", "kde", "gnome", "gnome-shell",
     "gnome-session", "xfce4", "xfce4-session", "xfce", "lxqt", "lxde", "cinnamon",
     "mate-desktop", "mate", "budgie-desktop", "cosmic-desktop", "pantheon", "deepin",
     "enlightenment", "sway", "i3", "hyprland", "instantwm", "instantwmctl", "dwm", "niri", "mangowm", "mango", "labwc", "wayland", "xorg-server", "xorg",
     "dmenu", "rofi", "wofi", "waybar", "quickshell", "st", "kitty", "alacritty", "ghostty", "xinit", "xkb-data", "dejavu", "llvm",
     "gtk-libs", "wl-libs", "gtk3", "cxx-libs", "libcjson", "pipewire", "wlroots", "scenefx", "seatd", "vulkan-loader", "mesa",
-    // DE companion apps installed by the Silen installer alongside the DE.
-    // They ship .desktop files / session integration under /usr, so they must
-    // be system too (isolated shims would hide them from the DE menu).
+    // desktop companion apps
     "konsole", "dolphin", "kate", "kwrite", "ark", "spectacle",
     "gnome-terminal", "nautilus", "gnome-text-editor", "gnome-calculator",
     "xfce4-terminal", "thunar", "mousepad", "ristretto",
-    // kernels / firmware / drivers — MUST be system (paths like /lib/modules, /lib/firmware)
+    // kernels and drivers
     "linux", "kernel", "linux-firmware", "linux-headers", "kernel-headers", "intel-ucode", "amd-ucode",
     "nvidia-drivers", "nvidia-legacy-drivers", "mesa", "libdrm",
     "xf86-video-amdgpu", "xf86-video-intel", "xf86-video-vmware", "xf86-video-nouveau",
     "xf86-input-libinput", "vulkan-loader",
     "rtl8822ce", "iwlwifi", "mt7921", "ath11k", "brcmfmac", "rtw89", "rtw88",
-    // core system services
+    // core services
     "dbus", "elogind", "systemd", "openrc", "polkit", "upower", "udisks2",
     "networkmanager", "wpa_supplicant", "iwd", "dhcpcd", "connman", "modemmanager",
     "pipewire", "pulseaudio", "alsa", "alsa-utils", "wireplumber",
@@ -59,7 +50,7 @@ fn looks_like_system_package(name: &str) -> bool {
     if SYSTEM_EXACT.contains(&n.as_str()) {
         return true;
     }
-    // prefixes: DE families, xorg/xf86 drivers, firmware blobs
+    // name prefixes
     for prefix in [
         "plasma-", "kde-", "gnome-", "xfce4-", "xfce-", "lxqt-", "sddm-", "gdm-",
         "lightdm-", "xorg-", "xf86-video-", "xf86-input-", "nvidia-", "amd-ucode",
@@ -70,7 +61,7 @@ fn looks_like_system_package(name: &str) -> bool {
             return true;
         }
     }
-    // substrings / suffixes that are (almost) always system-level
+    // name fragments
     for needle in [
         "firmware", "driver", "kernel", "headers", "mesa", "vulkan", "libdrm", "microcode",
         "-ucode", "greeter", "display-manager", "dm-", "elogind", "polkit",
@@ -110,10 +101,7 @@ struct Installed {
 }
 
 fn main() {
-    // Supports arch-like multi-package: `spk get a b c`, `spk rm a b c`.
-    // Each package gets its own Layout (tmp/registry paths differ per name).
-    // Installs run in order; first hard failure aborts (like pacman
-    // transaction abort) so half-installed sets are visible, not silent.
+    // install or remove many packages in order
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
@@ -121,7 +109,7 @@ fn main() {
         return;
     }
 
-    // `spk --help`, `spk get --help`, `spk -h` behave like arch tools.
+
     if args[1] == "--help" || args[1] == "-h" || args[1] == "help" {
         usage();
         return;
@@ -174,16 +162,14 @@ fn main() {
         }
     }
 
-    // Arch-like: de-duplicate repeat names (`spk get foo foo` installs once;
-    // `spk rm foo foo` must not fail on the second, already-gone entry).
-    // FIX 2026-09-20 DEDUP — order-preserving dedup of positionals.
+    // skip repeated package names
     {
         let mut seen = std::collections::HashSet::new();
         positional.retain(|n| seen.insert(n.clone()));
     }
 
     if args[1] == "list" {
-        // list takes no package name; fall through
+
         let layout = layout_for(&root, user_mode, "");
         list(&layout);
     } else if args[1] == "remove" || args[1] == "rm" {
@@ -195,7 +181,7 @@ fn main() {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
-        // arch-like: remove in order, keep going, report failures at end.
+        // keep going and report failures at end
         let mut failed: Vec<String> = Vec::new();
         for name in &positional {
             let layout = layout_for(&root, user_mode, name);
@@ -248,12 +234,12 @@ fn usage() {
     eprintln!("  spk find <pattern> [--root DIR] [--user]");
     eprintln!("  spk list [--root DIR] [--user]");
     eprintln!("  spk self-update [--check]    update spk itself from its release feed");
-    eprintln!("");
+    eprintln!();
     eprintln!("  sudo spk get <package>      install a package");
     eprintln!("  sudo spk rm <package>       remove a package and its files");
     eprintln!("  sudo spk update              update every installed package");
     eprintln!("  sudo spk update <package>    update (or install) one package");
-    eprintln!("");
+    eprintln!();
     eprintln!("packages live in categories (app-misc, app-editors, sys-apps,");
     eprintln!("dev-tools, sys-monitor, ...): just type the bare name and spk");
     eprintln!("finds it. If several categories share a name, spk asks which one.");
@@ -320,15 +306,7 @@ pub(crate) fn base_url() -> String {
 }
 
 pub(crate) fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
-    // System root (/): registry /var/lib/spk/packages/<name>, app links
-    // /opt/spk/<name>, isolated payload /spk_pkgs/<name>, shims
-    // /usr/local/bin. --root prefixes all of them; --user maps everything
-    // under $HOME. tmp is per-package (+pid) so `spk get a b` never clashes.
-    // FIX 2026-09-20 LAYOUT-DBLSLASH: when root is "/" (or empty) the path
-    // prefix is "" so registry/appdir/pkgdir/shimdir build single-slash
-    // paths (/var/..., /spk_pkgs/..., /opt/..., /usr/local/bin). The old code
-    // used "/" as prefix and produced "//var/..." strings; the fs tolerated
-    // them but registry-vs-installed string compares could mismatch.
+    // path layout for system and user installs
     if user_mode {
         let home = std::env::var("HOME").unwrap_or_default();
         if home.is_empty() {
@@ -419,8 +397,7 @@ fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
         println!("spk: note: {} already queued, skipping", name);
         return;
     }
-    // manifest -> download(+sha256) -> payload_base -> extract ->
-    // finish_install(shims+registry) -> postinstall -> ldconfig.
+    // download verify extract register postinstall
     let base = base_url();
     let installed_cat = fs::read_to_string(format!("{}/category", layout.registry))
         .unwrap_or_default()
@@ -500,9 +477,7 @@ fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
         fail("system packages (login managers, desktops, kernels) need a system install - retry without --user");
     }
 
-    // Arch-like transparency: say so when this exact version is already
-    // installed (pacman prints "warning: X is up to date -- reinstalling").
-    // FIX 2026-09-20 REINSTALL-NOTE.
+
     if !version.trim().is_empty() {
         let installed_version =
             fs::read_to_string(format!("{}/version", layout.registry)).unwrap_or_default();
@@ -627,6 +602,26 @@ fn name_candidates(file_name: &str) -> Vec<String> {
         out.push(cur.clone());
     }
     out
+}
+
+fn versioned_candidate(name: &str) -> bool {
+    match name.split_once(".so.") {
+        Some((_, rest)) => rest.chars().any(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
+fn is_shared_lib(name: &str) -> bool {
+    match name.split_once(".so") {
+        Some((_, rest)) => rest.is_empty() || rest.starts_with('.'),
+        None => false,
+    }
+}
+
+fn shadowed_by_system(fname: &str, provided: &HashSet<String>) -> bool {
+    name_candidates(fname)
+        .iter()
+        .any(|c| (c == fname || versioned_candidate(c)) && provided.contains(c))
 }
 
 fn system_provided(prefix: &str) -> HashSet<String> {
@@ -761,7 +756,7 @@ fn register_libs(name: &str, layout: &Layout, system: bool) {
                 exposed += 1;
             }
         } else if meta.is_file() {
-            if name_candidates(fname).iter().any(|c| provided.contains(c)) {
+            if shadowed_by_system(fname, &provided) {
                 continue;
             }
             if fs::create_dir_all(&spk_full).is_err() {
@@ -792,9 +787,7 @@ fn register_libs(name: &str, layout: &Layout, system: bool) {
 }
 
 fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &str, system: bool, installed: &[Installed]) {
-    // Only runs <payload>/usr/lib/spk/postinstall when it was part of THIS
-    // package (prevents a stale hook from another package being executed).
-    // Applies to both system and isolated layouts.
+    // only run hooks shipped by this package
     if payload_base.is_empty() {
         return;
     }
@@ -837,12 +830,7 @@ fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &st
 }
 
 fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &Layout, system: bool, category: &str) {
-    // Arch-like upgrade rule: orphaned shims/files from the previous version
-    // that are gone in the new version are removed, so `spk get foo` twice
-    // does not leak stale /usr/local/bin entries. New files/shims are
-    // recorded in <registry>/{files,shims}. App links live in <appdir>/bin.
-    // System files on PATH (/usr/bin/...) get app links but no shims.
-    // Snapshot previous records before overwriting (for orphan cleanup).
+    // drop files gone from the new version
     let old_files = fs::read_to_string(format!("{}/files", layout.registry)).unwrap_or_default();
     let old_shims = fs::read_to_string(format!("{}/shims", layout.registry)).unwrap_or_default();
     check(fs::create_dir_all(&layout.registry), &format!("cannot create {}", layout.registry));
@@ -871,11 +859,15 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
         if item.path.ends_with("/usr/lib/spk/postinstall") {
             continue;
         }
+        let runtime = runtime_path(&item.path, layout);
+        if runtime.starts_with("/etc/") {
+            continue;
+        }
         let cmd = match Path::new(&item.path).file_name() {
             Some(base) => base.to_string_lossy().to_string(),
             None => continue,
         };
-        if cmd.is_empty() {
+        if cmd.is_empty() || is_shared_lib(&cmd) {
             continue;
         }
 
@@ -889,7 +881,6 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             commands.push(cmd.clone());
         }
 
-        let runtime = runtime_path(&item.path, layout);
         if on_path(&runtime) {
             continue;
         }
@@ -922,15 +913,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
 
     check(fs::write(format!("{}/shims", layout.registry), shims.clone()), &format!("cannot write {}/shims", layout.registry));
 
-    // Remove orphans from the previous version (arch-like upgrade hygiene).
-    // FIX 2026-09-20 FINISH-PRUNE v2: (a) files recorded in the previous
-    // `files` registry for THIS package are owned by us even when they live
-    // in shared system dirs (/usr/...) — the old guard only pruned
-    // pkgdir/appdir/shims, so reinstalling a system package with fewer files
-    // leaked orphans forever. Protected configs (passwd/shadow/...) are never
-    // pruned here (rm path protects them too). (b) stale <appdir>/bin links
-    // were never tracked, so a command dropped between versions lingered.
-    // Sweep them below against the new command set.
+    // prune files from the old version
     {
         use std::collections::HashSet;
         let new_files: HashSet<&str> = installed.iter().map(|i| i.path.as_str()).collect();
@@ -942,10 +925,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             if p.is_empty() || new_files.contains(p) || new_shims.contains(p) {
                 continue;
             }
-            // Owned when: a recorded shim, a file we recorded for this
-            // package (system or isolated), or anything under our private
-            // payload/app dirs. Anything else (never recorded) is left alone
-            // in case another package still needs it.
+
             let owned_shim = old_shims.lines().any(|s| s.trim() == p);
             let owned_file = old_file_set.contains(p);
             let under_payload = !layout.pkgdir.is_empty() && (p == layout.pkgdir || p.starts_with(&format!("{}/", layout.pkgdir)));
@@ -964,7 +944,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
             println!("spk: pruned {} stale file(s) from previous version", pruned);
         }
     }
-    // Drop stale <appdir>/bin links for commands gone in the new version.
+    // drop stale app links
     {
         let bin_dir = format!("{}/bin", layout.appdir);
         if let Ok(entries) = fs::read_dir(&bin_dir) {
@@ -974,7 +954,7 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
                     continue;
                 }
                 let full = format!("{}/{}", bin_dir, fname);
-                // Only remove symlinks we manage (app links are always links).
+                // only remove links we manage
                 if let Ok(m) = fs::symlink_metadata(&full) {
                     if m.file_type().is_symlink() && fs::remove_file(&full).is_ok() {
                         println!("spk: pruned stale app link {}", full);
@@ -1030,9 +1010,7 @@ fn path_contains(dir: &str) -> bool {
     }
 }
 
-// Shared with rm: never auto-delete these configs on upgrade prune, even if a
-// previous package version recorded them. Scoped to /etc/ so a binary that
-// merely shares the basename (e.g. /usr/bin/passwd) is still pruned.
+// never delete system configs on upgrade
 fn is_protected_basename(path: &str) -> bool {
     if !path.contains("/etc/") {
         return false;
@@ -1197,11 +1175,7 @@ fn parse_index(text: &str) -> Vec<IndexEntry> {
                     break;
                 }
             }
-            b']' => {
-                if depth == 1 {
-                    break;
-                }
-            }
+            b']' if depth == 1 => break,
             _ => {}
         }
         i += 1;
@@ -1315,9 +1289,9 @@ fn find_asset_url(text: &str, asset: &str) -> String {
             let nrest = &prefix[npos + 6..];
             let nrest = nrest.trim_start_matches([' ', '\t', '\r', '\n', ':']);
             let nrest = nrest.trim_start();
-            if nrest.starts_with('"') {
-                if let Some(nend) = nrest[1..].find('"') {
-                    if &nrest[1..nend + 1] == asset {
+            if let Some(nrest_inner) = nrest.strip_prefix('"') {
+                if let Some(nend) = nrest_inner.find('"') {
+                    if &nrest_inner[..nend] == asset {
                         return url.to_string();
                     }
                 }
@@ -1439,6 +1413,26 @@ mod self_update_tests {
         );
         assert_eq!(read_string_array(r#"{"x": 1}"#, "depends"), Vec::<String>::new());
     }
+
+    #[test]
+    fn versioned_payload_libs_are_not_hidden_by_unversioned_system_names() {
+        let provided: std::collections::HashSet<String> =
+            ["libperl.so".to_string(), "libperl.so.5.42".to_string()].into_iter().collect();
+        assert!(!shadowed_by_system("libperl.so.5.44.0", &provided));
+        assert!(shadowed_by_system("libperl.so.5.42", &provided));
+        assert!(shadowed_by_system("libperl.so", &provided));
+        assert!(!shadowed_by_system("libutf8proc.so.3.2.3", &provided));
+    }
+
+    #[test]
+    fn shared_library_names_are_not_commands() {
+        assert!(is_shared_lib("libefivar.so.1"));
+        assert!(is_shared_lib("Cwd.so"));
+        assert!(is_shared_lib("libperl.so.5.44.0"));
+        assert!(!is_shared_lib("efibootmgr"));
+        assert!(!is_shared_lib("foo.sock"));
+        assert!(!is_shared_lib("something"));
+    }
 }
 
 fn fetch_candidate(base: &str, entry: &IndexEntry) -> (String, String, String) {
@@ -1462,11 +1456,7 @@ fn fetch_candidate(base: &str, entry: &IndexEntry) -> (String, String, String) {
 }
 
 fn download(url: &str, dst: &str, parts: u32) -> String {
-    // Single file when parts==1; `<url>.000`, `<url>.001`, ... when split.
-    // Unknown-length split (parts==1 on disk as .000/.001/...) is probed:
-    // miss on bare URL -> try .000... until first 404 after data. Appends
-    // per part, truncates back to part-start on transient errors, 6 retries
-    // with backoff, sha256 over the concatenated file.
+    // split downloads with retries and hash check
     let _ = fs::remove_file(dst);
     let mut split = parts > 1;
     let mut index = 0;
@@ -1546,7 +1536,7 @@ fn print_progress(done: u64, total: Option<u64>) {
         Some(t) if t > 0 => {
             let pct = ((done as f64 / t as f64) * 100.0).min(100.0);
             let bars = (pct / 5.0) as usize;
-            let bar: String = std::iter::repeat('=').take(bars).collect();
+            let bar: String = "=".repeat(bars);
             eprint!("\r  [{:<20}] {:>5.1}% {}", bar, pct, paint("1;36", &format!("{}/{}", done, t)));
         }
         _ => {
@@ -1634,9 +1624,7 @@ fn hash_file(dst: &str) -> String {
 }
 
 pub(crate) fn read_field(text: &str, key: &str) -> String {
-    // Handles `"key": "string"`, `"key": true/1/yes` and `"key": 3`
-    // (quoted or bare). Not full JSON — enough for flat package.json
-    // manifests (filename/version/sha256/parts/system).
+
     let needle = format!("\"{}\"", key);
     let pos = match text.find(&needle) {
         Some(pos) => pos + needle.len(),
@@ -1738,11 +1726,7 @@ fn skipped_name(name: &str) -> bool {
 }
 
 fn extract(archive: &str, root: &str, system: bool) -> Vec<Installed> {
-    // `clean()` jails `..`/absolute paths under root; `resolve_link()`
-    // rejects symlinks escaping root. System mode skips bundled glibc
-    // copies (core_lib/system_tool) and keeps the host's. Dirs created,
-    // symlinks + hardlinks (with copy fallback) recorded, regular files
-    // get their tar modes. Returns installed paths for the registry.
+    // unpack tarball jailed under root
     let mut installed: Vec<Installed> = Vec::new();
     let mut skipped = 0;
     let mut pending_links: Vec<(String, String, u32)> = Vec::new();
@@ -1877,7 +1861,7 @@ fn make_parent(dest: &str) {
 }
 
 fn clean(name: &str, root: &str) -> String {
-    // collapses `.`, pops `..`, then prefixes root. Never escapes root.
+    // jail paths under root
     let mut parts: Vec<&str> = Vec::new();
     for part in name.split('/') {
         if part.is_empty() || part == "." {
@@ -1898,16 +1882,9 @@ fn clean(name: &str, root: &str) -> String {
 }
 
 fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
-    // targets are rebased under --root, `..` normalised, escapes rejected.
-    // FIX 2026-09-20 RESOLVE-LINK-ROOT: absolute targets are stored verbatim
-    // (like pacman --root). The old code rebased them to include the host
-    // --root prefix (e.g. /silen/usr/lib/...) which is correct on the host
-    // but broken inside the chroot after boot; it also wrongly rejected
-    // valid absolute targets as "escapes". Only relative targets need the
-    // join+normalise escape check below.
+    // keep symlinks inside root
     if target.starts_with('/') {
-        // Normalise `..`/`.` without touching the fs; any absolute path is
-        // inside "/" by construction, so it can never escape the target root.
+
         let mut parts: Vec<&str> = Vec::new();
         for part in target.split('/') {
             if part.is_empty() || part == "." {
@@ -1923,10 +1900,10 @@ fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
         return target.to_string();
     }
     let scope = if root == "/" || root.is_empty() { "/".to_string() } else { root.trim_end_matches('/').to_string() };
-    // Only relative targets reach here (absolute returned above).
+
     let parent = Path::new(link_dest).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let abs = format!("{}/{}", parent.trim_end_matches('/'), target);
-    // normalize .. without touching fs
+
     let mut parts: Vec<&str> = Vec::new();
     for part in abs.split('/') {
         if part.is_empty() || part == "." {
