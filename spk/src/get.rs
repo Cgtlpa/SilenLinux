@@ -181,6 +181,7 @@ fn main() {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
+        let _rm_lock = take_lock(&layout_for(&root, user_mode, ""));
         // keep going and report failures at end
         let mut failed: Vec<String> = Vec::new();
         for name in &positional {
@@ -201,23 +202,28 @@ fn main() {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
+        let _get_lock = take_lock(&layout_for(&root, user_mode, ""));
         let mut done = HashSet::new();
         for name in &positional {
             let layout = layout_for(&root, user_mode, name);
             get_with_visited(name, &layout, &mut done);
         }
-    } else if args[1] == "find" || args[1] == "search" {
+    } else if args[1] == "find" {
         if positional.is_empty() {
             fail("usage: spk find <pattern> [--root DIR] [--user]");
         }
         let layout = layout_for(&root, user_mode, "");
         find::find_packages(&positional[0], &layout);
+    } else if args[1] == "search" {
+        let pattern = positional.first().map(|s| s.as_str()).unwrap_or("");
+        search_remote(pattern);
     } else if args[1] == "update" || args[1] == "upgrade" {
         for name in &positional {
             if !valid_name(name) {
                 fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
             }
         }
+        let _update_lock = take_lock(&layout_for(&root, user_mode, ""));
         if !upd::update_packages(&positional, &root, user_mode) {
             process::exit(1);
         }
@@ -231,7 +237,8 @@ fn usage() {
     eprintln!("  spk get <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk rm <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk update [<package>...] [--root DIR] [--user]");
-    eprintln!("  spk find <pattern> [--root DIR] [--user]");
+    eprintln!("  spk find <pattern>          search installed packages");
+    eprintln!("  spk search [pattern]        search the remote package index");
     eprintln!("  spk list [--root DIR] [--user]");
     eprintln!("  spk self-update [--check]    update spk itself from its release feed");
     eprintln!();
@@ -290,6 +297,181 @@ pub(crate) fn valid_name(name: &str) -> bool {
         }
     }
     !(name.contains("..") || name.contains('/'))
+}
+
+struct InstallLock {
+    path: String,
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn lock_path(layout: &Layout) -> String {
+    if layout.user_mode {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let dir = format!("{}/.cache/spk", home.trim_end_matches('/'));
+        let _ = fs::create_dir_all(&dir);
+        return format!("{}/lock", dir);
+    }
+    let run = if layout.root == "/" {
+        "/run".to_string()
+    } else {
+        format!("{}/run", layout.root)
+    };
+    if Path::new(&run).is_dir() {
+        format!("{}/spk.lock", run)
+    } else {
+        "/tmp/spk.lock".to_string()
+    }
+}
+
+fn take_lock(layout: &Layout) -> InstallLock {
+    let path = lock_path(layout);
+    if let Ok(text) = fs::read_to_string(&path) {
+        let pid = text.trim().parse::<u32>().unwrap_or(0);
+        if pid > 0 && Path::new(&format!("/proc/{}", pid)).exists() {
+            fail(&format!("another spk is running (pid {}), lock: {}", pid, path));
+        }
+        let _ = fs::remove_file(&path);
+    }
+    match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(mut file) => {
+            let _ = write!(file, "{}", process::id());
+        }
+        Err(err) => fail(&format!("cannot take the install lock {}: {}", path, err)),
+    }
+    InstallLock { path }
+}
+
+fn archive_bytes(archive: &str) -> Option<u64> {
+    let file = fs::File::open(archive).ok()?;
+    let reader: Box<dyn Read> = if is_gzip(archive) {
+        Box::new(flate2::read::GzDecoder::new(file))
+    } else {
+        Box::new(file)
+    };
+    let mut tar = tar::Archive::new(reader);
+    let mut total: u64 = 0;
+    for entry in tar.entries().ok()? {
+        let entry = entry.ok()?;
+        total += entry.header().size().unwrap_or(0);
+    }
+    Some(total)
+}
+
+fn available_bytes(dir: &str) -> Option<u64> {
+    let out = process::Command::new("df").arg("-Pk").arg(dir).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let field = text.lines().nth(1)?.split_whitespace().nth(3)?;
+    field.parse::<u64>().ok().map(|kb| kb.saturating_mul(1024))
+}
+
+fn existing_dir(path: &str) -> String {
+    let mut probe = Path::new(path).to_path_buf();
+    loop {
+        if probe.is_dir() {
+            return probe.display().to_string();
+        }
+        match probe.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => probe = parent.to_path_buf(),
+            _ => return "/".to_string(),
+        }
+    }
+}
+
+fn ensure_space(archive: &str, dest: &str) {
+    const MARGIN: u64 = 32 * 1024 * 1024;
+    let need = match archive_bytes(archive) {
+        Some(need) => need,
+        None => return,
+    };
+    let probe = existing_dir(dest);
+    let avail = match available_bytes(&probe) {
+        Some(avail) => avail,
+        None => return,
+    };
+    if need + MARGIN > avail {
+        fail(&format!(
+            "not enough disk space in {}: need about {} MiB, {} MiB free",
+            probe,
+            (need + MARGIN) / 1048576,
+            avail / 1048576
+        ));
+    }
+}
+
+fn boot_payload_bytes(archive: &str) -> u64 {
+    let file = match fs::File::open(archive) {
+        Ok(file) => file,
+        Err(_) => return 0,
+    };
+    let reader: Box<dyn Read> = if is_gzip(archive) {
+        Box::new(flate2::read::GzDecoder::new(file))
+    } else {
+        Box::new(file)
+    };
+    let mut tar = tar::Archive::new(reader);
+    let mut total: u64 = 0;
+    let entries = match tar.entries() {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+    for entry in entries.flatten() {
+        let kind = entry.header().entry_type();
+        if kind.is_pax_global_extensions() || kind.is_pax_local_extensions() || kind.is_gnu_longname() || kind.is_gnu_longlink() {
+            continue;
+        }
+        let name = match entry.path() {
+            Ok(path) => path.to_string_lossy().to_string(),
+            Err(_) => continue,
+        };
+        let mut parts: Vec<&str> = Vec::new();
+        for part in name.split('/') {
+            if part.is_empty() || part == "." {
+                continue;
+            }
+            if part == ".." {
+                parts.pop();
+                continue;
+            }
+            parts.push(part);
+        }
+        if parts.first() == Some(&"boot") {
+            total += entry.header().size().unwrap_or(0);
+        }
+    }
+    total
+}
+
+fn ensure_boot_space(archive: &str, root: &str) {
+    const MARGIN: u64 = 32 * 1024 * 1024;
+    let need = boot_payload_bytes(archive);
+    if need == 0 {
+        return;
+    }
+    let boot = format!("{}/boot", root.trim_end_matches('/'));
+    let probe = existing_dir(&boot);
+    let avail = match available_bytes(&probe) {
+        Some(avail) => avail,
+        None => return,
+    };
+    if need + MARGIN > avail {
+        fail(&format!(
+            "kernel/initramfs payload needs about {} MiB but {} has only {} MiB free",
+            (need + MARGIN) / 1048576,
+            probe,
+            avail / 1048576
+        ));
+    }
+    println!(
+        "spk: kernel/initramfs payload ({} MiB) fits on {} ({} MiB free)",
+        need / 1048576,
+        probe,
+        avail / 1048576
+    );
 }
 
 fn check(result: std::io::Result<()>, what: &str) {
@@ -523,6 +705,10 @@ fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
         }
         layout.pkgdir.as_str()
     };
+    ensure_space(&layout.tmp, payload_base);
+    if system {
+        ensure_boot_space(&layout.tmp, payload_base);
+    }
     let installed = extract(&layout.tmp, payload_base, system);
     let _ = fs::remove_file(&layout.tmp);
 
@@ -1089,6 +1275,25 @@ fn list(layout: &Layout) {
     }
 }
 
+fn http_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(20)))
+        .timeout_resolve(Some(std::time::Duration::from_secs(20)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
+        .build();
+    config.into()
+}
+
+fn download_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(20)))
+        .timeout_resolve(Some(std::time::Duration::from_secs(20)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
+        .timeout_recv_body(Some(std::time::Duration::from_secs(600)))
+        .build();
+    config.into()
+}
+
 fn http_get(url: &str) -> String {
     match http_get_opt(url) {
         Some(text) => text,
@@ -1100,7 +1305,7 @@ pub(crate) fn http_get_opt(url: &str) -> Option<String> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        match ureq::get(url).call() {
+        match http_agent().get(url).call() {
             Ok(mut response) => {
                 if response.status().as_u16() != 200 {
                     return None;
@@ -1130,15 +1335,15 @@ struct IndexEntry {
     category: String,
     version: String,
     description: String,
+    system: bool,
 }
 
 fn parse_index(text: &str) -> Vec<IndexEntry> {
     let mut out = Vec::new();
-    let arr = match text.find("\"packages\"") {
-        Some(pos) => pos,
-        None => return out,
+    let rest = match text.find("\"packages\"") {
+        Some(pos) => &text[pos..],
+        None => text,
     };
-    let rest = &text[arr..];
     let open = match rest.find('[') {
         Some(pos) => pos,
         None => return out,
@@ -1167,6 +1372,10 @@ fn parse_index(text: &str) -> Vec<IndexEntry> {
                                 category: read_field(obj, "category"),
                                 version: read_field(obj, "version"),
                                 description: read_field(obj, "description"),
+                                system: matches!(
+                                    read_field(obj, "system").to_ascii_lowercase().as_str(),
+                                    "true" | "1" | "yes" | "y"
+                                ),
                             });
                         }
                     }
@@ -1200,7 +1409,7 @@ pub(crate) fn resolve_package(base: &str, name: &str) -> (String, String, String
             .collect();
     }
     if matched.is_empty() {
-        fail(&format!("no package named {} (check spelling with the repo index)", name));
+        fail(&format!("no package named {} (try: spk search {})", name, name));
     }
     if matched.len() == 1 {
         let entry = matched[0];
@@ -1227,6 +1436,50 @@ pub(crate) fn resolve_package(base: &str, name: &str) -> (String, String, String
         eprintln!("enter a number between 1 and {}", matched.len());
     }
     fail(&format!("no choice made for {}", name));
+}
+
+fn search_remote(pattern: &str) {
+    let base = base_url();
+    let text = match http_get_opt(&format!("{}/index.json", base)) {
+        Some(text) => text,
+        None => fail(&format!("cannot fetch {}/index.json (network down?)", base)),
+    };
+    let mut entries = parse_index(&text);
+    if !pattern.is_empty() {
+        let needle = pattern.to_ascii_lowercase();
+        entries.retain(|e| {
+            e.name.to_ascii_lowercase().contains(&needle)
+                || e.description.to_ascii_lowercase().contains(&needle)
+                || e.category.to_ascii_lowercase().contains(&needle)
+        });
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    if entries.is_empty() {
+        println!("spk: no packages match {:?}", pattern);
+        return;
+    }
+    for entry in &entries {
+        let version = if entry.version.is_empty() {
+            String::new()
+        } else {
+            format!(" v{}", entry.version)
+        };
+        let category = if entry.category.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", entry.category)
+        };
+        let kind = if entry.system { "system" } else { "app" };
+        println!(
+            "  {}{}{} ({}) {}",
+            paint("1;36", &entry.name),
+            paint("1", &version),
+            paint("1;33", &category),
+            kind,
+            entry.description
+        );
+    }
+    println!("spk: {} package(s)", entries.len());
 }
 
 fn manifest_category(manifest: &str) -> String {
@@ -1425,6 +1678,22 @@ mod self_update_tests {
     }
 
     #[test]
+    fn flat_index_arrays_parse_with_system_flag() {
+        let flat = r#"[
+            {"name": "golang", "version": "1.27.2-r1", "system": true, "category": "dev-lang", "description": "Go toolchain"},
+            {"name": "jq", "version": "1.8.1-r1", "system": false, "description": "JSON processor"}
+        ]"#;
+        let entries = parse_index(flat);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "golang");
+        assert!(entries[0].system);
+        assert_eq!(entries[0].category, "dev-lang");
+        assert!(!entries[1].system);
+        let wrapped = r#"{"packages": [{"name": "jq", "category": "app-misc"}]}"#;
+        assert_eq!(parse_index(wrapped).len(), 1);
+    }
+
+    #[test]
     fn shared_library_names_are_not_commands() {
         assert!(is_shared_lib("libefivar.so.1"));
         assert!(is_shared_lib("Cwd.so"));
@@ -1547,7 +1816,7 @@ fn print_progress(done: u64, total: Option<u64>) {
 }
 
 fn fetch_part(part_url: &str, dst: &str) -> PartFetch {
-    let mut response = match ureq::get(part_url).call() {
+    let mut response = match download_agent().get(part_url).call() {
         Ok(response) => response,
         Err(ureq::Error::StatusCode(404)) => return PartFetch::NotFound,
         Err(err) => return PartFetch::Transient(err.to_string()),
