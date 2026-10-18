@@ -32,7 +32,7 @@ installer/lib/                Modular installer, sourced in order:
   00-common.sh  cleanup + traps
   10-medium.sh  find/scan install medium, Ventoy ISO loop-mount support
   20-ui.sh      offline menu (Install/Shell/Reboot)
-  30-partition.sh  GPT: ESP 1MiB-513MiB fat32 + root (ext4/btrfs/fat32). Handles nvme/mmcblk pN naming.
+  30-partition.sh  GPT: ESP 1MiB-1GiB fat32 + root (ext4/btrfs/fat32). Handles nvme/mmcblk pN naming.
   40-base.sh    mount target, extract tarball
   50-settings.sh hostname/root/user/fstype/locale/keymap/timezone/swapfile
   60-system.sh  permissions, elogind, quiet OpenRC, motd, silenfetch alias
