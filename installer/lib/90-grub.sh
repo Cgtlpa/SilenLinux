@@ -1,3 +1,13 @@
+find_boot_entry() {
+	local guid="$1" line
+	[[ -n "$guid" ]] || return 0
+	while IFS= read -r line; do
+		[[ "$(echo "$line" | tr -d '-' | tr 'a-f' 'A-F')" == *"$guid"* ]] || continue
+		echo "$line" | sed 's/^Boot\([0-9A-Fa-f]*\).*/\1/'
+		return 0
+	done < <(efibootmgr -v 2>/dev/null | grep -i silen || true)
+}
+
 setup-grub() {
 	if [[ -f /mnt/boot/vmlinuz ]]; then
 		if ! cp /mnt/boot/vmlinuz "$ROOT_PATH"/boot/vmlinuz 2>/dev/null; then
@@ -99,27 +109,34 @@ EOF
 		esac
 		chroot "$ROOT_PATH" /bin/bash -c "PATH=/usr/local/sbin:/usr/local/bin:\$PATH LD_LIBRARY_PATH=/usr/local/lib /usr/local/sbin/grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=Silen" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || chroot "$ROOT_PATH" /bin/bash -c "grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=Silen" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 		cp "$ROOT_PATH/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
+		if [[ -d /sys/firmware/efi/efivars ]] && ! grep -q 'efivarfs /sys/firmware/efi/efivars' /proc/mounts; then
+			mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
+		fi
 		if command -v efibootmgr >/dev/null 2>&1 && [[ -n "$_silen_disk" ]] && [[ -n "$_silen_part" ]] && [[ -b "$_silen_disk" ]]; then
-			_silen_bootnum="$(efibootmgr 2>/dev/null | grep -i 'silen' | head -n1 | sed 's/^Boot\([0-9A-Fa-f]*\).*/\1/' || true)"
+			_silen_guid="$(blkid -s PARTUUID -o value "$bootp" 2>/dev/null | tr -d '-' | tr 'a-f' 'A-F' || true)"
+			_silen_bootnum="$(find_boot_entry "$_silen_guid")"
 			if [[ -z "$_silen_bootnum" ]]; then
 				if [[ -f "$ROOT_PATH/boot/EFI/Silen/grubx64.efi" ]]; then
-					efibootmgr --create --disk "$_silen_disk" --part "$_silen_part" --label "Silen Linux" --loader '\EFI\Silen\grubx64.efi' >/dev/null 2>&1 || true
+					efibootmgr --create --disk "$_silen_disk" --part "$_silen_part" --label "Silen Linux" --loader '\EFI\Silen\grubx64.efi' >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 				elif [[ -f "$ROOT_PATH/boot/EFI/BOOT/BOOTX64.EFI" ]]; then
-					efibootmgr --create --disk "$_silen_disk" --part "$_silen_part" --label "Silen Linux" --loader '\EFI\BOOT\BOOTX64.EFI' >/dev/null 2>&1 || true
+					efibootmgr --create --disk "$_silen_disk" --part "$_silen_part" --label "Silen Linux" --loader '\EFI\BOOT\BOOTX64.EFI' >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 				fi
-				_silen_bootnum="$(efibootmgr 2>/dev/null | grep -i 'silen' | head -n1 | sed 's/^Boot\([0-9A-Fa-f]*\).*/\1/' || true)"
+				_silen_bootnum="$(find_boot_entry "$_silen_guid")"
+				[[ -n "$_silen_bootnum" ]] || _silen_bootnum="$(efibootmgr 2>/dev/null | grep -i 'silen' | head -n1 | sed 's/^Boot\([0-9A-Fa-f]*\).*/\1/' || true)"
 			fi
 			if [[ -n "$_silen_bootnum" ]]; then
 				_silen_order="$(efibootmgr 2>/dev/null | grep '^BootOrder:' | head -n1 | sed 's/^BootOrder: *//' || true)"
 				_silen_rest="$(echo "$_silen_order" | tr ',' '\n' | grep -v -i "^$_silen_bootnum$" | tr '\n' ',' | sed 's/,$//' | sed 's/^,//' || true)"
 				if [[ -n "$_silen_rest" ]]; then
-					efibootmgr -o "$_silen_bootnum,$_silen_rest" >/dev/null 2>&1 || true
+					efibootmgr -o "$_silen_bootnum,$_silen_rest" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 				else
-					efibootmgr -o "$_silen_bootnum" >/dev/null 2>&1 || true
+					efibootmgr -o "$_silen_bootnum" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 				fi
+				echo "boot priority: entry $_silen_bootnum (installed disk) set first" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 			fi
+			cp "$ROOT_PATH/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
 		else
-			echo "efibootmgr missing in live env, boot order left unchanged" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
+			echo "efibootmgr or efivars unavailable in live env, boot order left unchanged" >>"$ROOT_PATH/tmp/grub-install.log" 2>&1 || true
 			cp "$ROOT_PATH/tmp/grub-install.log" /tmp/grub-install.log 2>/dev/null || true
 		fi
 		if [[ -f /mnt/nvidia-auto ]] && [[ -f "$ROOT_PATH"/etc/modprobe.d/nvidia-disable-nouveau.conf ]]; then
