@@ -146,6 +146,67 @@ if [ -f /etc/bash_completion ]; then
 fi
 EOF
 	chmod 644 "$ROOT_PATH"/etc/bash.bashrc 2>/dev/null || true
+
+	mkdir -p "$ROOT_PATH"/etc/profile.d "$ROOT_PATH"/etc/sddm.conf.d "$ROOT_PATH"/usr/lib/silen "$ROOT_PATH"/etc/local.d 2>/dev/null || true
+	cat > "$ROOT_PATH"/etc/profile.d/flatpak.sh <<'EOF'
+if [ -z "${XDG_DATA_DIRS:-}" ]; then
+	XDG_DATA_DIRS="/usr/local/share:/usr/share"
+fi
+for dir in /var/lib/flatpak/exports/share "$HOME/.local/share/flatpak/exports/share"; do
+	case ":$XDG_DATA_DIRS:" in
+		*":$dir:"*) ;;
+		*) XDG_DATA_DIRS="$dir:$XDG_DATA_DIRS" ;;
+	esac
+done
+export XDG_DATA_DIRS
+EOF
+	chmod 644 "$ROOT_PATH"/etc/profile.d/flatpak.sh 2>/dev/null || true
+
+	cat > "$ROOT_PATH"/etc/sddm.conf.d/10-silen.conf <<'EOF'
+[General]
+DisplayServer=x11
+HaltCommand=/usr/bin/poweroff
+RebootCommand=/usr/bin/reboot
+InputMethod=
+
+[X11]
+ServerPath=/usr/bin/Xorg
+DisplayCommand=/usr/share/sddm/scripts/Xsetup
+DisplayStopCommand=/usr/share/sddm/scripts/Xstop
+SessionCommand=/usr/share/sddm/scripts/Xsession
+SessionDir=/usr/local/share/xsessions,/usr/share/xsessions
+
+[Wayland]
+SessionCommand=/usr/share/sddm/scripts/wayland-session
+SessionDir=/usr/local/share/wayland-sessions,/usr/share/wayland-sessions
+EOF
+	chmod 644 "$ROOT_PATH"/etc/sddm.conf.d/10-silen.conf 2>/dev/null || true
+
+	cat > "$ROOT_PATH"/usr/lib/silen/repair-libs.sh <<'EOF'
+#!/bin/sh
+R="${SPK_ROOT:-/}"
+[ "$R" = "/" ] && R=""
+d="$R/usr/lib64"
+[ -e "$d/libfontconfig.so.1.17.0" ] && ln -sf libfontconfig.so.1.17.0 "$d/libfontconfig.so.1"
+[ -e "$d/libEGL.so.1.1.0" ] && ln -sf libEGL.so.1.1.0 "$d/libEGL.so.1"
+[ -e "$d/libGLdispatch.so.0.0.0" ] && ln -sf libGLdispatch.so.0.0.0 "$d/libGLdispatch.so.0"
+[ -e "$d/libOpenGL.so.0.0.0" ] && ln -sf libOpenGL.so.0.0.0 "$d/libOpenGL.so.0"
+[ -e "$d/libGLX.so.0.0.0" ] && ln -sf libGLX.so.0.0.0 "$d/libGLX.so.0"
+[ -e "$R/usr/bin/Xorg" ] && ln -sf Xorg "$R/usr/bin/X"
+if [ -z "$R" ]; then
+	command -v ldconfig >/dev/null 2>&1 && ldconfig >/dev/null 2>&1
+else
+	command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$R" >/dev/null 2>&1
+fi
+exit 0
+EOF
+	chmod 755 "$ROOT_PATH"/usr/lib/silen/repair-libs.sh 2>/dev/null || true
+
+	cat > "$ROOT_PATH"/etc/local.d/silen-repair-libs.start <<'EOF'
+#!/bin/sh
+[ -x /usr/lib/silen/repair-libs.sh ] && /usr/lib/silen/repair-libs.sh
+EOF
+	chmod 755 "$ROOT_PATH"/etc/local.d/silen-repair-libs.start 2>/dev/null || true
 }
 
 create-user() {

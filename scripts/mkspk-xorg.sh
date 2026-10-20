@@ -7,7 +7,8 @@ trap 'rc=$?; echo; echo "!! mkspk-xorg stopped with an error (exit $rc at line $
 
 DLDIR="${DLDIR:-spk-pkgs/dl}"
 PKGDIR="${PKGDIR:-spk-pkgs/packages}"
-SNAPVER="${SNAPVER:-20261007}"
+SNAPVER="${SNAPVER:-20261020}"
+ARCH_MIRROR="${ARCH_MIRROR:-https://geo.mirror.pkgbuild.com}"
 
 usage() {
 	echo "usage: mkspk-xorg.sh <pkg> [pkg...] | mkspk-xorg.sh all" >&2
@@ -16,6 +17,7 @@ usage() {
 }
 
 [ $# -ge 1 ] || usage
+mkdir -p "$DLDIR" "$PKGDIR" || exit 1
 
 gpkg_img() {
 	_g="$1"
@@ -27,6 +29,25 @@ gpkg_img() {
 	_img="$(find "$_tmp" -name 'image.tar.*' ! -name '*.sig' | head -n 1)"
 	[ -n "$_img" ] || { echo "  ERROR no image in $1"; rm -rf "$_tmp" 2>/dev/null || true; exit 1; }
 	printf '%s %s\n' "$_tmp" "$_img"
+}
+
+arch_pkg() {
+	_repo="$1"
+	_file="$2"
+	_path="$DLDIR/$_file"
+	if [ ! -f "$_path" ]; then
+		echo "  fetching $_file" >&2
+		curl -fsSL --max-time 600 -o "$_path" "$ARCH_MIRROR/$_repo/os/x86_64/$_file" || { echo "  ERROR cannot fetch $_file" >&2; exit 1; }
+	fi
+	printf '%s' "$_path"
+}
+
+arch_extract() {
+	_pkg="$(arch_pkg "$1" "$2")"
+	_tmp="$(mktemp -d /tmp/opencode/ax.XXXXXX 2>/dev/null || echo /tmp/opencode/ax.$$)"
+	mkdir -p "$_tmp" || exit 1
+	tar -xf "$_pkg" -C "$_tmp" || { echo "  ERROR cannot unpack $2"; rm -rf "$_tmp" 2>/dev/null || true; exit 1; }
+	printf '%s' "$_tmp"
 }
 
 harvest_bins() {
@@ -90,6 +111,9 @@ harvest_tree() {
 pack() {
 	_name="$1"
 	_version="$2"
+	_desc="${3:-}"
+	_cat="${4:-}"
+	_extra="${5:-}"
 	mkdir -p "$PKGDIR/$_name" || exit 1
 	_members=""
 	for _m in usr etc; do
@@ -99,7 +123,11 @@ pack() {
 	[ -n "$_members" ] || { echo "  ERROR empty payload for $_name"; exit 1; }
 	tar -czpf "$PKGDIR/$_name/$_name.spk" -C "$STAGE" $_members || { echo "  ERROR tar failed"; exit 1; }
 	_s="$(sha256sum "$PKGDIR/$_name/$_name.spk" | awk '{print $1}')"
-	printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s"}' "$_name" "$_s" "$_version" > "$PKGDIR/$_name/package.json"
+	if [ -n "$_desc" ]; then
+		printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "category": "%s", "description": "%s"%s}' "$_name" "$_s" "$_version" "$_cat" "$_desc" "$_extra" > "$PKGDIR/$_name/package.json"
+	else
+		printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s"}' "$_name" "$_s" "$_version" > "$PKGDIR/$_name/package.json"
+	fi
 	echo "$_name $_version $(du -h "$PKGDIR/$_name/$_name.spk" | cut -f1)"
 }
 
@@ -108,7 +136,7 @@ fresh_stage() {
 	mkdir -p "$STAGE" || exit 1
 }
 
-so_gpkgs="libX11-1.8.13-2.gpkg.tar libXau-1.0.12-9.gpkg.tar libXdmcp-1.1.5-11.gpkg.tar libXext-1.3.7-2.gpkg.tar libXfont2-2.0.9-1.gpkg.tar libXft-2.3.9-6.gpkg.tar libXmu-1.3.1-1.gpkg.tar libXrender-0.9.12-9.gpkg.tar libXt-1.3.1-r1-8.gpkg.tar libXxf86vm-1.1.7-2.gpkg.tar libSM-1.2.6-6.gpkg.tar libICE-1.1.2-8.gpkg.tar libxcb-1.17.0-14.gpkg.tar libpciaccess-0.19-1.gpkg.tar libxshmfence-1.3.3-8.gpkg.tar libxcvt-0.1.3-7.gpkg.tar libfontenc-1.1.9-1.gpkg.tar libxkbfile-1.2.0-1.gpkg.tar pixman-0.46.4-7.gpkg.tar libepoxy-1.5.10-r3-10.gpkg.tar libpng-1.6.58-2.gpkg.tar freetype-2.14.3-7.gpkg.tar fontconfig-2.18.3-1.gpkg.tar brotli-1.2.0-r1-3.gpkg.tar libbsd-0.11.8-7.gpkg.tar libevdev-1.13.6-7.gpkg.tar libinput-1.31.3-1.gpkg.tar mtdev-1.1.7-6.gpkg.tar dbus-1.16.2-24.gpkg.tar libglvnd-1.7.0-13.gpkg.tar openssl-3.5.8-1.gpkg.tar systemd-261.2-1.gpkg.tar libgudev-238-r2-8.gpkg.tar"
+so_gpkgs="libX11-1.8.13-2.gpkg.tar libXau-1.0.12-9.gpkg.tar libXdmcp-1.1.5-11.gpkg.tar libXext-1.3.7-2.gpkg.tar libXfont2-2.0.9-1.gpkg.tar libXft-2.3.9-6.gpkg.tar libXmu-1.3.1-1.gpkg.tar libXrender-0.9.12-9.gpkg.tar libXt-1.3.1-r1-8.gpkg.tar libXxf86vm-1.1.7-2.gpkg.tar libSM-1.2.6-6.gpkg.tar libICE-1.1.2-8.gpkg.tar libxcb-1.17.0-14.gpkg.tar libpciaccess-0.19-1.gpkg.tar libxshmfence-1.3.3-8.gpkg.tar libxcvt-0.1.3-7.gpkg.tar libfontenc-1.1.9-1.gpkg.tar libxkbfile-1.2.0-1.gpkg.tar pixman-0.46.4-7.gpkg.tar libepoxy-1.5.10-r3-10.gpkg.tar libpng-1.6.58-2.gpkg.tar freetype-2.14.3-7.gpkg.tar fontconfig-2.18.3-1.gpkg.tar brotli-1.2.0-r1-3.gpkg.tar libbsd-0.11.8-7.gpkg.tar libevdev-1.13.6-7.gpkg.tar libinput-1.31.3-1.gpkg.tar mtdev-1.1.7-6.gpkg.tar dbus-1.16.2-24.gpkg.tar libglvnd-1.7.0-13.gpkg.tar openssl-3.5.8-1.gpkg.tar systemd-261.2-1.gpkg.tar libgudev-238-r2-8.gpkg.tar lzo-2.10-6.gpkg.tar"
 
 build_xorg_libs() {
 	fresh_stage
@@ -127,13 +155,98 @@ build_xorg_libs() {
 	set -- $(gpkg_img "fontconfig-2.18.3-1.gpkg.tar")
 	_tmp="$1"
 	_img="$2"
-	harvest_bins "$STAGE" "$_img" fc-cache fc-list fc-match
+	harvest_bins "$STAGE" "$_img" fc-cache fc-list fc-match fc-validate x86_64-pc-linux-gnu-fc-cache
+	harvest_tree "$STAGE" "$_img" "etc/fonts"
 	rm -rf "$_tmp" 2>/dev/null || true
-	printf 'GROUP ( libGLX_mesa.so.0 libGLdispatch.so.0 )\n' > "$STAGE/usr/lib64/libGL.so.1" || exit 1
+	set -- $(gpkg_img "brotli-1.2.0-r1-3.gpkg.tar")
+	_tmp="$1"
+	_img="$2"
+	harvest_tree "$STAGE" "$_img" "usr/lib64/libbrotli"
+	rm -rf "$_tmp" 2>/dev/null || true
+	set -- $(gpkg_img "dbus-1.16.2-24.gpkg.tar")
+	_tmp="$1"
+	_img="$2"
+	harvest_bins "$STAGE" "$_img" dbus-daemon dbus-launch dbus-run-session dbus-uuidgen
+	harvest_tree "$STAGE" "$_img" "usr/share/dbus-1"
+	harvest_tree "$STAGE" "$_img" "usr/lib64/libdbus-1"
+	rm -rf "$_tmp" 2>/dev/null || true
+	_glv="$(arch_extract extra libglvnd-1.7.0-3-x86_64.pkg.tar.zst)"
+	mkdir -p "$STAGE/usr/lib64" || exit 1
+	cp -a "$_glv/usr/lib/"libGL*.so* "$_glv/usr/lib/"libEGL*.so* "$_glv/usr/lib/"libOpenGL*.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libglvnd"; exit 1; }
+	rm -rf "$_glv" 2>/dev/null || true
+	_audit="$(arch_extract core audit-4.2.1-1-x86_64.pkg.tar.zst)"
+	cp -a "$_audit/usr/lib/"libaudit.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libaudit"; exit 1; }
+	rm -rf "$_audit" 2>/dev/null || true
+	_capng="$(arch_extract core libcap-ng-0.9.6-1-x86_64.pkg.tar.zst)"
+	cp -a "$_capng/usr/lib/"libcap-ng.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libcap-ng"; exit 1; }
+	rm -rf "$_capng" 2>/dev/null || true
+	mkdir -p "$STAGE/etc/fonts/conf.d" || exit 1
+	cat > "$STAGE/etc/fonts/conf.d/30-silen-common-families.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+	<alias binding="same"><family>Helvetica</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Helvetica Neue</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Arial</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Roboto</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Segoe UI</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Cantarell</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>Font Awesome</family><prefer><family>Noto Sans</family><family>Symbols Nerd Font Mono</family></prefer></alias>
+	<alias binding="same"><family>FontAwesome</family><prefer><family>Noto Sans</family><family>Symbols Nerd Font Mono</family></prefer></alias>
+</fontconfig>
+EOF
+	cat > "$STAGE/etc/fonts/conf.d/49-silen-generics.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+	<alias binding="same"><family>sans-serif</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>sans</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>serif</family><prefer><family>Noto Serif</family><family>DejaVu Serif</family></prefer></alias>
+	<alias binding="same"><family>monospace</family><prefer><family>JetBrains Mono</family><family>Noto Sans Mono</family><family>DejaVu Sans Mono</family></prefer></alias>
+	<alias binding="same"><family>mono</family><prefer><family>JetBrains Mono</family><family>Noto Sans Mono</family><family>DejaVu Sans Mono</family></prefer></alias>
+	<alias binding="same"><family>system-ui</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<alias binding="same"><family>system</family><prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>
+	<match target="pattern"><test name="family" qual="any"><string>sans-serif</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>sans-serif</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>sans</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>sans-serif</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>serif</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>serif</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>monospace</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>mono</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>mono</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>mono</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>system-ui</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>system-ui</const></edit></match>
+	<match target="pattern"><test name="family" qual="any"><string>system</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>system-ui</const></edit></match>
+</fontconfig>
+EOF
+	cat > "$STAGE/etc/fonts/conf.d/50-silen-emoji.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+	<alias binding="same"><family>emoji</family><prefer><family>Noto Color Emoji</family></prefer></alias>
+	<match target="pattern"><test name="family" qual="any"><string>emoji</string></test><edit name="genericfamily" mode="assign" binding="strong"><const>emoji</const></edit></match>
+</fontconfig>
+EOF
+	mkdir -p "$STAGE/etc/profile.d" || exit 1
+	cat > "$STAGE/etc/profile.d/flatpak.sh" <<'EOF'
+if [ -z "${XDG_DATA_DIRS:-}" ]; then
+	XDG_DATA_DIRS="/usr/local/share:/usr/share"
+fi
+for dir in /var/lib/flatpak/exports/share "$HOME/.local/share/flatpak/exports/share"; do
+	case ":$XDG_DATA_DIRS:" in
+		*":$dir:"*) ;;
+		*) XDG_DATA_DIRS="$dir:$XDG_DATA_DIRS" ;;
+	esac
+done
+export XDG_DATA_DIRS
+EOF
+	chmod 644 "$STAGE/etc/profile.d/flatpak.sh" || exit 1
+	_mime="$(arch_extract extra shared-mime-info-2.5.1-2-x86_64.pkg.tar.zst)"
+	command -v update-mime-database >/dev/null 2>&1 || { echo "  ERROR update-mime-database missing (install shared-mime-info)"; exit 1; }
+	mkdir -p "$STAGE/usr/share/mime" || exit 1
+	cp -a "$_mime/usr/share/mime/packages" "$STAGE/usr/share/mime/" || { echo "  ERROR cannot copy mime packages"; exit 1; }
+	XDG_DATA_DIRS="$STAGE/usr/share" update-mime-database "$STAGE/usr/share/mime" >/dev/null 2>&1 || { echo "  ERROR update-mime-database failed"; exit 1; }
+	rm -rf "$_mime" 2>/dev/null || true
 	if [ -d "$DLDIR/fedora-libs" ]; then
 		cp -a "$DLDIR/fedora-libs"/libwacom.so* "$STAGE/usr/lib64/" 2>/dev/null || true
 	fi
-	pack "xorg-libs" "$SNAPVER"
+	pack "xorg-libs" "$SNAPVER-r2" "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 
@@ -162,7 +275,8 @@ build_xorg_server() {
 	harvest_tree "$STAGE" "$_img" "usr/lib64/xorg"
 	harvest_tree "$STAGE" "$_img" "usr/share/X11/xorg.conf.d"
 	rm -rf "$_tmp" 2>/dev/null || true
-	pack "xorg-server" "21.1.24"
+	ln -sfn Xorg "$STAGE/usr/bin/X" || exit 1
+	pack "xorg-server" "21.1.24" "Xorg server 21.1 with modesetting driver" "x11-base" ', "depends": ["xorg-libs"]'
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 

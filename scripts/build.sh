@@ -499,6 +499,8 @@ fi
 [ -f /etc/ssl/openssl.cnf ] && cp /etc/ssl/openssl.cnf "$RAMROOT/etc/ssl/openssl.cnf" || true
 
 copy_app dbus-daemon  /usr/bin/dbus-daemon
+copy_app dbus-launch  /usr/bin/dbus-launch
+copy_app dbus-run-session /usr/bin/dbus-run-session
 mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
 # sbin tools live in /usr/bin in the ramroot; keep absolute /usr/sbin/* working too.
 for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
@@ -543,6 +545,7 @@ else
 	echo "  ! iwd dbus policy missing (D-Bus will deny iwd)"
 fi
 if [ -f /usr/share/dbus-1/system.conf ]; then sed -e '/<user>.*<\/user>/d' -e '/<fork\/>/d' /usr/share/dbus-1/system.conf > "$RAMROOT/usr/share/dbus-1/system.conf"; else echo "  ! dbus system.conf missing"; fi
+if [ -f /usr/share/dbus-1/session.conf ]; then cp /usr/share/dbus-1/session.conf "$RAMROOT/usr/share/dbus-1/session.conf"; else echo "  ! dbus session.conf missing"; fi
 
 mkdir -p "$RAMROOT/etc/iwd"
 cat > "$RAMROOT/etc/iwd/main.conf" <<'EOF'
@@ -1099,6 +1102,7 @@ for _np in \
 	usr/bin/iwd \
 	usr/bin/iwctl usr/bin/iwmon \
 	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
+	usr/bin/dbus-launch usr/bin/dbus-run-session \
 	usr/bin/rfkill usr/bin/iw \
 	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper \
 	usr/lib64 \

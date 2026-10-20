@@ -84,13 +84,14 @@ Root filesystems offered: BTRFS, ext4, FAT32 (whiptail menu).
 Source: `spk/` (`spk/Cargo.toml:1`, `spk/Makefile:1`).
 
 ```sh
-spk get <pkg...>     # install (e.g. spk get linux-firmware, spk get plasma-desktop)
+spk get <pkg...>     # install (e.g. spk get linux-firmware, spk get swaybg awww)
 spk find <pattern>   # search installed registry
 spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, hostname, ...)
 ```
 
 - System packages land in `/` (drivers, firmware, DEs, DMs — see `SYSTEM_EXACT` in `spk/src/get.rs:28`).
 - Leaf apps land isolated with shims, per-user with `--user`.
+- Wallpaper managers: `swaybg -i <image>` on wlroots compositors, or `awww-daemon &` plus `awww img <image>` (`swww` is a compatibility alias). Mango users can add `exec-once=awww-daemon` to `~/.config/mango/config.conf`.
 - Default package source: `https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages` (`spk/src/get.rs:15`). Override per-call with `SPK_BASE_URL=...`.
 
 ---

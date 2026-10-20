@@ -7,15 +7,17 @@ trap 'rc=$?; echo; echo "!! mkspk-wayland stopped with an error (exit $rc at lin
 
 DLDIR="${DLDIR:-spk-pkgs/dl}"
 PKGDIR="${PKGDIR:-spk-pkgs/packages}"
-SNAPVER="${SNAPVER:-20261007}"
+SNAPVER="${SNAPVER:-20261020}"
+ARCH_MIRROR="${ARCH_MIRROR:-https://geo.mirror.pkgbuild.com}"
 
 usage() {
 	echo "usage: mkspk-wayland.sh <pkg> [pkg...] | mkspk-wayland.sh all" >&2
-	echo "  pkgs: gtk-libs wl-libs wofi rofi alacritty kitty gtk3 libcjson cxx-libs pipewire waybar niri vulkan-loader wlroots scenefx seatd mango" >&2
+	echo "  pkgs: gtk-libs wl-libs wofi rofi alacritty kitty gtk3 libcjson cxx-libs pipewire waybar niri vulkan-loader wlroots scenefx seatd mango swaybg awww swww" >&2
 	exit 1
 }
 
 [ $# -ge 1 ] || usage
+mkdir -p "$DLDIR" "$PKGDIR" || exit 1
 
 gpkg_img() {
 	_g="$1"
@@ -27,6 +29,25 @@ gpkg_img() {
 	_img="$(find "$_tmp" -name 'image.tar.*' ! -name '*.sig' | head -n 1)"
 	[ -n "$_img" ] || { echo "  ERROR no image in $1"; rm -rf "$_tmp" 2>/dev/null || true; exit 1; }
 	printf '%s %s\n' "$_tmp" "$_img"
+}
+
+arch_pkg() {
+	_repo="$1"
+	_file="$2"
+	_path="$DLDIR/$_file"
+	if [ ! -f "$_path" ]; then
+		echo "  fetching $_file" >&2
+		curl -fsSL --max-time 600 -o "$_path" "$ARCH_MIRROR/$_repo/os/x86_64/$_file" || { echo "  ERROR cannot fetch $_file" >&2; exit 1; }
+	fi
+	printf '%s' "$_path"
+}
+
+arch_extract() {
+	_pkg="$(arch_pkg "$1" "$2")"
+	_tmp="$(mktemp -d /tmp/opencode/ax.XXXXXX 2>/dev/null || echo /tmp/opencode/ax.$$)"
+	mkdir -p "$_tmp" || exit 1
+	tar -xf "$_pkg" -C "$_tmp" || { echo "  ERROR cannot unpack $2"; rm -rf "$_tmp" 2>/dev/null || true; exit 1; }
+	printf '%s' "$_tmp"
 }
 
 harvest_bins() {
@@ -90,6 +111,8 @@ pack() {
 	_name="$1"
 	_version="$2"
 	_depends="$3"
+	_desc="${4:-}"
+	_cat="${5:-}"
 	mkdir -p "$PKGDIR/$_name" || exit 1
 	_members=""
 	for _m in usr etc; do
@@ -99,7 +122,11 @@ pack() {
 	[ -n "$_members" ] || { echo "  ERROR empty payload for $_name"; exit 1; }
 	tar -czpf "$PKGDIR/$_name/$_name.spk" -C "$STAGE" $_members || { echo "  ERROR tar failed"; exit 1; }
 	_s="$(sha256sum "$PKGDIR/$_name/$_name.spk" | awk '{print $1}')"
-	printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": [%s]}' "$_name" "$_s" "$_version" "$_depends" > "$PKGDIR/$_name/package.json"
+	if [ -n "$_desc" ]; then
+		printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": [%s], "category": "%s", "description": "%s"}' "$_name" "$_s" "$_version" "$_depends" "$_cat" "$_desc" > "$PKGDIR/$_name/package.json"
+	else
+		printf '{"filename": "%s.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": [%s]}' "$_name" "$_s" "$_version" "$_depends" > "$PKGDIR/$_name/package.json"
+	fi
 	echo "$_name $_version $(du -h "$PKGDIR/$_name/$_name.spk" | cut -f1)"
 }
 
@@ -108,7 +135,7 @@ fresh_stage() {
 	mkdir -p "$STAGE" || exit 1
 }
 
-gtk_so_gpkgs="glib-2.88.2-6.gpkg.tar cairo-1.18.4-r1-31.gpkg.tar pango-1.57.1-3.gpkg.tar harfbuzz-12.3.2-5.gpkg.tar fribidi-1.0.13-1.gpkg.tar graphite2-1.3.14_p20210810-r5-7.gpkg.tar gdk-pixbuf-2.44.7-2.gpkg.tar atk-2.46.0-1.gpkg.tar at-spi2-core-2.58.8-5.gpkg.tar libjpeg-turbo-3.1.3-7.gpkg.tar tiff-4.7.1-8.gpkg.tar libwebp-1.4.0-7.gpkg.tar libfmt-12.1.0-6.gpkg.tar spdlog-1.17.0-3.gpkg.tar libxml2-compat-2.13.9-1.gpkg.tar lcms-2.19.1-2.gpkg.tar icu-78.3-6.gpkg.tar"
+gtk_so_gpkgs="glib-2.88.2-6.gpkg.tar pango-1.57.1-3.gpkg.tar harfbuzz-12.3.2-5.gpkg.tar fribidi-1.0.13-1.gpkg.tar graphite2-1.3.14_p20210810-r5-7.gpkg.tar gdk-pixbuf-2.44.7-2.gpkg.tar atk-2.46.0-1.gpkg.tar at-spi2-core-2.58.8-5.gpkg.tar libjpeg-turbo-3.1.3-7.gpkg.tar tiff-4.7.1-8.gpkg.tar libwebp-1.4.0-7.gpkg.tar libfmt-12.1.0-6.gpkg.tar spdlog-1.17.0-3.gpkg.tar libxml2-compat-2.13.9-1.gpkg.tar lcms-2.19.1-2.gpkg.tar icu-78.3-6.gpkg.tar"
 
 build_gtk_libs() {
 	fresh_stage
@@ -119,6 +146,10 @@ build_gtk_libs() {
 		harvest_solist "$STAGE" "$_img" "usr/lib64"
 		rm -rf "$_tmp" 2>/dev/null || true
 	done
+	_cairo="$(arch_extract extra cairo-1.18.6-1-x86_64.pkg.tar.zst)"
+	mkdir -p "$STAGE/usr/lib64" || exit 1
+	cp -a "$_cairo/usr/lib/"libcairo*.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy cairo"; exit 1; }
+	rm -rf "$_cairo" 2>/dev/null || true
 	set -- $(gpkg_img "gdk-pixbuf-2.44.7-2.gpkg.tar")
 	_tmp="$1"
 	_img="$2"
@@ -131,7 +162,7 @@ build_gtk_libs() {
 	if [ -d "$DLDIR/fedora-libs" ]; then
 		cp -a "$DLDIR/fedora-libs"/libthai.so* "$DLDIR/fedora-libs"/libdatrie.so* "$STAGE/usr/lib64/" 2>/dev/null || true
 	fi
-	pack "gtk-libs" "$SNAPVER" '"xorg-libs"'
+	pack "gtk-libs" "$SNAPVER" '"xorg-libs"' "glib, cairo (Xlib/XCB), pango, harfbuzz, gdk-pixbuf and font runtimes" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 
@@ -318,7 +349,31 @@ build_cxx_libs() {
 		harvest_solist "$STAGE" "$_img" "usr/lib64"
 		rm -rf "$_tmp" 2>/dev/null || true
 	done
-	pack "cxx-libs" "20261007" '"gtk-libs", "xorg-libs"'
+	_gcc="$(arch_extract core libstdc++-16.2.1+r23+gd564253eb6c8-1-x86_64.pkg.tar.zst)"
+	mkdir -p "$STAGE/usr/lib/silen/cxx" "$STAGE/usr/lib/spk" || exit 1
+	cp -a "$_gcc/usr/lib/libstdc++.so.6.0.36" "$STAGE/usr/lib/silen/cxx/gcc16-libstdc++.so.6.0.36" || { echo "  ERROR cannot copy libstdc++"; exit 1; }
+	ln -sfn gcc16-libstdc++.so.6.0.36 "$STAGE/usr/lib/silen/cxx/gcc16-libstdc++.so.6" || exit 1
+	rm -rf "$_gcc" 2>/dev/null || true
+	cat > "$STAGE/usr/lib/spk/postinstall" <<'EOF'
+#!/bin/sh
+R="${SPK_ROOT:-/}"
+[ "$R" = "/" ] && R=""
+s="$R/usr/lib/silen/cxx"
+[ -f "$s/gcc16-libstdc++.so.6.0.36" ] || exit 0
+for d in "$R/usr/lib64" "$R/usr/lib/gcc/x86_64-pc-linux-gnu/15"; do
+	mkdir -p "$d" || exit 1
+	cp -f "$s/gcc16-libstdc++.so.6.0.36" "$d/libstdc++.so.6.0.36" || exit 1
+	ln -sfn libstdc++.so.6.0.36 "$d/libstdc++.so.6" || exit 1
+done
+if [ -z "$R" ]; then
+	command -v ldconfig >/dev/null 2>&1 && ldconfig >/dev/null 2>&1
+else
+	command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$R" >/dev/null 2>&1
+fi
+exit 0
+EOF
+	chmod 755 "$STAGE/usr/lib/spk/postinstall" || exit 1
+	pack "cxx-libs" "20261020-r2" '"gtk-libs", "xorg-libs"' "C++ binding runtimes for glib, cairo and gtk plus GCC 16 libstdc++" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 
@@ -333,8 +388,98 @@ build_waybar() {
 	if [ -d "$_src/etc/xdg/waybar" ]; then
 		cp -a "$_src/etc/xdg/waybar/." "$STAGE/etc/xdg/waybar/" 2>/dev/null || true
 	fi
+	cat > "$STAGE/etc/xdg/waybar/config.jsonc" <<'EOF'
+{
+	"layer": "top",
+	"position": "top",
+	"height": 28,
+	"spacing": 6,
+	"modules-left": ["ext/workspaces", "wlr/taskbar"],
+	"modules-center": ["clock"],
+	"modules-right": ["cpu", "memory", "temperature", "idle_inhibitor"],
+	"ext/workspaces": {
+		"format": "{name}"
+	},
+	"wlr/taskbar": {
+		"format": "{icon}",
+		"icon-size": 18,
+		"tooltip-format": "{title}"
+	},
+	"clock": {
+		"format": "{:%H:%M}",
+		"tooltip-format": "{:%A %d %B %Y}"
+	},
+	"cpu": {
+		"format": "cpu {usage}%"
+	},
+	"memory": {
+		"format": "mem {used}/{total}"
+	},
+	"temperature": {
+		"format": "{temperatureC}°C"
+	},
+	"idle_inhibitor": {
+		"format": "{icon}",
+		"format-icons": {
+			"activated": "on",
+			"deactivated": "off"
+		}
+	}
+}
+EOF
+	cat > "$STAGE/etc/xdg/waybar/style.css" <<'EOF'
+* {
+	border: none;
+	border-radius: 0;
+	font-family: "JetBrains Mono", "Symbols Nerd Font Mono", monospace;
+	font-size: 12px;
+	min-height: 0;
+}
+
+window#waybar {
+	background: #201b14;
+	color: #c9b890;
+}
+
+#workspaces button {
+	padding: 0 8px;
+	color: #7d715a;
+	background: transparent;
+}
+
+#workspaces button.focused {
+	color: #e0d3ab;
+	background: #3a3226;
+}
+
+#clock,
+#cpu,
+#memory,
+#temperature,
+#idle_inhibitor {
+	padding: 0 10px;
+	color: #c9b890;
+}
+
+#temperature.critical {
+	color: #ad401f;
+}
+
+#idle_inhibitor.activated {
+	color: #8fba7c;
+}
+EOF
+	mkdir -p "$STAGE/usr/local/bin" || exit 1
+	cat > "$STAGE/usr/local/bin/waybar" <<'EOF'
+#!/bin/sh
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-run-session >/dev/null 2>&1; then
+	exec dbus-run-session -- /usr/bin/waybar "$@"
+fi
+exec /usr/bin/waybar "$@"
+EOF
+	chmod 755 "$STAGE/usr/local/bin/waybar" || exit 1
 	seed_postinstall "$STAGE" "/etc/xdg/waybar/config.jsonc .config/waybar/config.jsonc" "/etc/xdg/waybar/style.css .config/waybar/style.css"
-	pack "waybar" "0.15.1" '"wl-libs", "gtk-libs", "gtk3", "mesa", "xorg-libs", "pipewire", "xkb-data", "cxx-libs"'
+	pack "waybar" "0.15.1-silen1" '"wl-libs", "gtk-libs", "gtk3", "mesa", "xorg-libs", "pipewire", "xkb-data", "cxx-libs"' "Highly customizable Wayland bar" "x11-misc"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 
@@ -430,16 +575,71 @@ build_mango() {
 	fresh_stage
 	cp -a "$_src/usr" "$STAGE/" || exit 1
 	[ -d "$_src/etc" ] && cp -a "$_src/etc" "$STAGE/" || true
+	mkdir -p "$STAGE/usr/share/wayland-sessions" || exit 1
+	if [ -f "$STAGE/usr/share/wayland-sessions/mango.desktop" ]; then
+		sed -i 's/^Exec=.*/Exec=dbus-run-session -- mango/' "$STAGE/usr/share/wayland-sessions/mango.desktop" || exit 1
+	else
+		printf '[Desktop Entry]\nEncoding=UTF-8\nName=Mango\nDesktopNames=mango;wlroots\nComment=mango WM\nExec=dbus-run-session -- mango\nIcon=mango\nType=Application\n' > "$STAGE/usr/share/wayland-sessions/mango.desktop" || exit 1
+	fi
 	if [ -f "$STAGE/etc/mango/config.conf" ]; then
 		mkdir -p "$STAGE/etc/skel/.config/mango" || exit 1
 		cp -a "$STAGE/etc/mango/config.conf" "$STAGE/etc/skel/.config/mango/config.conf" || exit 1
 	fi
 	seed_postinstall "$STAGE" "/etc/mango/config.conf .config/mango/config.conf"
-	pack "mango" "0.17.5.2" '"wlroots", "scenefx", "seatd", "wl-libs", "gtk-libs", "mesa", "xorg-libs", "xkb-data", "libcjson", "vulkan-loader"'
+	pack "mango" "0.17.5.2-r2" '"wlroots", "scenefx", "seatd", "wl-libs", "gtk-libs", "mesa", "xorg-libs", "xkb-data", "libcjson", "vulkan-loader"' "MangoWC tiling Wayland compositor" "x11-wm"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 
-ALL_PKGS="gtk-libs wl-libs wofi rofi"
+build_swaybg() {
+	_src="$(arch_extract extra swaybg-1.2.2-1-x86_64.pkg.tar.zst)"
+	fresh_stage
+	mkdir -p "$STAGE/usr/bin" "$STAGE/usr/share/man/man1" "$STAGE/usr/share/doc/swaybg" || exit 1
+	cp -a "$_src/usr/bin/swaybg" "$STAGE/usr/bin/swaybg" || exit 1
+	chmod 755 "$STAGE/usr/bin/swaybg" || exit 1
+	[ -f "$_src/usr/share/man/man1/swaybg.1.gz" ] && cp -a "$_src/usr/share/man/man1/swaybg.1.gz" "$STAGE/usr/share/man/man1/" || true
+	if [ -d "$_src/usr/share/doc/swaybg" ]; then
+		cp -a "$_src/usr/share/doc/swaybg/." "$STAGE/usr/share/doc/swaybg/" 2>/dev/null || true
+	fi
+	rm -rf "$_src" 2>/dev/null || true
+	pack "swaybg" "1.2.2" '"xorg-libs", "gtk-libs", "wl-libs"' "Wallpaper utility for Wayland compositors" "x11-misc"
+	rm -rf "$STAGE" 2>/dev/null || true
+}
+
+build_awww() {
+	_src="$(arch_extract extra awww-0.12.1-1-x86_64.pkg.tar.zst)"
+	fresh_stage
+	mkdir -p "$STAGE/usr/bin" "$STAGE/usr/lib64" "$STAGE/usr/share/man/man1" "$STAGE/usr/share/doc/awww" "$STAGE/usr/share/bash-completion/completions" "$STAGE/usr/share/fish/vendor_completions.d" "$STAGE/usr/share/zsh/site-functions" "$STAGE/usr/share/elvish/lib" || exit 1
+	cp -a "$_src/usr/bin/awww" "$_src/usr/bin/awww-daemon" "$STAGE/usr/bin/" || exit 1
+	chmod 755 "$STAGE/usr/bin/awww" "$STAGE/usr/bin/awww-daemon" || exit 1
+	cp -a "$_src/usr/share/man/man1/"*.gz "$STAGE/usr/share/man/man1/" 2>/dev/null || true
+	cp -a "$_src/usr/share/bash-completion/completions/awww" "$STAGE/usr/share/bash-completion/completions/" 2>/dev/null || true
+	cp -a "$_src/usr/share/fish/vendor_completions.d/awww.fish" "$STAGE/usr/share/fish/vendor_completions.d/" 2>/dev/null || true
+	cp -a "$_src/usr/share/zsh/site-functions/_awww" "$STAGE/usr/share/zsh/site-functions/" 2>/dev/null || true
+	cp -a "$_src/usr/share/elvish/lib/awww.elv" "$STAGE/usr/share/elvish/lib/" 2>/dev/null || true
+	if [ -d "$_src/usr/share/doc/awww" ]; then
+		cp -a "$_src/usr/share/doc/awww/." "$STAGE/usr/share/doc/awww/" 2>/dev/null || true
+	fi
+	rm -rf "$_src" 2>/dev/null || true
+	_dav="$(arch_extract extra dav1d-1.5.4-1-x86_64.pkg.tar.zst)"
+	cp -a "$_dav/usr/lib/"libdav1d.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libdav1d"; exit 1; }
+	rm -rf "$_dav" 2>/dev/null || true
+	_lz="$(arch_extract core 'lz4-1:1.10.0-2-x86_64.pkg.tar.zst')"
+	cp -a "$_lz/usr/lib/"liblz4.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy liblz4"; exit 1; }
+	rm -rf "$_lz" 2>/dev/null || true
+	pack "awww" "0.12.1" '"xorg-libs"' "Wayland wallpaper daemon and client (swww successor)" "x11-misc"
+	rm -rf "$STAGE" 2>/dev/null || true
+}
+
+build_swww() {
+	fresh_stage
+	mkdir -p "$STAGE/usr/bin" || exit 1
+	ln -sfn awww "$STAGE/usr/bin/swww" || exit 1
+	ln -sfn awww-daemon "$STAGE/usr/bin/swww-daemon" || exit 1
+	pack "swww" "0.12.1" '"awww"' "Compatibility symlinks for the swww CLI (uses awww)" "x11-misc"
+	rm -rf "$STAGE" 2>/dev/null || true
+}
+
+ALL_PKGS="gtk-libs wl-libs wofi rofi swaybg awww swww"
 
 if [ "$1" = "all" ]; then
 	shift
@@ -464,6 +664,9 @@ for _p in "$@"; do
 		scenefx) build_scenefx ;;
 		seatd) build_seatd ;;
 		mango) build_mango ;;
+		swaybg) build_swaybg ;;
+		awww) build_awww ;;
+		swww) build_swww ;;
 		*) usage ;;
 	esac
 done

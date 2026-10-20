@@ -22,6 +22,7 @@ scripts/build.sh              THE iso builder. 7 stages. Edit carefully.
 scripts/add-wifi.sh           Syncs wifi modules+firmware from host into rootfs/. Run before make iso when adding drivers.
 scripts/make-grub-bundle.sh  Packages compiled GRUB (GRUB_SRC=~/grub) into grub-bundle/. Needed for EFI install.
 scripts/wifi-check.sh         Live diagnostics → installed as /usr/bin/silen-wifi-check.
+scripts/mkspk-*.sh            Build spk package payloads from Gentoo gpkg / Arch binaries (xorg, wayland, sddm).
 boot/vmlinuz                  Kernel image shipped on ISO.
 rootfs/init                   Live init (sh). Mounts medium, starts NM/dbus, launches installer, falls back to shell.
 rootfs/bin/busybox            Static busybox + applet symlinks created at build time.
@@ -94,6 +95,7 @@ bash -n <edited .sh>            # always syntax-check shell edits
 - `is_system_package()` in `spk/src/get.rs:80`: `manifest_flag=true` OR name-heuristic match → install to `/`. Everything else → isolated `/spk_pkgs/<name>` (or `~/.local/share/spk/apps/<name>` with `--user`) + shims in `/usr/local/bin`.
 - DMs/DEs/kernels/firmware/drivers/network/audio/login MUST be system. If you add a package name in that class, add it to `SYSTEM_EXACT` or its prefix will miss and the DM/DE will install isolated and never start (see `SYSTEM-SORT` comments in `get.rs`).
 - `remove.rs`: never delete protected configs (`/etc/passwd shadow gshadow group fstab machine-id hostname hosts resolv.conf`). Basename check is scoped to `/etc/` only — don't widen it or `/usr/bin/passwd` will survive `spk rm`.
+- `cxx-libs` ships GCC 16 libstdc++ as `/usr/lib/silen/cxx/gcc16-libstdc++.*`; its postinstall copies it into `/usr/lib64` and the GCC 15 directory. `spk` skips payload files named `libstdc++*` as protected core libs, so direct payload paths would be ignored.
 - Default repo URL is hardcoded (`DEFAULT_BASE`, `spk/src/get.rs:15`). GitHub `Cgtlpa/spk_pkgs` remains a backup mirror.
 
 ## 7. Shell style in this repo
