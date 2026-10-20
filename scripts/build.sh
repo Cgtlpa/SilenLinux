@@ -118,7 +118,7 @@ echo
 
 modules_ok() {
 	[ -d "$1" ] || return 1
-	# -print -quit stops after the first match so no SIGPIPE under pipefail.
+	# stop after first match to avoid broken pipe errors
 	[ -n "$(find "$1" \( -name '*.ko' -o -name '*.ko.zst' \) -print -quit 2>/dev/null)" ]
 }
 
@@ -369,16 +369,15 @@ copy_libs() {
 	local bin="$1" lib
 	[ -f "$bin" ] || return 0
 	mkdir -p "$RAMROOT/usr/lib64"
-	# Warn once if ldd reports missing libs (e.g. "libfoo.so => not found").
+	# warn once about missing libs
 	if ldd "$bin" 2>/dev/null | grep -q '=> not found'; then
 		echo "  ! $bin has missing libs:"
 		ldd "$bin" 2>/dev/null | grep '=> not found' | sed 's/^/    /' || true
 	fi
 	while IFS= read -r lib; do
-		# Strip any leading/trailing whitespace (ldd indents with tabs).
 		lib="$(printf '%s' "$lib" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 		[ -n "$lib" ] || continue
-		# Skip the virtual vdso (no file on disk) and any non-absolute entry.
+		# skip fake vdso entries
 		case "$lib" in
 			/*) ;;
 			*) continue ;;
@@ -502,7 +501,7 @@ copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app dbus-launch  /usr/bin/dbus-launch
 copy_app dbus-run-session /usr/bin/dbus-run-session
 mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
-# sbin tools live in /usr/bin in the ramroot; keep absolute /usr/sbin/* working too.
+# keep old sbin paths working
 for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
 	ln -sf "/usr/bin/$_sbin_link" "$RAMROOT/usr/sbin/$_sbin_link" 2>/dev/null || true
 done
@@ -528,8 +527,7 @@ if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr
 fi
 
 mkdir -p "$RAMROOT/var/lib/dbus" "$RAMROOT/etc"
-# No static machine-id on purpose: live init runs `dbus-uuidgen --ensure`
-# on every boot so each machine gets a unique ID (clones break D-Bus/DHCP).
+# no fixed machine id. each boot makes its own
 rm -f "$RAMROOT/etc/machine-id" "$RAMROOT/var/lib/dbus/machine-id" 2>/dev/null || true
 
 mkdir -p "$RAMROOT/usr/share/dbus-1/system.d"
@@ -569,12 +567,11 @@ for _ti in "l/linux" "x/xterm" "x/xterm-256color" "v/vt100" "s/screen"; do
 done
 
 printf '/lib64\n/usr/lib64\n/usr/lib\n/lib\n' > "$RAMROOT/etc/ld.so.conf" || { echo "  ERROR cannot write ld.so.conf"; exit 1; }
-# NSS is dlopen()ed by libc (never appears in ldd) - without it live DNS is dead.
+# copy dns libs by hand. ldd never shows them
 for _nss in /usr/lib/libnss_dns.so.2 /usr/lib/libnss_files.so.2; do
 	[ -e "$_nss" ] || continue
 	cp --dereference "$_nss" "$RAMROOT/usr/lib64/" 2>/dev/null || echo "  ! cannot copy $_nss (live DNS may fail)"
 done
-# Empty resolv.conf placeholder; iwd fills it via built-in DHCP.
 touch "$RAMROOT/etc/resolv.conf" 2>/dev/null || true
 if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
 	echo "  ERROR ldconfig failed (dynamic apps will not load)"
@@ -626,8 +623,7 @@ copy_firmware() {
 			found=1
 			local rel="${f#$src/}"
 			if [ -d "$f" ]; then
-				# Merge per-file so the second source fills gaps instead of
-				# being skipped when the first source already made the dir.
+				# merge files so gaps get filled
 				mkdir -p "$RAMROOT/lib/firmware/$rel" || { echo "  ERROR cannot create firmware dir $rel"; exit 1; }
 				find "$RAMROOT/lib/firmware/$rel" -xtype l -delete 2>/dev/null || true
 				cp -an "$f"/. "$RAMROOT/lib/firmware/$rel"/ 2>/dev/null || cp -a "$f"/. "$RAMROOT/lib/firmware/$rel"/ || { echo "  ERROR cannot copy firmware dir $rel"; exit 1; }
@@ -762,26 +758,6 @@ if [ -d "$FIRMWARE_SOURCE" ]; then
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
 fi
 
-# FIX 2026-09-21 BLACK-SCREEN — GPU firmware (amdgpu/i915/...).
-# The repo firmware tree only carries Wi-Fi blobs, so without this the live
-# initramfs and the ISO firmware dir (which offline installs copy into the
-# target via install-modules) have NO graphics firmware. amdgpu/i915 then
-# refuse to modeset after GRUB and the screen stays black. Merge whatever
-# GPU blobs the firmware sources have (host /lib/firmware usually ships
-# linux-firmware); missing dirs are fine - skip silently.
-# SIZE 2026-09-22 — `nvidia` is deliberately NOT in this list: it alone is
-# ~200M of blobs that only work with the proprietary NVIDIA driver (which
-# the ISO installs later via spk after reboot), and shipping it would
-# push the ISO over 1.5GB. amdgpu+i915+xe+radeon are ~45M combined.
-for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
-	for _fwsrc in "$FIRMWARE_SOURCE" "$HOST_FIRMWARE"; do
-		[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
-		mkdir -p "$RAMROOT/lib/firmware/$_gpu_fw" || { echo "  ERROR cannot create firmware dir $_gpu_fw"; exit 1; }
-		cp -an "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ 2>/dev/null || \
-		cp -a "$_fwsrc/$_gpu_fw"/. "$RAMROOT/lib/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw"; exit 1; }
-	done
-done
-
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.builtin.modinfo" "$MODULES_DIR/modules.builtin.modinfo" 2>/dev/null || true
 cp "$MODULES_SOURCE/modules.order" "$MODULES_DIR/modules.order" 2>/dev/null || true
@@ -898,16 +874,16 @@ for _h in headers-*.tar.zst headers-*.tar.gz headers-*.tar.xz; do
 	_HEADERS_TAR="$_h"
 	break
 done
-if [ -n "$_HEADERS_TAR" ]; then
+if [ "$NVIDIA" = "1" ]; then
+	[ -n "$_HEADERS_TAR" ] || { echo "  ERROR nvidia variant needs headers-*.tar.zst (run KERNEL_SRC=... scripts/make-headers-bundle.sh first)"; exit 1; }
 	echo "  adding kernel headers to ISO ($_HEADERS_TAR)"
 	cp "$_HEADERS_TAR" "$ISO_DIR/" || { echo "  ERROR cannot copy headers bundle"; exit 1; }
 else
-	echo "  ! no headers-*.tar.zst found - run scripts/make-headers-bundle.sh or nvidia module builds will fail"
+	echo "  headers bundle not added (normal ISO ships no compiler, use make nvidia-iso)"
 fi
 
 if [ "$NVIDIA" = "1" ]; then
 	echo "  nvidia variant: staging driver payload"
-	[ -n "$_HEADERS_TAR" ] || { echo "  ERROR nvidia variant needs headers-*.tar.zst (run KERNEL_SRC=... scripts/make-headers-bundle.sh first)"; exit 1; }
 	_NVIDIA_RUN=""
 	for _r in nvidia-*.run; do
 		[ -f "$_r" ] || continue
@@ -960,17 +936,13 @@ fi
 if [ -d rootfs/lib/firmware ]; then
 	echo "  adding firmware to ISO at firmware"
 	cp -a rootfs/lib/firmware "$ISO_DIR/firmware" || { echo "  ERROR cannot copy firmware to ISO"; exit 1; }
-	# FIX 2026-09-21 BLACK-SCREEN — same GPU-firmware merge as the initramfs
-	# above: offline installs copy /mnt/firmware into the target, so the ISO
-	# must carry graphics blobs too (repo tree only has Wi-Fi ones).
-	# SIZE 2026-09-22 — no `nvidia` here either (~200M, proprietary-driver
-	# only, would push the ISO over 1.5GB).
+	# same gpu firmware merge for the iso
 	for _gpu_fw in amdgpu amd-ucode intel-ucode i915 xe nouveau radeon; do
 		for _fwsrc in rootfs/lib/firmware "$HOST_FIRMWARE"; do
 			[ -n "$_fwsrc" ] && [ -d "$_fwsrc/$_gpu_fw" ] || continue
-			[ -e "$ISO_DIR/firmware/$_gpu_fw" ] && continue
-			mkdir -p "$ISO_DIR/firmware" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
-			cp -a "$_fwsrc/$_gpu_fw" "$ISO_DIR/firmware/" || { echo "  ERROR cannot copy GPU firmware $_gpu_fw to ISO"; exit 1; }
+			mkdir -p "$ISO_DIR/firmware/$_gpu_fw" || { echo "  ERROR cannot create ISO firmware dir"; exit 1; }
+			cp -an "$_fwsrc/$_gpu_fw"/. "$ISO_DIR/firmware/$_gpu_fw"/ 2>/dev/null || \
+			cp -a "$_fwsrc/$_gpu_fw"/. "$ISO_DIR/firmware/$_gpu_fw"/ || { echo "  ERROR cannot copy GPU firmware $_gpu_fw to ISO"; exit 1; }
 		done
 	done
 fi
@@ -1008,12 +980,12 @@ if command -v cargo >/dev/null 2>&1; then
 	fi
 	_CARGO_OK=0
 	if [ -n "$CARGO_AS_USER" ]; then
-		# Build as the invoking user so root never poisons ~/.cargo.
-		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
+		# build as the calling user
+		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --locked --manifest-path spk/Cargo.toml; then
 			_CARGO_OK=1
 		fi
 	else
-		if env "${CARGO_ENV[@]}" cargo build --release --manifest-path spk/Cargo.toml; then
+		if env "${CARGO_ENV[@]}" cargo build --release --locked --manifest-path spk/Cargo.toml; then
 			_CARGO_OK=1
 		fi
 	fi
@@ -1057,8 +1029,7 @@ if command -v cargo >/dev/null 2>&1; then
 			cp "$IWTUI_SRC/target/release/iwtui" "$RAMROOT/usr/bin/iwtui" || echo "  ! cannot copy iwtui to initramfs"
 			chmod 0755 "$RAMROOT/usr/bin/iwtui" 2>/dev/null || true
 		fi
-		# cargo runs after [6/7] packed the initramfs, so re-pack to include
-		# /usr/bin/spk in the live env (the later ISO copy picks this up).
+		# repack once more to include late binaries
 		if { [ -f "$RAMROOT/usr/bin/spk" ] || [ -f "$RAMROOT/usr/bin/iwtui" ]; } && [ -f "build/$INITRAMFS" ]; then
 			echo "  re-packing initramfs to include spk/iwtui"
 			[ -f "$RAMROOT/usr/bin/spk" ] && copy_libs "$RAMROOT/usr/bin/spk"
