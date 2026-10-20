@@ -162,7 +162,7 @@ build_gtk_libs() {
 	if [ -d "$DLDIR/fedora-libs" ]; then
 		cp -a "$DLDIR/fedora-libs"/libthai.so* "$DLDIR/fedora-libs"/libdatrie.so* "$STAGE/usr/lib64/" 2>/dev/null || true
 	fi
-	pack "gtk-libs" "$SNAPVER" '"xorg-libs"' "glib, cairo (Xlib/XCB), pango, harfbuzz, gdk-pixbuf and font runtimes" "x11-libs"
+	pack "gtk-libs" "$SNAPVER-r2" '"xorg-libs", "dejavu"' "glib, cairo (Xlib/XCB), pango, harfbuzz, gdk-pixbuf and font runtimes" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 

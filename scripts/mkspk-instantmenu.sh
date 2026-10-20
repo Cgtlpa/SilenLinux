@@ -1,5 +1,5 @@
 #!/bin/bash
-# packs the instantmenu binaries into a spk file
+# pack instantmenu into spk file
 set -e
 set -E
 set -o pipefail
@@ -54,7 +54,6 @@ if command -v strip >/dev/null 2>&1; then
 fi
 
 for _helper in instantmenu_path instantmenu_run instantmenu_smartrun; do
-	# the little launcher helpers live next to the main binary
 	if [[ -f "$MENU_SRC/$_helper" ]]; then
 		cp -a "$MENU_SRC/$_helper" "$STAGE/usr/bin/$_helper" || exit 1
 		chmod 755 "$STAGE/usr/bin/$_helper" || exit 1
@@ -63,7 +62,6 @@ done
 [[ -f "$MENU_SRC/instantmenu.1" ]] && cp -a "$MENU_SRC/instantmenu.1" "$STAGE/usr/share/man/man1/" || true
 
 mkdir -p "$PKGDIR/instantmenu" || exit 1
-# bundle it up, same deal as the other mkspk scripts
 _members=""
 for _m in usr etc; do
 	[ -e "$STAGE/$_m" ] || continue

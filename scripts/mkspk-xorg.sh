@@ -180,6 +180,31 @@ build_xorg_libs() {
 	fi
 	rm -rf "$_tmp" 2>/dev/null || true
 	sed -i 's#<pidfile>/run/dbus.pid</pidfile>#<pidfile>/run/dbus/pid</pidfile>#' "$STAGE/usr/share/dbus-1/system.conf" || exit 1
+	mkdir -p "$STAGE/etc/init.d" || exit 1
+	cat > "$STAGE/etc/init.d/dbus" <<'EOF'
+#!/sbin/openrc-run
+command=/usr/bin/dbus-daemon
+command_args="--system --fork"
+pidfile=/run/dbus/pid
+name="D-Bus system daemon"
+
+depend() {
+	need localmount
+	after bootmisc
+}
+
+start_pre() {
+	mkdir -p /run/dbus
+	rm -f /run/dbus/pid
+	if [ ! -s /etc/machine-id ] && [ -x /usr/bin/dbus-uuidgen ]; then
+		/usr/bin/dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || /usr/bin/dbus-uuidgen --ensure 2>/dev/null || true
+	fi
+	if [ ! -s /var/lib/dbus/machine-id ] && [ -s /etc/machine-id ]; then
+		cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true
+	fi
+}
+EOF
+	chmod 755 "$STAGE/etc/init.d/dbus" || exit 1
 	_glv="$(arch_extract extra libglvnd-1.7.0-3-x86_64.pkg.tar.zst)"
 	mkdir -p "$STAGE/usr/lib64" || exit 1
 	cp -a "$_glv/usr/lib/"libGL*.so* "$_glv/usr/lib/"libEGL*.so* "$_glv/usr/lib/"libOpenGL*.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libglvnd"; exit 1; }
@@ -265,16 +290,19 @@ if [ -z "$R" ]; then
 	getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus
 	getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus
 	if [ -f /usr/libexec/dbus-daemon-launch-helper ]; then
-		chown root:messagebus /usr/libexec/dbus-daemon-launch-helper
-		chmod 4710 /usr/libexec/dbus-daemon-launch-helper
+		chown root:messagebus /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true
+		chmod 4710 /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true
+	fi
+	if [ -x /sbin/rc-update ] && [ -f /etc/init.d/dbus ]; then
+		/sbin/rc-update add dbus default >/dev/null 2>&1 || true
 	fi
 else
-	chroot "$R" /bin/sh -c 'getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus; getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus; [ ! -f /usr/libexec/dbus-daemon-launch-helper ] || { chown root:messagebus /usr/libexec/dbus-daemon-launch-helper; chmod 4710 /usr/libexec/dbus-daemon-launch-helper; }' || true
+	chroot "$R" /bin/sh -c 'getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus; getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus; [ ! -f /usr/libexec/dbus-daemon-launch-helper ] || { chown root:messagebus /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true; chmod 4710 /usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true; }; [ ! -x /sbin/rc-update ] || [ ! -f /etc/init.d/dbus ] || /sbin/rc-update add dbus default >/dev/null 2>&1 || true' || true
 fi
 exit 0
 EOF
 	chmod 755 "$STAGE/usr/lib/spk/postinstall" || exit 1
-	pack "xorg-libs" "$SNAPVER-r4" "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors" "x11-libs"
+	pack "xorg-libs" "$SNAPVER-r5" "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# packs the instantwm binary into a spk file
+# pack instantwm binary into spk file
 set -e
 set -E
 set -o pipefail
@@ -64,7 +64,7 @@ elif [[ -x /usr/local/bin/instantwmctl ]]; then
 fi
 
 if "$STAGE/usr/bin/instantwm" --print-config 2>/dev/null | head -n1 | grep -q .; then
-	# ask the binary for its default config so the iso has one
+	# get default config from the binary
 	"$STAGE/usr/bin/instantwm" --print-config > "$STAGE/usr/share/doc/instantwm/config.toml.example" 2>/dev/null || true
 	cp -a "$STAGE/usr/share/doc/instantwm/config.toml.example" "$STAGE/etc/skel/.config/instantwm/config.toml" 2>/dev/null || true
 	if grep -q '^keybinds = \[\]' "$STAGE/usr/share/doc/instantwm/config.toml.example" 2>/dev/null; then
@@ -121,7 +121,6 @@ EOF
 chmod 755 "$STAGE/usr/lib/spk/postinstall" || exit 1
 
 mkdir -p "$PKGDIR/instantwm" || exit 1
-# bundle usr + etc into the spk, thats the whole package
 _members=""
 for _m in usr etc; do
 	[ -e "$STAGE/$_m" ] || continue

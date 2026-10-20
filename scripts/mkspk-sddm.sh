@@ -7,7 +7,7 @@ trap 'rc=$?; echo; echo "!! mkspk-sddm stopped with an error (exit $rc at line $
 
 DLDIR="${DLDIR:-spk-pkgs/dl}"
 PKGDIR="${PKGDIR:-spk-pkgs/packages}"
-SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen2}"
+SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen4}"
 SDDM_PARTS="${SDDM_PARTS:-1}"
 SDDM_BASE="${SDDM_BASE:-https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sddm}"
 SDDM_SRC="${SDDM_SRC:-}"
@@ -93,11 +93,16 @@ R="${SPK_ROOT:-/}"
 [ "$R" = "/" ] && R=""
 if [ -z "$R" ]; then
 	getent group sddm >/dev/null 2>&1 || groupadd -r sddm
-	getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /bin/false -d /var/lib/sddm -c "SDDM Greeter Account" sddm
+	getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /sbin/nologin -d /var/lib/sddm -c "SDDM Greeter Account" sddm
 	mkdir -p /var/lib/sddm
 	chown sddm:sddm /var/lib/sddm
+	chmod 0750 /var/lib/sddm
+	if [ -x /sbin/rc-update ]; then
+		[ ! -f /etc/init.d/dbus ] || /sbin/rc-update add dbus default >/dev/null 2>&1 || true
+		[ ! -f /etc/init.d/sddm ] || /sbin/rc-update add sddm default >/dev/null 2>&1 || true
+	fi
 else
-	chroot "$R" /bin/sh -c 'getent group sddm >/dev/null 2>&1 || groupadd -r sddm; getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /bin/false -d /var/lib/sddm -c "SDDM Greeter Account" sddm; mkdir -p /var/lib/sddm; chown sddm:sddm /var/lib/sddm' || true
+	chroot "$R" /bin/sh -c 'getent group sddm >/dev/null 2>&1 || groupadd -r sddm; getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /sbin/nologin -d /var/lib/sddm -c "SDDM Greeter Account" sddm; mkdir -p /var/lib/sddm; chown sddm:sddm /var/lib/sddm; chmod 0750 /var/lib/sddm; [ ! -x /sbin/rc-update ] || { [ ! -f /etc/init.d/dbus ] || /sbin/rc-update add dbus default >/dev/null 2>&1 || true; [ ! -f /etc/init.d/sddm ] || /sbin/rc-update add sddm default >/dev/null 2>&1 || true; }' || true
 fi
 [ -x "$R/usr/lib/silen/repair-libs.sh" ] && "$R/usr/lib/silen/repair-libs.sh"
 exit 0
@@ -114,6 +119,6 @@ ln -sfn Xorg "$STAGE/usr/bin/X" || exit 1
 
 tar -czpf "$PKGDIR/sddm/sddm.spk" -C "$STAGE" . || { echo "  ERROR tar failed"; rm -rf "$STAGE"; exit 1; }
 _s="$(sha256sum "$PKGDIR/sddm/sddm.spk" | awk '{print $1}')"
-printf '{"filename": "sddm.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": ["dm-openrc", "xorg-server", "xorg-drivers", "xinit"], "category": "x11-misc", "description": "SDDM display manager with X11 greeter config"}' "$_s" "$SDDM_VERSION" > "$PKGDIR/sddm/package.json"
+printf '{"filename": "sddm.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": ["dm-openrc", "xorg-server", "xorg-drivers", "xinit", "dejavu"], "category": "x11-misc", "description": "SDDM display manager with X11 greeter config"}' "$_s" "$SDDM_VERSION" > "$PKGDIR/sddm/package.json"
 echo "sddm $SDDM_VERSION $(du -h "$PKGDIR/sddm/sddm.spk" | cut -f1)"
 rm -rf "$STAGE" 2>/dev/null || true
