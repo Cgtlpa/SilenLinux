@@ -524,13 +524,51 @@ pub(crate) fn layout_for(root: &str, user_mode: bool, name: &str) -> Layout {
     }
 }
 
-fn runtime_path(dest: &str, layout: &Layout) -> String {
-    if layout.user_mode || layout.root == "/" || layout.root.is_empty() {
-        return dest.to_string();
+fn normalize_path(dest: &str) -> String {
+    let absolute = dest.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in dest.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            _ => parts.push(part),
+        }
     }
-    match dest.strip_prefix(layout.root.as_str()) {
-        Some(rest) if !rest.is_empty() => rest.to_string(),
-        _ => dest.to_string(),
+    let joined = parts.join("/");
+    if absolute {
+        format!("/{}", joined)
+    } else {
+        joined
+    }
+}
+
+pub(crate) fn runtime_path(dest: &str, layout: &Layout) -> String {
+    let dest = normalize_path(dest);
+    if layout.user_mode || layout.root == "/" || layout.root.is_empty() {
+        return dest;
+    }
+    let root = layout.root.trim_end_matches('/');
+    match dest.strip_prefix(root) {
+        Some("") => String::from("/"),
+        Some(rest) if rest.starts_with('/') => rest.to_string(),
+        _ => dest,
+    }
+}
+
+pub(crate) fn jail_path(dest: &str, layout: &Layout) -> String {
+    let dest = normalize_path(dest);
+    if layout.user_mode || layout.root == "/" || layout.root.is_empty() {
+        return dest;
+    }
+    let root = layout.root.trim_end_matches('/');
+    if dest == root || dest.starts_with(&format!("{}/", root)) {
+        dest
+    } else if dest.starts_with('/') {
+        format!("{}{}", root, dest)
+    } else {
+        format!("{}/{}", root, dest)
     }
 }
 
@@ -687,14 +725,20 @@ fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
     };
     println!("spk: downloaded {} bytes", size);
 
-    if expected.is_empty() {
-        eprintln!("spk: warning: no sha256 in manifest, skipping check");
-    } else if digest.to_lowercase() != expected.trim().to_lowercase() {
+    if expected.trim().is_empty() {
+        let _ = fs::remove_file(&layout.tmp);
+        fail(&format!("manifest for {} has no sha256 - refusing to install an unverified package", name));
+    }
+    let expected = expected.trim().to_lowercase();
+    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
+        let _ = fs::remove_file(&layout.tmp);
+        fail(&format!("manifest for {} has an invalid sha256 {:?}", name, expected));
+    }
+    if digest.to_lowercase() != expected {
         let _ = fs::remove_file(&layout.tmp);
         fail(&format!("sha256 mismatch for {} expected {} got {}", name, expected, digest));
-    } else {
-        println!("spk: checksum ok");
     }
+    println!("spk: checksum ok");
 
     let payload_base: &str = if system {
         clean_stale_isolated(name, layout);
@@ -714,6 +758,9 @@ fn get_with_visited(name: &str, layout: &Layout, done: &mut HashSet<String>) {
 
     finish_install(name, &version, &installed, layout, system, &show_cat);
     run_postinstall(name, &version, layout, payload_base, system, &installed);
+    if system {
+        regenerate_initramfs(layout, &installed);
+    }
     register_libs(name, layout, system);
     done_line(&format!("{} v{} installed", name, version.trim()));
 }
@@ -729,7 +776,7 @@ fn clean_stale_isolated(name: &str, layout: &Layout) {
         if path.is_empty() {
             continue;
         }
-        if fs::remove_file(path).is_ok() {
+        if fs::remove_file(jail_path(path, layout)).is_ok() {
             gone += 1;
         }
     }
@@ -1015,6 +1062,43 @@ fn run_postinstall(name: &str, version: &str, layout: &Layout, payload_base: &st
     }
 }
 
+fn regenerate_initramfs(layout: &Layout, installed: &[Installed]) {
+    if !installed.iter().any(|item| item.path.ends_with("/boot/vmlinuz")) {
+        return;
+    }
+    let root = if layout.root == "/" || layout.root.is_empty() {
+        String::new()
+    } else {
+        layout.root.trim_end_matches('/').to_string()
+    };
+    let mut script = None;
+    for candidate in ["/usr/bin/silen-mkinitramfs", "/usr/local/bin/silen-mkinitramfs"] {
+        let path = format!("{}{}", root, candidate);
+        if Path::new(&path).is_file() {
+            script = Some(path);
+            break;
+        }
+    }
+    let script = match script {
+        Some(path) => path,
+        None => {
+            println!("spk: warning: kernel payload installed but silen-mkinitramfs is missing - initramfs not regenerated");
+            return;
+        }
+    };
+    println!("spk: kernel payload installed, regenerating the boot initramfs");
+    let status = if root.is_empty() {
+        std::process::Command::new(&script).status()
+    } else {
+        std::process::Command::new("chroot").arg(&root).arg(&script).status()
+    };
+    match status {
+        Ok(code) if code.success() => println!("spk: boot initramfs regenerated"),
+        Ok(code) => println!("spk: warning: silen-mkinitramfs exited with {} - check /boot", code),
+        Err(err) => println!("spk: warning: could not run silen-mkinitramfs: {}", err),
+    }
+}
+
 fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &Layout, system: bool, category: &str) {
     // drop files gone from the new version
     let old_files = fs::read_to_string(format!("{}/files", layout.registry)).unwrap_or_default();
@@ -1102,27 +1186,35 @@ fn finish_install(name: &str, version: &str, installed: &[Installed], layout: &L
     // prune files from the old version
     {
         use std::collections::HashSet;
-        let new_files: HashSet<&str> = installed.iter().map(|i| i.path.as_str()).collect();
-        let new_shims: HashSet<&str> = shims.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-        let old_file_set: HashSet<&str> = old_files.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let new_files: HashSet<String> = installed.iter().map(|i| runtime_path(&i.path, layout)).collect();
+        let new_shims: HashSet<String> = shims.lines().map(|s| runtime_path(s.trim(), layout)).filter(|s| !s.is_empty()).collect();
+        let old_file_set: HashSet<String> = old_files.lines().map(|s| runtime_path(s.trim(), layout)).filter(|s| !s.is_empty()).collect();
+        let old_shim_set: HashSet<String> = old_shims.lines().map(|s| runtime_path(s.trim(), layout)).filter(|s| !s.is_empty()).collect();
+        let payload_runtime = runtime_path(&layout.pkgdir, layout);
+        let app_runtime = runtime_path(&layout.appdir, layout);
         let mut pruned = 0;
         for line in old_files.lines().chain(old_shims.lines()) {
             let p = line.trim();
-            if p.is_empty() || new_files.contains(p) || new_shims.contains(p) {
+            if p.is_empty() {
+                continue;
+            }
+            let runtime = runtime_path(p, layout);
+            if new_files.contains(&runtime) || new_shims.contains(&runtime) {
                 continue;
             }
 
-            let owned_shim = old_shims.lines().any(|s| s.trim() == p);
-            let owned_file = old_file_set.contains(p);
-            let under_payload = !layout.pkgdir.is_empty() && (p == layout.pkgdir || p.starts_with(&format!("{}/", layout.pkgdir)));
-            let under_app = p == layout.appdir || p.starts_with(&format!("{}/", layout.appdir));
+            let owned_shim = old_shim_set.contains(&runtime);
+            let owned_file = old_file_set.contains(&runtime);
+            let under_payload = !layout.pkgdir.is_empty() && (runtime == payload_runtime || runtime.starts_with(&format!("{}/", payload_runtime)));
+            let under_app = runtime == app_runtime || runtime.starts_with(&format!("{}/", app_runtime));
             if !(owned_shim || owned_file || under_payload || under_app) {
                 continue;
             }
-            if is_protected_basename(p) {
+            if is_protected_basename(&runtime) {
                 continue;
             }
-            if fs::symlink_metadata(p).is_ok() && fs::remove_file(p).is_ok() {
+            let disk = jail_path(&runtime, layout);
+            if fs::symlink_metadata(&disk).is_ok() && fs::remove_file(&disk).is_ok() {
                 pruned += 1;
             }
         }
@@ -1197,19 +1289,36 @@ fn path_contains(dir: &str) -> bool {
 }
 
 // never delete system configs on upgrade
-fn is_protected_basename(path: &str) -> bool {
-    if !path.contains("/etc/") {
-        return false;
-    }
+pub(crate) fn is_protected_path(path: &str) -> bool {
     let base = Path::new(path)
         .file_name()
         .map(|b| b.to_string_lossy().to_string())
         .unwrap_or_default();
-    matches!(
-        base.as_str(),
-        "passwd" | "shadow" | "gshadow" | "group" | "fstab" | "machine-id"
-            | "hostname" | "hosts" | "resolv.conf"
-    )
+    if path.contains("/etc/")
+        && matches!(
+            base.as_str(),
+            "passwd" | "shadow" | "gshadow" | "group" | "fstab" | "machine-id"
+                | "hostname" | "hosts" | "resolv.conf"
+        )
+    {
+        return true;
+    }
+    if path.contains("/boot/") {
+        if base.starts_with("vmlinuz")
+            || base.starts_with("initramfs")
+            || base.starts_with("silen-ucode")
+        {
+            return true;
+        }
+        if path.contains("/boot/grub/") || path.contains("/boot/EFI/") {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_protected_basename(path: &str) -> bool {
+    is_protected_path(path)
 }
 
 fn list(layout: &Layout) {
@@ -1701,6 +1810,26 @@ mod self_update_tests {
         assert!(!is_shared_lib("efibootmgr"));
         assert!(!is_shared_lib("foo.sock"));
         assert!(!is_shared_lib("something"));
+    }
+
+    #[test]
+    fn root_install_paths_stay_inside_the_target() {
+        let layout = Layout {
+            root: String::from("/mnt/target"),
+            registry: String::from("/mnt/target/var/lib/spk/packages/demo"),
+            appdir: String::from("/mnt/target/opt/spk/demo"),
+            pkgdir: String::from("/mnt/target/spk_pkgs/demo"),
+            shimdir: String::from("/mnt/target/usr/local/bin"),
+            tmp: String::from("/tmp/demo.spk"),
+            user_mode: false,
+        };
+        assert_eq!(runtime_path("/mnt/target/usr/bin/demo", &layout), "/usr/bin/demo");
+        assert_eq!(runtime_path("/mnt/targeted/usr/bin/demo", &layout), "/mnt/targeted/usr/bin/demo");
+        assert_eq!(runtime_path("/usr/bin/demo", &layout), "/usr/bin/demo");
+        assert_eq!(jail_path("/usr/bin/demo", &layout), "/mnt/target/usr/bin/demo");
+        assert_eq!(jail_path("/mnt/target/usr/bin/demo", &layout), "/mnt/target/usr/bin/demo");
+        assert_eq!(jail_path("/../etc/passwd", &layout), "/mnt/target/etc/passwd");
+        assert_eq!(jail_path("/mnt/target/../../etc/passwd", &layout), "/mnt/target/etc/passwd");
     }
 }
 

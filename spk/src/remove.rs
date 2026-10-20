@@ -1,30 +1,10 @@
-use super::Layout;
+use super::{jail_path, runtime_path, Layout};
 use std::fs;
 use std::path::Path;
 
 // remove exactly what the registry recorded
-const PROTECTED_BASENAMES: &[&str] = &[
-    "passwd",
-    "shadow",
-    "gshadow",
-    "group",
-    "fstab",
-    "machine-id",
-    "hostname",
-    "hosts",
-    "resolv.conf",
-];
-
 fn is_protected(path: &str) -> bool {
-    // only guard real configs under etc
-    if !path.contains("/etc/") {
-        return false;
-    }
-    let base = Path::new(path)
-        .file_name()
-        .map(|b| b.to_string_lossy().to_string())
-        .unwrap_or_default();
-    PROTECTED_BASENAMES.iter().any(|p| base == *p)
+    super::is_protected_path(path)
 }
 
 pub fn remove_package(name: &str, layout: &Layout) {
@@ -50,25 +30,30 @@ pub fn try_remove_package(name: &str, layout: &Layout) -> bool {
         if path.is_empty() {
             continue;
         }
-        if is_protected(path) {
+        let runtime = runtime_path(path, layout);
+        if runtime.is_empty() {
+            continue;
+        }
+        if is_protected(&runtime) {
             skipped_protected += 1;
             continue;
         }
-        if !in_scope(path, layout) {
+        let dest = jail_path(&runtime, layout);
+        if !in_scope(&dest, layout) {
             continue;
         }
-        match fs::symlink_metadata(path) {
+        match fs::symlink_metadata(&dest) {
             Err(_) => continue,
             Ok(m) if m.file_type().is_dir() => {
-                if fs::remove_dir(path).is_ok() {
+                if fs::remove_dir(&dest).is_ok() {
                     removed += 1;
-                    prune_empty_parents(path, layout);
+                    prune_empty_parents(&dest, layout);
                 }
             }
             Ok(_) => {
-                if fs::remove_file(path).is_ok() {
+                if fs::remove_file(&dest).is_ok() {
                     removed += 1;
-                    prune_empty_parents(path, layout);
+                    prune_empty_parents(&dest, layout);
                 } else {
                     failed += 1;
                 }
