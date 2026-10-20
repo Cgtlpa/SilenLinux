@@ -7,6 +7,7 @@ install-extras() {
 	install-fstrim-service
 	build-microcode-image
 	compute-resume-params
+	build-installed-initramfs
 }
 
 install-busybox-tools() {
@@ -236,5 +237,18 @@ compute-resume-params() {
 		''|*[!0-9]*) return 0 ;;
 	esac
 	resume_param=" resume=UUID=$rootuuid resume_offset=$off"
+	return 0
+}
+
+build-installed-initramfs() {
+	local log="/tmp/silen-mkinitramfs.log"
+	[[ -x "$ROOT_PATH/usr/local/bin/silen-mkinitramfs" ]] || return 0
+	whiptail --infobox "Building the boot initramfs..." 8 60 2>/dev/null || true
+	if chroot "$ROOT_PATH" /usr/local/bin/silen-mkinitramfs >"$log" 2>&1; then
+		cp "$log" /tmp/mkinitramfs.log 2>/dev/null || true
+		return 0
+	fi
+	cp "$log" /tmp/mkinitramfs.log 2>/dev/null || true
+	whiptail --msgbox --title "$title" "couldn't build the boot initramfs, using the live one instead. After reboot run silen-mkinitramfs as root before the next kernel update. Details: /tmp/mkinitramfs.log" 10 70 || true
 	return 0
 }

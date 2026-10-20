@@ -120,10 +120,9 @@ ask-install-settings() {
 		3>&1 1>&2 2>&3 || true)
 	[[ -z "$locale" ]] && locale="en_US.UTF-8"
 
-	fstype=$(whiptail --title "$title - filesystem" --menu "Select filesystem for the system partition" 15 60 3 \
+	fstype=$(whiptail --title "$title - filesystem" --menu "Select filesystem for the system partition" 15 60 2 \
 		"ext4" "Stable journaling filesystem (recommended)" \
 		"btrfs" "Modern copy-on-write with snapshots" \
-		"vfat" "FAT32 (no permissions, not recommended)" \
 		3>&1 1>&2 2>&3 || true)
 	[[ -z "$fstype" ]] && fstype="ext4"
 

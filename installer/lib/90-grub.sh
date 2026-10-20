@@ -19,13 +19,17 @@ setup-grub() {
 		return 1
 	fi
 	initramfs_name=""
-	for i in /mnt/boot/initramfs.*; do
-		[[ -f "$i" ]] || continue
-		if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
-			initramfs_name="$(basename "$i")"
-			break
-		fi
-	done || true
+	if [[ -f "$ROOT_PATH/boot/initramfs-silen.img" ]]; then
+		initramfs_name="initramfs-silen.img"
+	else
+		for i in /mnt/boot/initramfs.*; do
+			[[ -f "$i" ]] || continue
+			if cp "$i" "$ROOT_PATH"/boot/ 2>/dev/null; then
+				initramfs_name="$(basename "$i")"
+				break
+			fi
+		done || true
+	fi
 	if [[ -z "$initramfs_name" ]]; then
 		whiptail --msgbox --title "$title" "no initramfs found in the install ISO" 8 40 || true
 		return 1

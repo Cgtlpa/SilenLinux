@@ -16,6 +16,14 @@ silen_disk_size() {
 	fi
 	printf '%s' "$_s"
 }
+silen_disk_bytes() {
+	local _b="${1##*/}" _s=""
+	_s="$(cat "/sys/block/$_b/size" 2>/dev/null || true)"
+	case "$_s" in
+		''|*[!0-9]*) echo 0 ;;
+		*) echo $((_s * 512)) ;;
+	esac
+}
 silen_disk_model() {
 	local _d="$1"
 	local _b="${_d##*/}"
@@ -116,6 +124,12 @@ partitioning() {
 	_lbl="$(silen_disk_label "$disk")"
 	if silen_disk_locked "$disk"; then
 		whiptail --msgbox --title "$title" "$_lbl is locked by .silen-lock. Refusing to wipe. Pick a different disk, or run unlock-ssd $disk in Shell to allow it." 10 70 || true
+		partitioning
+		return
+	fi
+	_disk_bytes="$(silen_disk_bytes "$disk")"
+	if [[ "$_disk_bytes" -gt 0 ]] && [[ "$_disk_bytes" -lt 8589934592 ]]; then
+		whiptail --msgbox --title "$title" "$_lbl is smaller than 8 GiB. Silen needs 8 GiB or more for the system and the 1 GiB boot partition." 10 70 || true
 		partitioning
 		return
 	fi
@@ -224,11 +238,6 @@ EOF
 			return
 		fi
 		if ! mkfs.btrfs -f -L silenroot "$rootp" 2>/dev/null; then
-			whiptail --msgbox --title "$title" "couldn't format the partitions" 8 40 || true
-			return
-		fi
-	elif [[ "$fstype" = "vfat" ]]; then
-		if ! mkfs.vfat -F 32 -n silenroot "$rootp" 2>/dev/null; then
 			whiptail --msgbox --title "$title" "couldn't format the partitions" 8 40 || true
 			return
 		fi

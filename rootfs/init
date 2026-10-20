@@ -10,6 +10,10 @@ mount -t devtmpfs devtmpfs /dev 2>/dev/null
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
+[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd 2>/dev/null
+[ -e /dev/stdin ] || ln -s /proc/self/fd/0 /dev/stdin 2>/dev/null
+[ -e /dev/stdout ] || ln -s /proc/self/fd/1 /dev/stdout 2>/dev/null
+[ -e /dev/stderr ] || ln -s /proc/self/fd/2 /dev/stderr 2>/dev/null
 
 QUIET=""
 for _q in $(cat /proc/cmdline 2>/dev/null); do
@@ -121,7 +125,11 @@ note "Mounting install medium"
 medium_has_tarball_at() {
 	_dir="$1"
 	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
-		[ -f "$f" ] && return 0
+		[ -f "$f" ] || continue
+		case "${f##*/}" in
+			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*) continue ;;
+		esac
+		return 0
 	done
 	return 1
 }
@@ -131,7 +139,12 @@ medium_has_tarball() {
 find_tarball_at() {
 	_dir="$1"
 	for f in "$_dir"/stage3-*.tar.* "$_dir"/tarball-*.tar.* "$_dir"/tarball-*.xz "$_dir"/*.tar.xz "$_dir"/*.tar.zst; do
-		[ -f "$f" ] && { echo "$f"; return 0; }
+		[ -f "$f" ] || continue
+		case "${f##*/}" in
+			kernel-*.tar.*|headers-*.tar.*|network.tar.*|spk.tar.*|nvidia-kmods-*.tar.*) continue ;;
+		esac
+		echo "$f"
+		return 0
 	done
 	return 1
 }

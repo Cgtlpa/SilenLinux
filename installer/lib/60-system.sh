@@ -33,7 +33,7 @@ fix-permissions() {
 		chown root:shadow "$ROOT_PATH/etc/gshadow" 2>/dev/null || chown root:root "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 		chmod 640 "$ROOT_PATH/etc/gshadow" 2>/dev/null || chmod 600 "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 	fi
-	# Ensure /etc/sudoers exists with includedir for /etc/sudoers.d
+	# create sudoers file if missing
 	if [[ ! -f "$ROOT_PATH/etc/sudoers" ]] || [[ -L "$ROOT_PATH/etc/sudoers" ]]; then
 		cat > "$ROOT_PATH/etc/sudoers" <<'EOF'
 ## Silen Linux sudoers
@@ -57,7 +57,7 @@ EOF
 			chmod 440 "$_s" 2>/dev/null || true
 		done || true
 	fi
-	# PAM config for sudo (required for authentication)
+	# pam config for sudo
 	mkdir -p "$ROOT_PATH/etc/pam.d" 2>/dev/null || true
 	for _p in sudo sudo-i; do
 		if [[ ! -f "$ROOT_PATH/etc/pam.d/$_p" ]]; then

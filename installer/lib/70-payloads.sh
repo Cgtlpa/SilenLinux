@@ -64,10 +64,7 @@ install-modules() {
 options rtw88_pci disable_aspm=Y
 options rtw88_core disable_lps_deep=Y
 EOF
-	# No static module lists on the target: OpenRC loads every entry with
-	# `modprobe --first-time`, which errors for anything udev/modalias
-	# already loaded (or pulled in as a dependency) and spams the boot log.
-	# Drivers autoload via modalias; drop any stale list instead.
+	# skip static module lists. drivers load on demand
 	rm -f "$ROOT_PATH"/etc/modules-load.d/silen-net.conf 2>/dev/null || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev sysinit" >/dev/null 2>&1 || true
 }
@@ -258,6 +255,8 @@ EOF
 			sed -i 's|<fork/>|<fork/>\n\n  <pidfile>/run/dbus/pid</pidfile>|' \
 				"$ROOT_PATH/usr/share/dbus-1/system.conf" 2>/dev/null || true
 		fi
+		sed -i 's#<pidfile>[^<]*</pidfile>#<pidfile>/run/dbus/pid</pidfile>#' \
+			"$ROOT_PATH/usr/share/dbus-1/system.conf" 2>/dev/null || true
 	fi
 	if [[ ! -e "$ROOT_PATH"/usr/lib/dbus-daemon-launch-helper ]]; then
 		if [[ -e /usr/lib/dbus-daemon-launch-helper ]]; then
@@ -326,15 +325,36 @@ start_pre() {
 	fi
 }
 EOF
-	# Some dbus configs reference the netdev group; without it the daemon
-	# refuses to start and takes iwd/netmount down with it.
+	# dbus needs the netdev group to start
 	chroot "$ROOT_PATH" /bin/bash -c "getent group netdev >/dev/null 2>&1 || groupadd -r netdev" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus" >/dev/null 2>&1 || true
-	# dhcpcd looks for hooks under /lib/dhcpcd but the tree ships them
-	# under /usr/lib/dhcpcd; link it so wired setup is quiet.
+	chroot "$ROOT_PATH" /bin/bash -c "getent group sddm >/dev/null 2>&1 || groupadd -r sddm" >/dev/null 2>&1 || true
+	chroot "$ROOT_PATH" /bin/bash -c "getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -d /var/lib/sddm -s /sbin/nologin -c 'SDDM Greeter' sddm" >/dev/null 2>&1 || true
+	_msg_gid="$(awk -F: '$1=="messagebus"{print $3}' "$ROOT_PATH"/etc/group 2>/dev/null | head -n1)"
+	for _helper in "$ROOT_PATH"/usr/lib/dbus-daemon-launch-helper "$ROOT_PATH"/usr/libexec/dbus-daemon-launch-helper; do
+		[[ -e "$_helper" ]] || continue
+		if [[ -n "$_msg_gid" ]]; then
+			chown "0:$_msg_gid" "$_helper" 2>/dev/null || true
+			chmod 4710 "$_helper" 2>/dev/null || true
+		else
+			chown root:root "$_helper" 2>/dev/null || true
+			chmod 4755 "$_helper" 2>/dev/null || true
+		fi
+	done
+	mkdir -p "$ROOT_PATH"/var/lib/sddm 2>/dev/null || true
+	_sddm_uid="$(awk -F: '$1=="sddm"{print $3}' "$ROOT_PATH"/etc/passwd 2>/dev/null | head -n1)"
+	_sddm_gid="$(awk -F: '$1=="sddm"{print $3}' "$ROOT_PATH"/etc/group 2>/dev/null | head -n1)"
+	if [[ -n "$_sddm_uid" ]] && [[ -n "$_sddm_gid" ]]; then
+		chown "$_sddm_uid:$_sddm_gid" "$ROOT_PATH"/var/lib/sddm 2>/dev/null || true
+		chmod 0750 "$ROOT_PATH"/var/lib/sddm 2>/dev/null || true
+	fi
+	# link dhcpcd hooks where dhcpcd looks
 	if [[ -d "$ROOT_PATH/usr/lib/dhcpcd" ]] && [[ ! -e "$ROOT_PATH/lib/dhcpcd" ]]; then
 		ln -sfn /usr/lib/dhcpcd "$ROOT_PATH/lib/dhcpcd" 2>/dev/null || true
+	fi
+	if [[ -d "$ROOT_PATH/usr/lib/netifrc" ]] && [[ ! -e "$ROOT_PATH/lib/netifrc" ]]; then
+		ln -sfn /usr/lib/netifrc "$ROOT_PATH/lib/netifrc" 2>/dev/null || true
 	fi
 	_iwd_cmd=/usr/libexec/iwd
 	[[ -x "$ROOT_PATH"/usr/libexec/iwd ]] || _iwd_cmd=/usr/sbin/iwd
@@ -380,11 +400,15 @@ fi
 EOF
 	chmod 0755 "$ROOT_PATH"/etc/local.d/dns-fallback.start 2>/dev/null || true
 	_net_broken=""
-	for _bin in /usr/bin/dbus-daemon /usr/bin/iwctl /usr/bin/iwmon; do
-		if [[ -x "$ROOT_PATH$_bin" ]] && ! chroot "$ROOT_PATH" "${_bin#/usr/bin/}" --help >/dev/null 2>&1; then
-			_net_broken="$_net_broken ${_bin##*/}"
-		fi
-	done || true
+	_probe_net_bin() {
+		local _bin="$1" _flag="${2:---help}"
+		[[ -x "$ROOT_PATH$_bin" ]] || return 0
+		chroot "$ROOT_PATH" "${_bin#/usr/bin/}" "$_flag" >/dev/null 2>&1 \
+			|| _net_broken="$_net_broken ${_bin##*/}"
+	}
+	_probe_net_bin /usr/bin/dbus-daemon --version
+	_probe_net_bin /usr/bin/iwctl
+	_probe_net_bin /usr/bin/iwmon
 	if [[ -x "$ROOT_PATH/usr/libexec/iwd" ]] && ! chroot "$ROOT_PATH" /usr/libexec/iwd --version >/dev/null 2>&1; then
 		_net_broken="$_net_broken iwd"
 	fi

@@ -38,6 +38,7 @@ install-base() {
 			return
 		fi
 	fi
+	rm -rf "$ROOT_PATH"/etc/portage/gnupg 2>/dev/null || true
 	whiptail --infobox "Installing this might take a while...\n" 8 60 2>/dev/null || true
 	fix-permissions
 
@@ -140,10 +141,9 @@ Wi-Fi diagnostics: silen-wifi-check | GPU/NVIDIA diagnostics: silen-nvidia-check
 Network out of the box: wired uses dhcpcd, Wi-Fi uses iwd (iwctl). No network
 at all until you plug in or connect, then DNS just works.
 NVIDIA: display works out of the box via nouveau (in-tree + firmware).
-For proprietary (nvidia-smi, CUDA): sudo spk get nvidia-drivers, then reboot.
-That needs kernel headers at /lib/modules/$(uname -r)/build - this ISO ships
-them when headers-<kver>.tar.zst was built (scripts/make-headers-bundle.sh).
-Without headers the postinstall stops with a rerun hint and nothing breaks.
+For proprietary (nvidia-smi, CUDA) use the NVIDIA ISO variant, which ships
+prebuilt driver modules. The normal ISO has no compiler, so building the
+driver on the target is not supported.
 Diagnose any time with: silen-nvidia-check
 EOF
 	chmod 644 "$ROOT_PATH"/usr/share/silen/spk-help.txt 2>/dev/null || true

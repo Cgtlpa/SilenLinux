@@ -1,0 +1,194 @@
+#!/bin/sh
+set -e
+
+KVER="${1:-}"
+if [ -z "$KVER" ]; then
+	KVER="$(ls -1d /lib/modules/*/ 2>/dev/null | sed 's:/$::' | sort -V | tail -n1 || true)"
+	KVER="${KVER##*/}"
+fi
+[ -n "$KVER" ] || { echo "silen-mkinitramfs: no kernel modules in /lib/modules" >&2; exit 1; }
+[ -d "/lib/modules/$KVER/kernel" ] || { echo "silen-mkinitramfs: /lib/modules/$KVER has no kernel/ tree" >&2; exit 1; }
+[ -x /bin/busybox ] || { echo "silen-mkinitramfs: /bin/busybox is missing" >&2; exit 1; }
+BB=/bin/busybox
+OUT=/boot/initramfs-silen.img
+WORK="$(mktemp -d /tmp/silen-mkinitramfs.XXXXXX)" || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+avail="$(df -Pk /boot 2>/dev/null | awk 'NR == 2 { print $4 }')"
+case "$avail" in ''|*[!0-9]*) avail=0 ;; esac
+if [ "$avail" -gt 0 ] && [ "$avail" -lt 65536 ]; then
+	echo "silen-mkinitramfs: /boot needs at least 64 MiB free (has ${avail}K)" >&2
+	exit 1
+fi
+
+mkdir -p "$WORK"/bin "$WORK"/dev "$WORK"/proc "$WORK"/sys "$WORK"/run "$WORK"/newroot "$WORK"/etc
+mkdir -p "$WORK"/usr/lib "$WORK"/usr/lib64
+ln -sfn usr/lib "$WORK/lib"
+ln -sfn usr/lib64 "$WORK/lib64"
+mkdir -p "$WORK"/lib/modules
+cp -L "$BB" "$WORK/bin/busybox" || exit 1
+"$BB" --install -s "$WORK/bin" >/dev/null 2>&1 || true
+
+if command -v ldd >/dev/null 2>&1; then
+	ldd "$BB" 2>/dev/null | grep -o '/[^ ()]*' | sort -u | while IFS= read -r lib; do
+		[ -f "$lib" ] || continue
+		mkdir -p "$WORK$(dirname "$lib")"
+		cp -L "$lib" "$WORK$lib"
+	done
+fi
+
+{
+	for d in ata block nvme mmc usb/storage virtio md; do
+		[ -d "/lib/modules/$KVER/kernel/drivers/$d" ] || continue
+		find "/lib/modules/$KVER/kernel/drivers/$d" -name '*.ko*' -print | while IFS= read -r f; do
+			basename "$f" | sed -e 's/\.ko\.\(zst\|xz\|gz\)$//' -e 's/\.ko$//'
+		done
+	done
+	printf '%s\n' sd_mod sr_mod sg scsi_mod megaraid_sas mpt3sas mpt2sas mptspi aacraid hpsa \
+		smartpqi qla2xxx lpfc isci pm80xx arcmsr vmw_pvscsi \
+		ext4 jbd2 mbcache vfat fat exfat ntfs3 btrfs xfs isofs udf squashfs fuse \
+		dm_mod md_mod loop nls_utf8 nls_cp437 nls_iso8859-1 i8042 psmouse usbhid hid-generic
+} | sort -u > "$WORK/etc/initramfs-modules"
+
+MODBASE="$WORK/lib/modules/$KVER"
+mkdir -p "$MODBASE"
+for f in modules.builtin modules.builtin.bin modules.builtin.modinfo modules.builtin.alias.bin modules.order modules.alias modules.alias.bin modules.softdep modules.devname; do
+	[ -f "/lib/modules/$KVER/$f" ] || continue
+	cp -L "/lib/modules/$KVER/$f" "$MODBASE/$f"
+done
+
+MODPROBE="$(command -v modprobe 2>/dev/null || true)"
+[ -n "$MODPROBE" ] || { echo "silen-mkinitramfs: modprobe is missing (install kmod)" >&2; exit 1; }
+while IFS= read -r name; do
+	[ -n "$name" ] || continue
+	"$MODPROBE" -S "$KVER" --show-depends "$name" 2>/dev/null | while IFS= read -r line; do
+		case "$line" in
+			insmod\ *) set -- $line; src="$2" ;;
+			*) continue ;;
+		esac
+		[ -f "$src" ] || continue
+		rel="${src#/}"
+		mkdir -p "$WORK/$(dirname "$rel")"
+		case "$src" in
+			*.ko.zst)
+				rel="${rel%.zst}"
+				if command -v zstd >/dev/null 2>&1 && zstd -q -d -c "$src" > "$WORK/$rel" 2>/dev/null; then
+					:
+				else
+					rm -f "$WORK/$rel"
+					rel="${rel}.zst"
+					cp -L "$src" "$WORK/$rel"
+				fi
+				;;
+			*.ko.xz)
+				rel="${rel%.xz}"
+				if command -v xz >/dev/null 2>&1 && xz -q -d -c "$src" > "$WORK/$rel" 2>/dev/null; then
+					:
+				else
+					rm -f "$WORK/$rel"
+					rel="${rel}.xz"
+					cp -L "$src" "$WORK/$rel"
+				fi
+				;;
+			*.ko.gz)
+				rel="${rel%.gz}"
+				if command -v gzip >/dev/null 2>&1 && gzip -q -d -c "$src" > "$WORK/$rel" 2>/dev/null; then
+					:
+				else
+					rm -f "$WORK/$rel"
+					rel="${rel}.gz"
+					cp -L "$src" "$WORK/$rel"
+				fi
+				;;
+			*)
+				cp -L "$src" "$WORK/$rel"
+				;;
+		esac
+	done
+done < "$WORK/etc/initramfs-modules"
+find "$MODBASE" -name '*.ko*' -print -quit 2>/dev/null | grep -q . || { echo "silen-mkinitramfs: no modules collected for $KVER" >&2; exit 1; }
+
+if command -v modinfo >/dev/null 2>&1 && [ -d /lib/firmware ]; then
+	find "$MODBASE" -name '*.ko*' -print | while IFS= read -r path; do
+		for fw in $(modinfo -F firmware "$path" 2>/dev/null || true); do
+			[ -n "$fw" ] || continue
+			for src in "/lib/firmware/$fw" "/lib/firmware/$fw.zst" "/lib/firmware/$fw.xz"; do
+				[ -f "$src" ] || continue
+				mkdir -p "$WORK/lib/firmware/$(dirname "$fw")"
+				cp -L "$src" "$WORK/lib/firmware/$fw"
+				break
+			done
+		done
+	done
+fi
+
+cat > "$WORK/init" <<'INIT'
+#!/bin/sh
+export PATH=/bin
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /run /newroot
+if [ -f /etc/initramfs-modules ]; then
+	while IFS= read -r m; do
+		[ -n "$m" ] || continue
+		modprobe -q "$m" 2>/dev/null
+	done < /etc/initramfs-modules
+fi
+rootarg=""
+for arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$arg" in
+		root=*) rootarg="${arg#root=}" ;;
+	esac
+done
+case "$rootarg" in
+	""|/dev/ram|/dev/ram0|/dev/root|rootfs)
+		echo "silen-initramfs: no root= on the kernel command line"
+		exec /bin/sh
+		;;
+esac
+i=0
+rootdev=""
+while [ "$i" -lt 30 ]; do
+	case "$rootarg" in
+		UUID=*|LABEL=*) rootdev="$(findfs "$rootarg" 2>/dev/null)" ;;
+		PARTUUID=*|PARTLABEL=*) rootdev="$(blkid -t "$rootarg" -o device 2>/dev/null | head -n1)" ;;
+		*) rootdev="$rootarg" ;;
+	esac
+	[ -n "$rootdev" ] && [ -b "$rootdev" ] && break
+	rootdev=""
+	i=$((i + 1))
+	sleep 1
+done
+if [ -z "$rootdev" ]; then
+	echo "silen-initramfs: root device $rootarg did not appear"
+	exec /bin/sh
+fi
+if ! mount -o ro "$rootdev" /newroot; then
+	echo "silen-initramfs: cannot mount $rootdev"
+	exec /bin/sh
+fi
+mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run
+mount --move /proc /newroot/proc 2>/dev/null || true
+mount --move /sys /newroot/sys 2>/dev/null || true
+mount --move /dev /newroot/dev 2>/dev/null || true
+mount --move /run /newroot/run 2>/dev/null || true
+exec switch_root /newroot /sbin/init
+INIT
+chmod 0755 "$WORK/init" || exit 1
+
+DEPMOD="$(command -v depmod 2>/dev/null || true)"
+[ -n "$DEPMOD" ] || { echo "silen-mkinitramfs: depmod is missing (install kmod)" >&2; exit 1; }
+if ! "$DEPMOD" -b "$WORK" "$KVER"; then
+	echo "silen-mkinitramfs: depmod failed" >&2
+	exit 1
+fi
+
+( cd "$WORK" && find . -print | "$BB" cpio -o -H newc 2>/dev/null ) | "$BB" gzip -9 > "$OUT.new" || { rm -f "$OUT.new"; echo "silen-mkinitramfs: compression failed" >&2; exit 1; }
+[ -s "$OUT.new" ] || { rm -f "$OUT.new"; echo "silen-mkinitramfs: empty initramfs" >&2; exit 1; }
+mv -f "$OUT.new" "$OUT" || exit 1
+if [ -f /boot/grub/grub.cfg ]; then
+	sed -i 's|/initramfs[^ 	]*|/initramfs-silen.img|g' /boot/grub/grub.cfg 2>/dev/null || true
+fi
+sync 2>/dev/null || true
+echo "silen-mkinitramfs: wrote $OUT for $KVER ($(du -h "$OUT" 2>/dev/null | cut -f1))"

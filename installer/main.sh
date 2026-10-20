@@ -5,7 +5,7 @@ set -e
 title="Silen Linux"
 ROOT_PATH="/silen"
 
-# Ultraviolet whiptail theme (magenta monochrome, inverted selection).
+# ultraviolet whiptail theme
 export NEWT_COLORS='
 root=black,black
 window=magenta,black
