@@ -6,6 +6,8 @@ spk/target/
 
 tarball-silen.xz
 tarball-silen.xz.bak
+tarball-silen.xz.pre-scrub
+tarball-silen.xz.new
 *.bak
 *.run
 *.iso
@@ -15,4 +17,3 @@ headers-*.tar.gz
 headers-*.tar.xz
 rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
 website/
-silenctl/target/
