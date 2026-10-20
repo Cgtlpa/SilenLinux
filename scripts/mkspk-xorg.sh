@@ -169,7 +169,17 @@ build_xorg_libs() {
 	harvest_bins "$STAGE" "$_img" dbus-daemon dbus-launch dbus-run-session dbus-uuidgen
 	harvest_tree "$STAGE" "$_img" "usr/share/dbus-1"
 	harvest_tree "$STAGE" "$_img" "usr/lib64/libdbus-1"
+	if tar -tf "$_img" 2>/dev/null | grep '^image/usr/libexec/dbus-daemon-launch-helper$' >/dev/null; then
+		tar -xpf "$_img" -C "$STAGE" image/usr/libexec/dbus-daemon-launch-helper 2>/dev/null || true
+		if [ -e "$STAGE/image/usr/libexec/dbus-daemon-launch-helper" ]; then
+			chmod 4755 "$STAGE/image/usr/libexec/dbus-daemon-launch-helper" 2>/dev/null || true
+			mkdir -p "$STAGE/usr/libexec" || exit 1
+			cp -a "$STAGE/image/usr/libexec/dbus-daemon-launch-helper" "$STAGE/usr/libexec/" || { echo "  ERROR cannot copy dbus helper"; exit 1; }
+			rm -rf "$STAGE/image" 2>/dev/null || true
+		fi
+	fi
 	rm -rf "$_tmp" 2>/dev/null || true
+	sed -i 's#<pidfile>/run/dbus.pid</pidfile>#<pidfile>/run/dbus/pid</pidfile>#' "$STAGE/usr/share/dbus-1/system.conf" || exit 1
 	_glv="$(arch_extract extra libglvnd-1.7.0-3-x86_64.pkg.tar.zst)"
 	mkdir -p "$STAGE/usr/lib64" || exit 1
 	cp -a "$_glv/usr/lib/"libGL*.so* "$_glv/usr/lib/"libEGL*.so* "$_glv/usr/lib/"libOpenGL*.so* "$STAGE/usr/lib64/" || { echo "  ERROR cannot copy libglvnd"; exit 1; }
@@ -246,7 +256,25 @@ EOF
 	if [ -d "$DLDIR/fedora-libs" ]; then
 		cp -a "$DLDIR/fedora-libs"/libwacom.so* "$STAGE/usr/lib64/" 2>/dev/null || true
 	fi
-	pack "xorg-libs" "$SNAPVER-r2" "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors" "x11-libs"
+	mkdir -p "$STAGE/usr/lib/spk" || exit 1
+	cat > "$STAGE/usr/lib/spk/postinstall" <<'EOF'
+#!/bin/sh
+R="${SPK_ROOT:-/}"
+[ "$R" = "/" ] && R=""
+if [ -z "$R" ]; then
+	getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus
+	getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus
+	if [ -f /usr/libexec/dbus-daemon-launch-helper ]; then
+		chown root:messagebus /usr/libexec/dbus-daemon-launch-helper
+		chmod 4710 /usr/libexec/dbus-daemon-launch-helper
+	fi
+else
+	chroot "$R" /bin/sh -c 'getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus; getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus; [ ! -f /usr/libexec/dbus-daemon-launch-helper ] || { chown root:messagebus /usr/libexec/dbus-daemon-launch-helper; chmod 4710 /usr/libexec/dbus-daemon-launch-helper; }' || true
+fi
+exit 0
+EOF
+	chmod 755 "$STAGE/usr/lib/spk/postinstall" || exit 1
+	pack "xorg-libs" "$SNAPVER-r4" "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors" "x11-libs"
 	rm -rf "$STAGE" 2>/dev/null || true
 }
 

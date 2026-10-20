@@ -329,6 +329,8 @@ EOF
 	# Some dbus configs reference the netdev group; without it the daemon
 	# refuses to start and takes iwd/netmount down with it.
 	chroot "$ROOT_PATH" /bin/bash -c "getent group netdev >/dev/null 2>&1 || groupadd -r netdev" >/dev/null 2>&1 || true
+	chroot "$ROOT_PATH" /bin/bash -c "getent group messagebus >/dev/null 2>&1 || groupadd -r messagebus" >/dev/null 2>&1 || true
+	chroot "$ROOT_PATH" /bin/bash -c "getent passwd messagebus >/dev/null 2>&1 || useradd -r -g messagebus -d /dev/null -s /sbin/nologin messagebus" >/dev/null 2>&1 || true
 	# dhcpcd looks for hooks under /lib/dhcpcd but the tree ships them
 	# under /usr/lib/dhcpcd; link it so wired setup is quiet.
 	if [[ -d "$ROOT_PATH/usr/lib/dhcpcd" ]] && [[ ! -e "$ROOT_PATH/lib/dhcpcd" ]]; then

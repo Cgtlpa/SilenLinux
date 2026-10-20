@@ -7,7 +7,7 @@ trap 'rc=$?; echo; echo "!! mkspk-sddm stopped with an error (exit $rc at line $
 
 DLDIR="${DLDIR:-spk-pkgs/dl}"
 PKGDIR="${PKGDIR:-spk-pkgs/packages}"
-SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen1}"
+SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen2}"
 SDDM_PARTS="${SDDM_PARTS:-1}"
 SDDM_BASE="${SDDM_BASE:-https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sddm}"
 SDDM_SRC="${SDDM_SRC:-}"
@@ -90,6 +90,15 @@ chmod 755 "$STAGE/usr/lib/silen/repair-libs.sh" || exit 1
 cat > "$STAGE/usr/lib/spk/postinstall" <<'EOF'
 #!/bin/sh
 R="${SPK_ROOT:-/}"
+[ "$R" = "/" ] && R=""
+if [ -z "$R" ]; then
+	getent group sddm >/dev/null 2>&1 || groupadd -r sddm
+	getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /bin/false -d /var/lib/sddm -c "SDDM Greeter Account" sddm
+	mkdir -p /var/lib/sddm
+	chown sddm:sddm /var/lib/sddm
+else
+	chroot "$R" /bin/sh -c 'getent group sddm >/dev/null 2>&1 || groupadd -r sddm; getent passwd sddm >/dev/null 2>&1 || useradd -r -g sddm -s /bin/false -d /var/lib/sddm -c "SDDM Greeter Account" sddm; mkdir -p /var/lib/sddm; chown sddm:sddm /var/lib/sddm' || true
+fi
 [ -x "$R/usr/lib/silen/repair-libs.sh" ] && "$R/usr/lib/silen/repair-libs.sh"
 exit 0
 EOF
