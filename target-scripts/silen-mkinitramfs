@@ -28,6 +28,8 @@ ln -sfn usr/lib64 "$WORK/lib64"
 mkdir -p "$WORK"/lib/modules
 cp -L "$BB" "$WORK/bin/busybox" || exit 1
 "$BB" --install -s "$WORK/bin" >/dev/null 2>&1 || true
+mkdir -p "$WORK/usr/bin"
+ln -sfn /bin/busybox "$WORK/usr/bin/busybox"
 
 if command -v ldd >/dev/null 2>&1; then
 	ldd "$BB" 2>/dev/null | grep -o '/[^ ()]*' | sort -u | while IFS= read -r lib; do
