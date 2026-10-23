@@ -169,7 +169,7 @@ fn remove_lib_conf(name: &str, layout: &Layout) {
 }
 
 fn legacy_remove(name: &str, layout: &Layout) -> bool {
-    // remove lone binaries left by old installs
+    // remove lone shims left by old installs, never real system binaries
     remove_lib_conf(name, layout);
     let mut dirs: Vec<String> = Vec::new();
     if layout.user_mode {
@@ -180,20 +180,35 @@ fn legacy_remove(name: &str, layout: &Layout) -> bool {
         } else {
             layout.root.clone()
         };
-        for dir in ["/usr/bin", "/usr/local/bin", "/bin"] {
-            dirs.push(format!("{}{}", prefix, dir));
-        }
+        dirs.push(format!("{}/usr/local/bin", prefix));
     }
+    let mut removed_any = false;
     for dir in &dirs {
         let path = format!("{}/{}", dir.trim_end_matches('/'), name);
+        let is_spk_shim = match fs::read_link(&path) {
+            Ok(target) => {
+                let text = target.to_string_lossy();
+                text.contains("/spk_pkgs/") || text.contains("/.local/share/spk/") || text.contains("/spk/apps/") || text.contains("/opt/spk/")
+            }
+            Err(_) => false,
+        };
+        if !is_spk_shim {
+            continue;
+        }
+        if is_protected(&path) {
+            continue;
+        }
         if fs::remove_file(&path).is_ok() {
             println!("spk: removed {}", path);
-            let _ = fs::remove_dir_all(&layout.appdir);
-            let _ = fs::remove_dir_all(&layout.pkgdir);
-            let _ = fs::remove_dir_all(&layout.registry);
-            return true;
+            removed_any = true;
         }
     }
-    eprintln!("spk: could not find {}", name);
+    if removed_any {
+        let _ = fs::remove_dir_all(&layout.appdir);
+        let _ = fs::remove_dir_all(&layout.pkgdir);
+        let _ = fs::remove_dir_all(&layout.registry);
+        return true;
+    }
+    eprintln!("spk: {} is not installed (no spk records found)", name);
     false
 }

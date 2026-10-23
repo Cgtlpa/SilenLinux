@@ -1,0 +1,2090 @@
+[
+ {
+  "name": "7zip",
+  "filename": "7zip.spk",
+  "version": "26.02",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "acpid",
+  "filename": "acpid.spk",
+  "version": "2.0.34",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "age",
+  "filename": "age.spk",
+  "version": "1.3.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "alacritty",
+  "filename": "alacritty.spk",
+  "version": "0.17.0",
+  "system": true,
+  "category": "x11-terms",
+  "description": "GPU-accelerated terminal emulator"
+ },
+ {
+  "name": "alsa-lib",
+  "filename": "alsa-lib.spk",
+  "version": "1.2.16.1",
+  "system": true,
+  "category": "media-libs",
+  "description": "ALSA library and configuration"
+ },
+ {
+  "name": "alsa-utils",
+  "filename": "alsa-utils.spk",
+  "version": "1.2.16",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "antiword",
+  "filename": "antiword.spk",
+  "version": "0.37",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "aria2",
+  "filename": "aria2.spk",
+  "version": "1.37.0-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "ascii-xfr",
+  "filename": "ascii-xfr.spk",
+  "version": "2.11.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "atuin",
+  "filename": "atuin.spk",
+  "version": "18.23.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "awww",
+  "filename": "awww.spk",
+  "version": "0.12.1",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Wayland wallpaper daemon and client (swww successor)"
+ },
+ {
+  "name": "b43-fwcutter",
+  "filename": "b43-fwcutter.spk",
+  "version": "020",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "bat",
+  "filename": "bat.spk",
+  "version": "0.26.1-r1",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "bmon",
+  "filename": "bmon.spk",
+  "version": "4.0",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "bottom",
+  "filename": "bottom.spk",
+  "version": "0.12.2",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "brotli",
+  "filename": "brotli.spk",
+  "version": "1.2.0",
+  "system": true,
+  "category": "",
+  "description": "Brotli compression runtime"
+ },
+ {
+  "name": "btop",
+  "filename": "btop.spk",
+  "version": "1.4.7",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "btrfs-progs",
+  "filename": "btrfs-progs.spk",
+  "version": "7.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "busybox",
+  "filename": "busybox.spk",
+  "version": "1.37.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "catdoc",
+  "filename": "catdoc.spk",
+  "version": "0.95",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "chrony",
+  "filename": "chrony.spk",
+  "version": "4.9",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "composefs",
+  "filename": "composefs.spk",
+  "version": "1.0.8",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "compsize",
+  "filename": "compsize.spk",
+  "version": "1.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "cpupower",
+  "filename": "cpupower.spk",
+  "version": "7.2.8",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "crc32-check",
+  "filename": "crc32-check.spk",
+  "version": "1.68",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "cryptsetup",
+  "filename": "cryptsetup.spk",
+  "version": "2.8.8",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "ctags",
+  "filename": "ctags.spk",
+  "version": "6.2.1-r1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "curl",
+  "filename": "curl.spk",
+  "version": "8.18.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "cursor-theme",
+  "filename": "cursor-theme.spk",
+  "version": "50.0",
+  "system": true,
+  "category": "",
+  "description": "Adwaita default cursor theme"
+ },
+ {
+  "name": "cxx-libs",
+  "filename": "cxx-libs.spk",
+  "version": "20261020-r2",
+  "system": true,
+  "category": "x11-libs",
+  "description": "C++ binding runtimes for glib, cairo and gtk plus GCC 16 libstdc++"
+ },
+ {
+  "name": "dbus-config",
+  "filename": "dbus-config.spk",
+  "version": "1.16.2-silen1",
+  "system": true,
+  "category": "system",
+  "description": "D-Bus session bus configuration: session.conf and machine-id setup"
+ },
+ {
+  "name": "dbus",
+  "filename": "dbus.spk",
+  "version": "1.16.2",
+  "system": true,
+  "category": "system",
+  "description": "D-Bus message bus daemon and client tools"
+ },
+ {
+  "name": "dejavu",
+  "filename": "dejavu.spk",
+  "version": "2.37",
+  "system": true,
+  "category": "media-fonts",
+  "description": "DejaVu font family"
+ },
+ {
+  "name": "dive",
+  "filename": "dive.spk",
+  "version": "0.13.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dm-openrc",
+  "filename": "dm-openrc.spk",
+  "version": "1.1",
+  "system": true,
+  "category": "sys-apps",
+  "description": "OpenRC services for display managers (sddm, ly, emptty, greetd)"
+ },
+ {
+  "name": "dmenu",
+  "filename": "dmenu.spk",
+  "version": "5.4",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Dynamic menu for X"
+ },
+ {
+  "name": "dmidecode",
+  "filename": "dmidecode.spk",
+  "version": "3.7",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dos2unix",
+  "filename": "dos2unix.spk",
+  "version": "7.5.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dosfstools",
+  "filename": "dosfstools.spk",
+  "version": "4.2",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "drill",
+  "filename": "drill.spk",
+  "version": "1.9.2",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dropbear",
+  "filename": "dropbear.spk",
+  "version": "2025.89",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "duf",
+  "filename": "duf.spk",
+  "version": "0.9.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dust",
+  "filename": "dust.spk",
+  "version": "1.2.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "dwm",
+  "filename": "dwm.spk",
+  "version": "6.8",
+  "system": true,
+  "category": "x11-wm",
+  "description": "Dynamic window manager"
+ },
+ {
+  "name": "ed",
+  "filename": "ed.spk",
+  "version": "1.22.5",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "efibootmgr",
+  "filename": "efibootmgr.spk",
+  "version": "18",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "ei-libs",
+  "filename": "ei-libs.spk",
+  "version": "1.6.0",
+  "system": true,
+  "category": "",
+  "description": "Wayland input emulation libs (libei, liboeffis, libdecor)"
+ },
+ {
+  "name": "elogind",
+  "filename": "elogind.spk",
+  "version": "255.24-r1",
+  "system": true,
+  "category": "sys-auth",
+  "description": ""
+ },
+ {
+  "name": "emptty",
+  "filename": "emptty.spk",
+  "version": "0.16.1",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "ether-wake",
+  "filename": "ether-wake.spk",
+  "version": "2.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "ethtool",
+  "filename": "ethtool.spk",
+  "version": "7.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "exfatprogs",
+  "filename": "exfatprogs.spk",
+  "version": "1.4.3",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "eza",
+  "filename": "eza.spk",
+  "version": "0.23.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "f2fs-tools",
+  "filename": "f2fs-tools.spk",
+  "version": "1.16.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "fastfetch",
+  "filename": "fastfetch.spk",
+  "version": "2.69.0",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "fd",
+  "filename": "fd.spk",
+  "version": "10.5.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "fennel",
+  "filename": "fennel.spk",
+  "version": "1.0.0",
+  "system": false,
+  "category": "dev-lang",
+  "description": "Fennel Lisp dialect"
+ },
+ {
+  "name": "file",
+  "filename": "file.spk",
+  "version": "5.46",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "firefox",
+  "filename": "firefox.spk",
+  "version": "158.0.1",
+  "system": true,
+  "category": "www-client",
+  "description": "Mozilla Firefox web browser (official prebuilt binary)"
+ },
+ {
+  "name": "fish",
+  "filename": "fish.spk",
+  "version": "4.9.3",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "flashrom",
+  "filename": "flashrom.spk",
+  "version": "1.6.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "flatpak-config",
+  "filename": "flatpak-config.spk",
+  "version": "1.0.0-silen1",
+  "system": true,
+  "category": "sys-apps",
+  "description": "Flatpak system configuration: MIME database, profile exports, repo initialization"
+ },
+ {
+  "name": "flatpak",
+  "filename": "flatpak.spk",
+  "version": "1.16.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "fontconfig-base",
+  "filename": "fontconfig-base.spk",
+  "version": "2.18.3-silen1",
+  "system": true,
+  "category": "x11-libs",
+  "description": "Fontconfig default configuration and font alias rules"
+ },
+ {
+  "name": "foot",
+  "filename": "foot.spk",
+  "version": "1.23.1-r1",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "fzf",
+  "filename": "fzf.spk",
+  "version": "0.74.4",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "gcc",
+  "filename": "gcc.spk",
+  "version": "16.2.1-silen1",
+  "system": true,
+  "category": "sys-devel",
+  "description": "GCC 16.2.1 C/C++ compiler"
+ },
+ {
+  "name": "gh",
+  "filename": "gh.spk",
+  "version": "2.81.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "git-delta",
+  "filename": "git-delta.spk",
+  "version": "0.19.1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "git",
+  "filename": "git.spk",
+  "version": "2.55.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "gojq",
+  "filename": "gojq.spk",
+  "version": "0.12.19",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "golang",
+  "filename": "golang.spk",
+  "version": "1.27.2-r1",
+  "system": true,
+  "category": "dev-lang",
+  "description": ""
+ },
+ {
+  "name": "greetd",
+  "filename": "greetd.spk",
+  "version": "0.10.3",
+  "system": true,
+  "category": "",
+  "description": "greetd login manager daemon + agreety"
+ },
+ {
+  "name": "grim",
+  "filename": "grim.spk",
+  "version": "1.4.0",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "gtk-libs",
+  "filename": "gtk-libs.spk",
+  "version": "20261020-r2",
+  "system": true,
+  "category": "x11-libs",
+  "description": "glib, cairo (Xlib/XCB), pango, harfbuzz, gdk-pixbuf and font runtimes"
+ },
+ {
+  "name": "gtk3",
+  "filename": "gtk3.spk",
+  "version": "3.24.52",
+  "system": true,
+  "category": "x11-libs",
+  "description": "GTK+ 3 toolkit"
+ },
+ {
+  "name": "hdparm",
+  "filename": "hdparm.spk",
+  "version": "9.65",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "helix",
+  "filename": "helix.spk",
+  "version": "25.07.1",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "hexyl",
+  "filename": "hexyl.spk",
+  "version": "0.14.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "hfsplus-tools",
+  "filename": "hfsplus-tools.spk",
+  "version": "540.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "htop",
+  "filename": "htop.spk",
+  "version": "3.5.3",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "hunspell",
+  "filename": "hunspell.spk",
+  "version": "1.7.4",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "hyperfine",
+  "filename": "hyperfine.spk",
+  "version": "1.20.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "icewm",
+  "filename": "icewm.spk",
+  "version": "4.1.0",
+  "system": true,
+  "category": "x11-wm",
+  "description": "IceWM window manager with session files and themes"
+ },
+ {
+  "name": "icoutils",
+  "filename": "icoutils.spk",
+  "version": "0.32.3",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "ifstat",
+  "filename": "ifstat.spk",
+  "version": "6.17.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "imlib2",
+  "filename": "imlib2.spk",
+  "version": "1.12.7",
+  "system": true,
+  "category": "media-libs",
+  "description": "Imlib2 image loading library with common loaders"
+ },
+ {
+  "name": "instantcli",
+  "filename": "instantcli.spk",
+  "version": "0.14.23",
+  "system": true,
+  "category": "",
+  "description": "instantCLI dotfile, diagnostic and WM helper tool (ins)"
+ },
+ {
+  "name": "instantmenu",
+  "filename": "instantmenu.spk",
+  "version": "5.1.5",
+  "system": true,
+  "category": "",
+  "description": "instantMENU dynamic menu for X11 and Wayland (dmenu-style)"
+ },
+ {
+  "name": "instantwm",
+  "filename": "instantwm.spk",
+  "version": "0.5.0",
+  "system": true,
+  "category": "",
+  "description": "instantWM hybrid tiling window manager (X11+Wayland)"
+ },
+ {
+  "name": "inxi",
+  "filename": "inxi.spk",
+  "version": "3.3.41",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "iperf3",
+  "filename": "iperf3.spk",
+  "version": "3.20-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "iptstate",
+  "filename": "iptstate.spk",
+  "version": "2.3.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "iwd",
+  "filename": "iwd.spk",
+  "version": "3.12",
+  "system": true,
+  "category": "net-wireless",
+  "description": "iNet Wireless Daemon with iwctl, iwmon and the OpenRC service"
+ },
+ {
+  "name": "iwtui",
+  "filename": "iwtui.spk",
+  "version": "0.2.1",
+  "system": false,
+  "category": "net-wireless",
+  "description": "Terminal UI for iwd Wi-Fi management"
+ },
+ {
+  "name": "janet",
+  "filename": "janet.spk",
+  "version": "1.42.1",
+  "system": false,
+  "category": "dev-lang",
+  "description": "Janet programming language"
+ },
+ {
+  "name": "jetbrains-mono",
+  "filename": "jetbrains-mono.spk",
+  "version": "2.304",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "jose",
+  "filename": "jose.spk",
+  "version": "14",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "jq",
+  "filename": "jq.spk",
+  "version": "1.8.1-r1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "just",
+  "filename": "just.spk",
+  "version": "1.57.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "k9s",
+  "filename": "k9s.spk",
+  "version": "0.50.16",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "kacpimon",
+  "filename": "kacpimon.spk",
+  "version": "2.0.34",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "kakoune",
+  "filename": "kakoune.spk",
+  "version": "2026.04.12",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "kcapi-hasher",
+  "filename": "kcapi-hasher.spk",
+  "version": "1.5.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "kexec",
+  "filename": "kexec.spk",
+  "version": "2.0.32",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "kitty",
+  "filename": "kitty.spk",
+  "version": "0.49.2",
+  "system": true,
+  "category": "x11-terms",
+  "description": "GPU-accelerated terminal emulator"
+ },
+ {
+  "name": "kpartx",
+  "filename": "kpartx.spk",
+  "version": "0.13.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "kvm-stat",
+  "filename": "kvm-stat.spk",
+  "version": "7.2.8",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "lazydocker",
+  "filename": "lazydocker.spk",
+  "version": "0.24.3",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "lazygit",
+  "filename": "lazygit.spk",
+  "version": "0.55.1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "less",
+  "filename": "less.spk",
+  "version": "704",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "libasyncns",
+  "filename": "libasyncns.spk",
+  "version": "0.8-r5",
+  "system": true,
+  "category": "net-libs",
+  "description": "Asynchronous DNS resolver library for PulseAudio"
+ },
+ {
+  "name": "libcjson",
+  "filename": "libcjson.spk",
+  "version": "1.7.19",
+  "system": true,
+  "category": "dev-libs",
+  "description": "Ultralightweight JSON parser in C"
+ },
+ {
+  "name": "liberation",
+  "filename": "liberation.spk",
+  "version": "2.1.5",
+  "system": true,
+  "category": "",
+  "description": "Liberation Sans/Serif/Mono"
+ },
+ {
+  "name": "libglvnd",
+  "filename": "libglvnd.spk",
+  "version": "1.7.0",
+  "system": true,
+  "category": "media-libs",
+  "description": "GL Vendor-Neutral Dispatch library (EGL, GLX, OpenGL, GLES)"
+ },
+ {
+  "name": "libinput",
+  "filename": "libinput.spk",
+  "version": "1.31.3",
+  "system": true,
+  "category": "x11-libs",
+  "description": "Input device handling library"
+ },
+ {
+  "name": "libpulse",
+  "filename": "libpulse.spk",
+  "version": "17.0",
+  "system": true,
+  "category": "media-libs",
+  "description": "PulseAudio client libraries and tools for PipeWire-Pulse"
+ },
+ {
+  "name": "librewolf",
+  "filename": "librewolf.spk",
+  "version": "158.0-1",
+  "system": true,
+  "category": "www-client",
+  "description": "LibreWolf privacy-focused web browser (official build)"
+ },
+ {
+  "name": "librsvg",
+  "filename": "librsvg.spk",
+  "version": "2.63.3",
+  "system": true,
+  "category": "gnome",
+  "description": "SVG rendering library"
+ },
+ {
+  "name": "libsndfile",
+  "filename": "libsndfile.spk",
+  "version": "1.2.2",
+  "system": true,
+  "category": "media-libs",
+  "description": "libsndfile and audio codec runtimes"
+ },
+ {
+  "name": "linux-6.18",
+  "filename": "linux-6.18.spk",
+  "version": "6.18.54-silen",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "linux-firmware",
+  "filename": "linux-firmware.spk",
+  "version": "20261006",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "linux-headers",
+  "filename": "linux-headers.spk",
+  "version": "6.18.54-silen",
+  "system": true,
+  "category": "sys-libs",
+  "description": "Linux kernel headers 6.18.54-silen"
+ },
+ {
+  "name": "llvm",
+  "filename": "llvm.spk",
+  "version": "22.1.8",
+  "system": true,
+  "category": "llvm-runtimes",
+  "description": "LLVM compiler infrastructure"
+ },
+ {
+  "name": "logrotate",
+  "filename": "logrotate.spk",
+  "version": "3.22.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "lrzsz",
+  "filename": "lrzsz.spk",
+  "version": "0.12.20",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "lua-libs",
+  "filename": "lua-libs.spk",
+  "version": "5.4.8",
+  "system": true,
+  "category": "dev-libs",
+  "description": "Lua 5.4 runtime library for WirePlumber"
+ },
+ {
+  "name": "lua",
+  "filename": "lua.spk",
+  "version": "5.4.8",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "luajit",
+  "filename": "luajit.spk",
+  "version": "2.1.1767980792",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "lwp-request",
+  "filename": "lwp-request.spk",
+  "version": "6.83",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "ly",
+  "filename": "ly.spk",
+  "version": "1.4.0",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "lz4",
+  "filename": "lz4.spk",
+  "version": "1.10.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "make",
+  "filename": "make.spk",
+  "version": "4.4.1-silen1",
+  "system": true,
+  "category": "sys-devel",
+  "description": "GNU Make 4.4.1-silen1"
+ },
+ {
+  "name": "mako",
+  "filename": "mako.spk",
+  "version": "1.9.0",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "mango",
+  "filename": "mango.spk",
+  "version": "0.17.5.2-r3",
+  "system": true,
+  "category": "x11-wm",
+  "description": "MangoWC tiling Wayland compositor"
+ },
+ {
+  "name": "mcelog",
+  "filename": "mcelog.spk",
+  "version": "175",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mdadm",
+  "filename": "mdadm.spk",
+  "version": "4.3",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "memstrack",
+  "filename": "memstrack.spk",
+  "version": "0.2.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mesa",
+  "filename": "mesa.spk",
+  "version": "26.1.8",
+  "system": true,
+  "category": "media-libs",
+  "description": "OpenGL and Vulkan driver stack"
+ },
+ {
+  "name": "micro",
+  "filename": "micro.spk",
+  "version": "2.0.15",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "mii-diag",
+  "filename": "mii-diag.spk",
+  "version": "2.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "minicom",
+  "filename": "minicom.spk",
+  "version": "2.11.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "minisign",
+  "filename": "minisign.spk",
+  "version": "0.12",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mkpasswd",
+  "filename": "mkpasswd.spk",
+  "version": "5.6.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mmc-tool",
+  "filename": "mmc-tool.spk",
+  "version": "2.3.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mmdblookup",
+  "filename": "mmdblookup.spk",
+  "version": "1.14.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mokutil",
+  "filename": "mokutil.spk",
+  "version": "0.7.2",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mpage",
+  "filename": "mpage.spk",
+  "version": "2.5.7",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "mtools",
+  "filename": "mtools.spk",
+  "version": "4.0.49",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "mtr",
+  "filename": "mtr.spk",
+  "version": "0.96",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "nano",
+  "filename": "nano.spk",
+  "version": "8.7.1",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "nbd",
+  "filename": "nbd.spk",
+  "version": "1.25.7-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "neovim",
+  "filename": "neovim.spk",
+  "version": "0.11.5",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "nerd-symbols",
+  "filename": "nerd-symbols.spk",
+  "version": "3.4.0",
+  "system": true,
+  "category": "",
+  "description": "Nerd Font symbols for bars/icons"
+ },
+ {
+  "name": "netsurf",
+  "filename": "netsurf.spk",
+  "version": "3.12-r1",
+  "system": true,
+  "category": "www-client",
+  "description": ""
+ },
+ {
+  "name": "nilfs-tools",
+  "filename": "nilfs-tools.spk",
+  "version": "2.2.11",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "nim",
+  "filename": "nim.spk",
+  "version": "2.2.10",
+  "system": false,
+  "category": "dev-lang",
+  "description": "Nim programming language compiler"
+ },
+ {
+  "name": "niri",
+  "filename": "niri.spk",
+  "version": "26.4.2-r1",
+  "system": true,
+  "category": "gui-wm",
+  "description": "Scrollable-tiling Wayland compositor"
+ },
+ {
+  "name": "nload",
+  "filename": "nload.spk",
+  "version": "0.7.4",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "nnn",
+  "filename": "nnn.spk",
+  "version": "5.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "noto-emoji",
+  "filename": "noto-emoji.spk",
+  "version": "20251011",
+  "system": true,
+  "category": "",
+  "description": "Noto color emoji"
+ },
+ {
+  "name": "noto-fonts",
+  "filename": "noto-fonts.spk",
+  "version": "20251011",
+  "system": true,
+  "category": "",
+  "description": "Noto Sans/Serif/Mono variable fonts"
+ },
+ {
+  "name": "ntfs-3g",
+  "filename": "ntfs-3g.spk",
+  "version": "2026.2.25",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "nushell",
+  "filename": "nushell.spk",
+  "version": "0.116.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "nvidia-drivers",
+  "filename": "nvidia-drivers.spk",
+  "version": "580.142",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "onefetch",
+  "filename": "onefetch.spk",
+  "version": "3.0.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "openssh",
+  "filename": "openssh.spk",
+  "version": "10.2p1-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "parallel",
+  "filename": "parallel.spk",
+  "version": "20260822",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "parted",
+  "filename": "parted.spk",
+  "version": "3.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "passt",
+  "filename": "passt.spk",
+  "version": "20260728",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "perl",
+  "filename": "perl.spk",
+  "version": "5.44.0-r1",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "picocom",
+  "filename": "picocom.spk",
+  "version": "2024.07",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "pigz",
+  "filename": "pigz.spk",
+  "version": "2.8",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "pipewire",
+  "filename": "pipewire.spk",
+  "version": "1.6.8-silen1",
+  "system": true,
+  "category": "media-sound",
+  "description": "PipeWire multimedia server with SPA plugins, ALSA integration and PulseAudio compatibility"
+ },
+ {
+  "name": "plocate",
+  "filename": "plocate.spk",
+  "version": "1.1.25",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "ppp-tools",
+  "filename": "ppp-tools.spk",
+  "version": "2.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "procs",
+  "filename": "procs.spk",
+  "version": "0.14.10",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "pulsemixer",
+  "filename": "pulsemixer.spk",
+  "version": "1.5.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "pwgen",
+  "filename": "pwgen.spk",
+  "version": "2.08",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "pwscore-utils",
+  "filename": "pwscore-utils.spk",
+  "version": "1.4.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "python",
+  "filename": "python.spk",
+  "version": "3.15.0",
+  "system": false,
+  "category": "dev-lang",
+  "description": "Python 3.15.0 portable build with pip, ssl, sqlite and Tk"
+ },
+ {
+  "name": "quickjs",
+  "filename": "quickjs.spk",
+  "version": "0.14.0",
+  "system": false,
+  "category": "dev-lang",
+  "description": "Small embeddable JavaScript engine"
+ },
+ {
+  "name": "ranger",
+  "filename": "ranger.spk",
+  "version": "1.9.4",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "rclone",
+  "filename": "rclone.spk",
+  "version": "1.75.2",
+  "system": true,
+  "category": "net-misc",
+  "description": "Cloud storage sync tool"
+ },
+ {
+  "name": "restic",
+  "filename": "restic.spk",
+  "version": "0.19.1",
+  "system": true,
+  "category": "app-backup",
+  "description": "Fast, secure backup program"
+ },
+ {
+  "name": "ripgrep",
+  "filename": "ripgrep.spk",
+  "version": "15.2.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "rofi",
+  "filename": "rofi.spk",
+  "version": "1.7.9.2",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Window switcher and application launcher"
+ },
+ {
+  "name": "rsync",
+  "filename": "rsync.spk",
+  "version": "3.5.0-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "rustup",
+  "filename": "rustup.spk",
+  "version": "1.29.1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "scenefx",
+  "filename": "scenefx.spk",
+  "version": "0.5",
+  "system": true,
+  "category": "gui-libs",
+  "description": "Scene effects library for wlroots compositors"
+ },
+ {
+  "name": "screen",
+  "filename": "screen.spk",
+  "version": "5.0.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "sddm",
+  "filename": "sddm.spk",
+  "version": "0.21.0-silen5",
+  "system": true,
+  "category": "x11-misc",
+  "description": "SDDM display manager with X11 greeter config"
+ },
+ {
+  "name": "seatd",
+  "filename": "seatd.spk",
+  "version": "0.9.3-r1",
+  "system": true,
+  "category": "sys-auth",
+  "description": "Seat management daemon for Wayland compositors"
+ },
+ {
+  "name": "sensors",
+  "filename": "sensors.spk",
+  "version": "3.6.0",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "setpci",
+  "filename": "setpci.spk",
+  "version": "3.15.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "silen-audio",
+  "filename": "silen-audio.spk",
+  "version": "1.0.0",
+  "system": true,
+  "category": "media-sound",
+  "description": "PipeWire, WirePlumber and PipeWire-Pulse session autostart"
+ },
+ {
+  "name": "slurp",
+  "filename": "slurp.spk",
+  "version": "1.4.0",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "smartmontools",
+  "filename": "smartmontools.spk",
+  "version": "7.5",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "socat",
+  "filename": "socat.spk",
+  "version": "1.8.1.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "squashfs-tools",
+  "filename": "squashfs-tools.spk",
+  "version": "4.6.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "st",
+  "filename": "st.spk",
+  "version": "0.9.2",
+  "system": true,
+  "category": "x11-terms",
+  "description": "Simple terminal emulator"
+ },
+ {
+  "name": "starship",
+  "filename": "starship.spk",
+  "version": "1.26.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "stun-client",
+  "filename": "stun-client.spk",
+  "version": "0.1.23",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "swaybg",
+  "filename": "swaybg.spk",
+  "version": "1.2.2",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Wallpaper utility for Wayland compositors"
+ },
+ {
+  "name": "swayidle",
+  "filename": "swayidle.spk",
+  "version": "1.9.0",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "swaylock",
+  "filename": "swaylock.spk",
+  "version": "1.8.2",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "swww",
+  "filename": "swww.spk",
+  "version": "0.12.1",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Compatibility symlinks for the swww CLI (uses awww)"
+ },
+ {
+  "name": "syncthing",
+  "filename": "syncthing.spk",
+  "version": "2.1.6",
+  "system": true,
+  "category": "net-p2p",
+  "description": "Continuous file synchronization"
+ },
+ {
+  "name": "sysstat",
+  "filename": "sysstat.spk",
+  "version": "12.7.9",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "tailscale",
+  "filename": "tailscale.spk",
+  "version": "1.104.1",
+  "system": true,
+  "category": "net-vpn",
+  "description": "WireGuard-based mesh VPN"
+ },
+ {
+  "name": "tealdeer",
+  "filename": "tealdeer.spk",
+  "version": "1.9.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "thunderbird",
+  "filename": "thunderbird.spk",
+  "version": "158.0",
+  "system": true,
+  "category": "mail-client",
+  "description": "Mozilla Thunderbird email client (official build)"
+ },
+ {
+  "name": "tig",
+  "filename": "tig.spk",
+  "version": "2.6.1",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "time-proc",
+  "filename": "time-proc.spk",
+  "version": "1.9",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "tmon",
+  "filename": "tmon.spk",
+  "version": "7.2.8",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "tmux",
+  "filename": "tmux.spk",
+  "version": "3.6a",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "tokei",
+  "filename": "tokei.spk",
+  "version": "15.0.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "torbrowser",
+  "filename": "torbrowser.spk",
+  "version": "15.0.25",
+  "system": true,
+  "category": "www-client",
+  "description": "Tor Browser privacy browser bundle (official build)"
+ },
+ {
+  "name": "traceroute",
+  "filename": "traceroute.spk",
+  "version": "2.1.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "tree",
+  "filename": "tree.spk",
+  "version": "2.2.1",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "tuigreet",
+  "filename": "tuigreet.spk",
+  "version": "0.11.0",
+  "system": true,
+  "category": "",
+  "description": "tuigreet TUI greeter for greetd"
+ },
+ {
+  "name": "turbostat",
+  "filename": "turbostat.spk",
+  "version": "7.2.8",
+  "system": false,
+  "category": "sys-monitor",
+  "description": ""
+ },
+ {
+  "name": "uchardet",
+  "filename": "uchardet.spk",
+  "version": "0.0.8",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "udf-tools",
+  "filename": "udf-tools.spk",
+  "version": "2.3",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "unzip",
+  "filename": "unzip.spk",
+  "version": "6.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "usb-modeswitch",
+  "filename": "usb-modeswitch.spk",
+  "version": "2.6.2",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "usbextras",
+  "filename": "usbextras.spk",
+  "version": "019",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "utf8proc",
+  "filename": "utf8proc.spk",
+  "version": "2.11.3",
+  "system": true,
+  "category": "sys-libs",
+  "description": ""
+ },
+ {
+  "name": "uutils-coreutils",
+  "filename": "uutils-coreutils.spk",
+  "version": "0.7.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "vim",
+  "filename": "vim.spk",
+  "version": "9.1.1652-r2",
+  "system": false,
+  "category": "app-editors",
+  "description": ""
+ },
+ {
+  "name": "virt-what",
+  "filename": "virt-what.spk",
+  "version": "1.27",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "vlock",
+  "filename": "vlock.spk",
+  "version": "2.9.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "vulkan-loader",
+  "filename": "vulkan-loader.spk",
+  "version": "1.4.350.0",
+  "system": true,
+  "category": "media-libs",
+  "description": "Vulkan ICD loader"
+ },
+ {
+  "name": "wavpack",
+  "filename": "wavpack.spk",
+  "version": "5.9.0",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "waybar",
+  "filename": "waybar.spk",
+  "version": "0.15.1-silen1",
+  "system": true,
+  "category": "x11-misc",
+  "description": "Highly customizable Wayland bar"
+ },
+ {
+  "name": "wget",
+  "filename": "wget.spk",
+  "version": "2.2.1-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "whois",
+  "filename": "whois.spk",
+  "version": "5.6.6",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "wireplumber",
+  "filename": "wireplumber.spk",
+  "version": "0.5.15",
+  "system": true,
+  "category": "media-sound",
+  "description": "WirePlumber session and policy manager for PipeWire"
+ },
+ {
+  "name": "wl-clipboard",
+  "filename": "wl-clipboard.spk",
+  "version": "2.2.1",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "wl-libs",
+  "filename": "wl-libs.spk",
+  "version": "20261007",
+  "system": true,
+  "category": "gui-libs",
+  "description": "Wayland protocol and runtime libraries"
+ },
+ {
+  "name": "wlroots",
+  "filename": "wlroots.spk",
+  "version": "0.20.2",
+  "system": true,
+  "category": "gui-libs",
+  "description": "Modular Wayland compositor library"
+ },
+ {
+  "name": "wofi",
+  "filename": "wofi.spk",
+  "version": "1.4.2",
+  "system": true,
+  "category": "gui-apps",
+  "description": "Wayland application launcher"
+ },
+ {
+  "name": "wpa-passphrase",
+  "filename": "wpa-passphrase.spk",
+  "version": "2.11",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "x86-energy-perf-policy",
+  "filename": "x86-energy-perf-policy.spk",
+  "version": "7.2.8",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "xdm",
+  "filename": "xdm.spk",
+  "version": "1.1.17",
+  "system": true,
+  "category": "",
+  "description": ""
+ },
+ {
+  "name": "xfsprogs",
+  "filename": "xfsprogs.spk",
+  "version": "7.1.1-r1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "xinit",
+  "filename": "xinit.spk",
+  "version": "1.4.4",
+  "system": true,
+  "category": "x11-apps",
+  "description": "X session startup utility"
+ },
+ {
+  "name": "xkb-data",
+  "filename": "xkb-data.spk",
+  "version": "2.48",
+  "system": true,
+  "category": "x11-misc",
+  "description": "XKB keyboard configuration data"
+ },
+ {
+  "name": "xorg-drivers",
+  "filename": "xorg-drivers.spk",
+  "version": "20261007",
+  "system": true,
+  "category": "x11-base",
+  "description": "Xorg video and input drivers"
+ },
+ {
+  "name": "xorg-libs",
+  "filename": "xorg-libs.spk",
+  "version": "20261020-r5",
+  "system": true,
+  "category": "x11-libs",
+  "description": "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors"
+ },
+ {
+  "name": "xorg-server",
+  "filename": "xorg-server.spk",
+  "version": "21.1.24",
+  "system": true,
+  "category": "x11-base",
+  "description": "Xorg server 21.1 with modesetting driver"
+ },
+ {
+  "name": "xorg-xrandr",
+  "filename": "xorg-xrandr.spk",
+  "version": "1.5.4",
+  "system": true,
+  "category": "x11-apps",
+  "description": "X11 RandR configuration utility"
+ },
+ {
+  "name": "xorriso",
+  "filename": "xorriso.spk",
+  "version": "1.5.8",
+  "system": false,
+  "category": "app-misc",
+  "description": ""
+ },
+ {
+  "name": "xwayland-satellite",
+  "filename": "xwayland-satellite.spk",
+  "version": "0.8.3",
+  "system": true,
+  "category": "",
+  "description": "XWayland backend for niri"
+ },
+ {
+  "name": "xwayland",
+  "filename": "xwayland.spk",
+  "version": "24.1.13",
+  "system": true,
+  "category": "",
+  "description": "XWayland X server for X11 apps on Wayland"
+ },
+ {
+  "name": "yajl-tools",
+  "filename": "yajl-tools.spk",
+  "version": "2.1.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "yazi",
+  "filename": "yazi.spk",
+  "version": "26.9.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "zellij",
+  "filename": "zellij.spk",
+  "version": "0.45.1",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "zip",
+  "filename": "zip.spk",
+  "version": "3.0",
+  "system": false,
+  "category": "sys-apps",
+  "description": ""
+ },
+ {
+  "name": "zoxide",
+  "filename": "zoxide.spk",
+  "version": "0.10.0",
+  "system": false,
+  "category": "dev-tools",
+  "description": ""
+ },
+ {
+  "name": "zsh",
+  "filename": "zsh.spk",
+  "version": "5.9",
+  "system": true,
+  "category": "",
+  "description": ""
+ }
+]

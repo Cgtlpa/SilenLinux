@@ -5,8 +5,8 @@ set -o pipefail
 
 trap 'rc=$?; echo; echo "!! mkspk stopped with an error (exit $rc at line $LINENO: $BASH_COMMAND)" >&2' ERR
 
-DLDIR="${DLDIR:-build/spk-pkgs/dl}"
-PKGDIR="${PKGDIR:-build/spk-pkgs/packages}"
+DLDIR="${DLDIR:-spk-pkgs/dl}"
+PKGDIR="${PKGDIR:-spk-pkgs/packages}"
 BASESO="${BASESO:-/tmp/opencode/baseso.txt}"
 
 usage() {

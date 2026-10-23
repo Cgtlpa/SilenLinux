@@ -5,9 +5,48 @@ install-extras() {
 	install-bootlogd
 	install-efibootmgr
 	install-fstrim-service
+	install-display-manager
 	build-microcode-image
 	compute-resume-params
 	build-installed-initramfs
+}
+
+install-display-manager() {
+	# Install SDDM OpenRC init script if not already present
+	if [[ ! -f "$ROOT_PATH/etc/init.d/sddm" ]]; then
+		mkdir -p "$ROOT_PATH/etc/init.d" "$ROOT_PATH/etc/conf.d"
+		cat > "$ROOT_PATH/etc/init.d/sddm" <<'EOF'
+#!/sbin/openrc-run
+description="Simple Desktop Display Manager"
+supervisor=supervise-daemon
+command=/usr/bin/sddm
+command_args="${SDDM_ARGS}"
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+	need dbus localmount
+	after bootmisc
+}
+
+start_pre() {
+	checkpath -d -m 0755 /var/lib/sddm 2>/dev/null || true
+	checkpath -d -m 0755 /run/sddm 2>/dev/null || true
+}
+EOF
+		chmod 755 "$ROOT_PATH/etc/init.d/sddm" 2>/dev/null || true
+	fi
+	if [[ ! -f "$ROOT_PATH/etc/conf.d/sddm" ]]; then
+		cat > "$ROOT_PATH/etc/conf.d/sddm" <<'EOF'
+# Extra arguments passed to sddm, e.g. SDDM_ARGS="--example-option".
+SDDM_ARGS=""
+EOF
+	fi
+	# Enable SDDM in default runlevel if sddm binary exists
+	if [[ -x "$ROOT_PATH/usr/bin/sddm" ]] || [[ -x "$ROOT_PATH/usr/sbin/sddm" ]]; then
+		chroot "$ROOT_PATH" /bin/bash -c "rc-update add sddm default" >/dev/null 2>&1 || true
+	fi
+	# Also enable dbus if not already (needed by SDDM)
+	chroot "$ROOT_PATH" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || true
 }
 
 install-busybox-tools() {
@@ -197,10 +236,10 @@ build-microcode-image() {
 	wd="/tmp/ucode.$$"
 	mkdir -p "$wd/kernel/x86/microcode" 2>/dev/null || return 0
 	if [[ -n "$intel" ]]; then
-		cat "$intel"/* > "$wd/kernel/x86/microcode/GenuineIntel.bin" 2>/dev/null || true
+		find "$intel" -maxdepth 1 -type f ! -name 'README*' -exec cat {} + > "$wd/kernel/x86/microcode/GenuineIntel.bin" 2>/dev/null || true
 	fi
 	if [[ -n "$amd" ]]; then
-		cat "$amd"/* > "$wd/kernel/x86/microcode/AuthenticAMD.bin" 2>/dev/null || true
+		find "$amd" -maxdepth 1 -type f -name '*.bin' -exec cat {} + > "$wd/kernel/x86/microcode/AuthenticAMD.bin" 2>/dev/null || true
 	fi
 	if [[ ! -s "$wd/kernel/x86/microcode/GenuineIntel.bin" ]] && [[ ! -s "$wd/kernel/x86/microcode/AuthenticAMD.bin" ]]; then
 		rm -rf "$wd" 2>/dev/null || true

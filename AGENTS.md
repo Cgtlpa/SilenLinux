@@ -23,6 +23,7 @@ scripts/add-wifi.sh           Syncs wifi modules+firmware from host into rootfs/
 scripts/make-grub-bundle.sh  Packages compiled GRUB (GRUB_SRC=~/grub) into grub-bundle/. Needed for EFI install.
 scripts/wifi-check.sh         Live diagnostics → installed as /usr/bin/silen-wifi-check.
 scripts/mkspk-*.sh            Build spk package payloads from Gentoo gpkg / Arch binaries (xorg, wayland, sddm).
+scripts/mkspk-audio.sh        Builds full pipewire/wireplumber/lua-libs/libasyncns/libpulse + silen-audio packages and patches mango/niri session launchers.
 boot/vmlinuz                  Kernel image shipped on ISO.
 rootfs/init                   Live init (sh). Mounts medium, starts NM/dbus, launches installer, falls back to shell.
 rootfs/bin/busybox            Static busybox + applet symlinks created at build time.
@@ -64,6 +65,7 @@ KERNEL_VERSION=6.18.54-silen KERNEL_SOURCE=/path/vmlinuz MODULES_SOURCE=/path/mo
 
 ./scripts/add-wifi.sh           # optional KVER=... override
 ./scripts/make-grub-bundle.sh   # optional GRUB_SRC=... override
+./scripts/mkspk-audio.sh all    # rebuild audio packages + patch mango/niri; upload package dirs and packages/index.json to HF, no ISO rebuild needed
 cargo check --manifest-path spk/Cargo.toml
 cargo clippy --manifest-path spk/Cargo.toml
 bash -n <edited .sh>            # always syntax-check shell edits
@@ -96,6 +98,7 @@ bash -n <edited .sh>            # always syntax-check shell edits
 
 - `is_system_package()` in `spk/src/get.rs:80`: `manifest_flag=true` OR name-heuristic match → install to `/`. Everything else → isolated `/spk_pkgs/<name>` (or `~/.local/share/spk/apps/<name>` with `--user`) + shims in `/usr/local/bin`.
 - DMs/DEs/kernels/firmware/drivers/network/audio/login MUST be system. If you add a package name in that class, add it to `SYSTEM_EXACT` or its prefix will miss and the DM/DE will install isolated and never start (see `SYSTEM-SORT` comments in `get.rs`).
+- Audio packages (`pipewire`, `wireplumber`, `lua-libs`, `libpulse`, `libasyncns`, `silen-audio`) are system packages. `mango` and `niri` depend on `silen-audio` and launch `/usr/local/bin/silen-audio-run` from their session desktop files. Keep the full PipeWire payload (SPA plugins, modules, ALSA config); do not shrink it back to only `bin/` and `libpipewire*`.
 - `remove.rs`: never delete protected configs (`/etc/passwd shadow gshadow group fstab machine-id hostname hosts resolv.conf`) or boot files (`/boot/vmlinuz*`, `/boot/initramfs*`, `/boot/silen-ucode*`, `/boot/grub/**`, `/boot/EFI/**`). The `/etc` basename check is scoped so `/usr/bin/passwd` is not affected — don't widen it.
 - `get.rs`: a missing or invalid `sha256` in a manifest aborts the install (fail-closed). After installing a payload containing `/boot/vmlinuz`, `spk` runs `/usr/bin/silen-mkinitramfs` (or `/usr/local/bin/...`) so kernel updates regenerate the boot image.
 - `cxx-libs` ships GCC 16 libstdc++ as `/usr/lib/silen/cxx/gcc16-libstdc++.*`; its postinstall copies it into `/usr/lib64` and the GCC 15 directory. `spk` skips payload files named `libstdc++*` as protected core libs, so direct payload paths would be ignored.

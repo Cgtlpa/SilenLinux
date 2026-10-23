@@ -458,8 +458,8 @@ copy_libs "$_IWD_DAEMON"
 copy_app iwctl "$_IWCTL"
 [ -n "$_IWMON" ] && copy_opt iwmon "$_IWMON"
 
-copy_app mkfs.ext4 /usr/sbin/mkfs.ext4
-copy_app mkfs.vfat /usr/sbin/mkfs.vfat
+if [ -f /usr/bin/mkfs.ext4 ]; then copy_app mkfs.ext4 /usr/bin/mkfs.ext4; elif [ -f /usr/sbin/mkfs.ext4 ]; then copy_app mkfs.ext4 /usr/sbin/mkfs.ext4; else echo "  ERROR mkfs.ext4 not found"; exit 1; fi
+if [ -f /usr/bin/mkfs.vfat ]; then copy_app mkfs.vfat /usr/bin/mkfs.vfat; elif [ -f /usr/sbin/mkfs.vfat ]; then copy_app mkfs.vfat /usr/sbin/mkfs.vfat; else echo "  ERROR mkfs.vfat not found"; exit 1; fi
 if [ -f /usr/bin/blkid ]; then copy_app blkid /usr/bin/blkid; elif [ -f /usr/sbin/blkid ]; then copy_app blkid /usr/sbin/blkid; else echo "  ERROR required tool missing: blkid (install it first)"; exit 1; fi
 if [ -f /usr/bin/sfdisk ]; then copy_app sfdisk /usr/bin/sfdisk; elif [ -f /usr/sbin/sfdisk ]; then copy_app sfdisk /usr/sbin/sfdisk; else echo "  ERROR required tool missing: sfdisk (install it first)"; exit 1; fi
 if [ -f /usr/bin/mkfs.btrfs ]; then copy_app mkfs.btrfs /usr/bin/mkfs.btrfs; elif [ -f /usr/sbin/mkfs.btrfs ]; then copy_app mkfs.btrfs /usr/sbin/mkfs.btrfs; else echo "  ! mkfs.btrfs not found btrfs installs will fail"; fi
@@ -511,7 +511,7 @@ done
 [ -f /usr/sbin/iw ] && { copy_opt iw /usr/sbin/iw; ln -sf /usr/bin/iw "$RAMROOT/usr/sbin/iw" 2>/dev/null || true; }
 [ -f /usr/bin/efibootmgr ] && copy_opt efibootmgr /usr/bin/efibootmgr
 [ -f /usr/sbin/efibootmgr ] && { copy_opt efibootmgr /usr/sbin/efibootmgr; ln -sf /usr/bin/efibootmgr "$RAMROOT/usr/sbin/efibootmgr" 2>/dev/null || true; }
-for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper; do
+for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-launch-helper /usr/libexec/dbus-1/dbus-daemon-launch-helper; do
 	[ -f "$_dbus_helper" ] || continue
 	_helper_rel="${_dbus_helper#/}"
 	mkdir -p "$RAMROOT/$(dirname "$_helper_rel")"
@@ -522,7 +522,7 @@ for _dbus_helper in /usr/lib/dbus-daemon-launch-helper /usr/libexec/dbus-daemon-
 		echo "  ! cannot copy $_dbus_helper (build as root so live wifi works)"
 	fi
 done
-if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr/libexec/dbus-daemon-launch-helper" ]; then
+if [ ! -e "$RAMROOT/usr/lib/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr/libexec/dbus-daemon-launch-helper" ] && [ ! -e "$RAMROOT/usr/libexec/dbus-1/dbus-daemon-launch-helper" ]; then
 	echo "  ! no dbus-daemon-launch-helper copied wifi activation may fail"
 fi
 
@@ -756,6 +756,7 @@ if [ -d "$FIRMWARE_SOURCE" ]; then
 	mkdir -p "$RAMROOT/lib/firmware" || { echo "  ERROR cannot create firmware dir"; exit 1; }
 	find "$RAMROOT/lib/firmware" -xtype l -delete 2>/dev/null || true
 	cp -a "$FIRMWARE_SOURCE"/. "$RAMROOT/lib/firmware/" || { echo "  ERROR cannot copy firmware (disk full?)"; exit 1; }
+	rm -rf "$RAMROOT/lib/firmware/nvidia" 2>/dev/null || true
 fi
 
 cp "$MODULES_SOURCE/modules.builtin" "$MODULES_DIR/modules.builtin" 2>/dev/null || true
@@ -1075,7 +1076,7 @@ for _np in \
 	usr/bin/dbus-daemon usr/bin/dbus-uuidgen \
 	usr/bin/dbus-launch usr/bin/dbus-run-session \
 	usr/bin/rfkill usr/bin/iw \
-	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper \
+	usr/lib/dbus-daemon-launch-helper usr/libexec/dbus-daemon-launch-helper usr/libexec/dbus-1/dbus-daemon-launch-helper \
 	usr/lib64 \
 	etc/iwd \
 	usr/share/dbus-1 \

@@ -7,7 +7,7 @@ trap 'rc=$?; echo; echo "!! mkspk-sddm stopped with an error (exit $rc at line $
 
 DLDIR="${DLDIR:-spk-pkgs/dl}"
 PKGDIR="${PKGDIR:-spk-pkgs/packages}"
-SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen4}"
+SDDM_VERSION="${SDDM_VERSION:-0.21.0-silen5}"
 SDDM_PARTS="${SDDM_PARTS:-1}"
 SDDM_BASE="${SDDM_BASE:-https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sddm}"
 SDDM_SRC="${SDDM_SRC:-}"
@@ -46,6 +46,9 @@ rm -f "$STAGE/usr/lib64/libfontconfig.so.1" \
 	"$STAGE/usr/lib64/libOpenGL.so.0" \
 	"$STAGE/usr/lib64/libGLX.so.0" 2>/dev/null || true
 
+mkdir -p "$STAGE/usr/lib64" || exit 1
+ln -sfn libelogind.so.0 "$STAGE/usr/lib64/libsystemd.so.0" || exit 1
+
 mkdir -p "$STAGE/etc/sddm.conf.d" "$STAGE/etc/local.d" "$STAGE/usr/lib/silen" "$STAGE/usr/lib/spk" "$STAGE/usr/bin" || exit 1
 cat > "$STAGE/etc/sddm.conf.d/10-silen.conf" <<'EOF'
 [General]
@@ -72,6 +75,7 @@ cat > "$STAGE/usr/lib/silen/repair-libs.sh" <<'EOF'
 R="${SPK_ROOT:-/}"
 [ "$R" = "/" ] && R=""
 d="$R/usr/lib64"
+[ -e "$d/libelogind.so.0" ] && ln -sf libelogind.so.0 "$d/libsystemd.so.0"
 [ -e "$d/libfontconfig.so.1.17.0" ] && ln -sf libfontconfig.so.1.17.0 "$d/libfontconfig.so.1"
 [ -e "$d/libEGL.so.1.1.0" ] && ln -sf libEGL.so.1.1.0 "$d/libEGL.so.1"
 [ -e "$d/libGLdispatch.so.0.0.0" ] && ln -sf libGLdispatch.so.0.0.0 "$d/libGLdispatch.so.0"
@@ -117,8 +121,86 @@ chmod 755 "$STAGE/etc/local.d/silen-repair-libs.start" || exit 1
 
 ln -sfn Xorg "$STAGE/usr/bin/X" || exit 1
 
+# fontconfig default config (missing from base - packaging gap)
+mkdir -p "$STAGE/etc/fonts" "$STAGE/etc/fonts/conf.d" || exit 1
+cat > "$STAGE/etc/fonts/fonts.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/usr/share/fonts</dir>
+  <dir prefix="xdg">fonts</dir>
+  <cachedir>/var/cache/fontconfig</cachedir>
+  <cachedir prefix="xdg">fontconfig</cachedir>
+  <include ignore_missing="yes">/etc/fonts/conf.d</include>
+  <include ignore_missing="yes" prefix="xdg">fontconfig/conf.d</include>
+  <include ignore_missing="yes" prefix="xdg">fontconfig/fonts.conf</include>
+</fontconfig>
+EOF
+chmod 644 "$STAGE/etc/fonts/fonts.conf" || exit 1
+
+# fontconfig generic alias rules (fix DejaVu Math TeX Gyre fallback)
+cat > "$STAGE/etc/fonts/conf.d/49-silen-generics.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <match target="pattern">
+    <test name="family"><string>sans-serif</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>sans-serif</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>sans</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>sans-serif</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>serif</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>serif</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>monospace</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>mono</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>mono</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>mono</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>system-ui</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>system-ui</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>system</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>system-ui</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family"><string>emoji</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>emoji</string></edit>
+  </match>
+  <alias>
+    <family>sans-serif</family>
+    <prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer>
+  </alias>
+  <alias>
+    <family>serif</family>
+    <prefer><family>Noto Serif</family><family>DejaVu Serif</family></prefer>
+  </alias>
+  <alias>
+    <family>monospace</family>
+    <prefer><family>JetBrains Mono</family><family>Noto Sans Mono</family><family>DejaVu Sans Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>system-ui</family>
+    <prefer><family>Noto Sans</family><family>DejaVu Sans</family></prefer>
+  </alias>
+  <alias>
+    <family>emoji</family>
+    <prefer><family>Noto Color Emoji</family></prefer>
+  </alias>
+</fontconfig>
+EOF
+chmod 644 "$STAGE/etc/fonts/conf.d/49-silen-generics.conf" || exit 1
+
 tar -czpf "$PKGDIR/sddm/sddm.spk" -C "$STAGE" . || { echo "  ERROR tar failed"; rm -rf "$STAGE"; exit 1; }
 _s="$(sha256sum "$PKGDIR/sddm/sddm.spk" | awk '{print $1}')"
-printf '{"filename": "sddm.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": ["dm-openrc", "xorg-server", "xorg-drivers", "xinit", "dejavu"], "category": "x11-misc", "description": "SDDM display manager with X11 greeter config"}' "$_s" "$SDDM_VERSION" > "$PKGDIR/sddm/package.json"
+printf '{"filename": "sddm.spk", "parts": 1, "sha256": "%s", "system": true, "version": "%s", "depends": ["dm-openrc", "xorg-server", "xorg-libs", "xorg-drivers", "xinit", "dejavu", "libglvnd", "mesa", "elogind"], "category": "x11-misc", "description": "SDDM display manager with X11 greeter config"}' "$_s" "$SDDM_VERSION" > "$PKGDIR/sddm/package.json"
 echo "sddm $SDDM_VERSION $(du -h "$PKGDIR/sddm/sddm.spk" | cut -f1)"
 rm -rf "$STAGE" 2>/dev/null || true

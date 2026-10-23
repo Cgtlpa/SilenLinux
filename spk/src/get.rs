@@ -25,15 +25,18 @@ const SYSTEM_EXACT: &[&str] = &[
     "plasma-desktop", "plasma-workspace", "plasma", "kde", "gnome", "gnome-shell",
     "gnome-session", "xfce4", "xfce4-session", "xfce", "lxqt", "lxde", "cinnamon",
     "mate-desktop", "mate", "budgie-desktop", "cosmic-desktop", "pantheon", "deepin",
-    "enlightenment", "sway", "i3", "hyprland", "instantwm", "instantwmctl", "dwm", "niri", "mangowm", "mango", "labwc", "wayland", "xorg-server", "xorg",
+    "enlightenment", "sway", "i3", "hyprland", "instantwm", "instantwmctl", "dwm", "icewm", "niri", "mangowm", "mango", "labwc", "wayland", "xorg-server", "xorg",
     "dmenu", "rofi", "wofi", "waybar", "quickshell", "st", "kitty", "alacritty", "ghostty", "xinit", "xkb-data", "dejavu", "llvm",
     "gtk-libs", "wl-libs", "gtk3", "cxx-libs", "libcjson", "pipewire", "wlroots", "scenefx", "seatd", "vulkan-loader", "mesa",
+    "alsa-lib", "imlib2", "libsndfile", "librsvg",
     // desktop companion apps
     "konsole", "dolphin", "kate", "kwrite", "ark", "spectacle",
     "gnome-terminal", "nautilus", "gnome-text-editor", "gnome-calculator",
     "xfce4-terminal", "thunar", "mousepad", "ristretto",
     // kernels and drivers
     "linux", "kernel", "linux-firmware", "linux-headers", "kernel-headers", "intel-ucode", "amd-ucode",
+    // build tools
+    "gcc", "g++", "make", "binutils",
     "nvidia-drivers", "nvidia-legacy-drivers", "mesa", "libdrm",
     "xf86-video-amdgpu", "xf86-video-intel", "xf86-video-vmware", "xf86-video-nouveau",
     "xf86-input-libinput", "vulkan-loader",
@@ -92,6 +95,53 @@ pub struct Layout {
     pub shimdir: String,
     pub tmp: String,
     pub user_mode: bool,
+}
+
+// world file: packages the user explicitly asked for (not deps)
+fn world_path(layout: &Layout) -> String {
+    if layout.user_mode {
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/root"));
+        format!("{}/.local/share/spk/world", home)
+    } else {
+        let root = layout.root.trim_end_matches('/');
+        format!("{}/var/lib/spk/world", root)
+    }
+}
+
+fn read_world(layout: &Layout) -> Vec<String> {
+    let p = world_path(layout);
+    match fs::read_to_string(&p) {
+        Ok(text) => text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn write_world(layout: &Layout, pkgs: &[String]) {
+    let p = world_path(layout);
+    if let Some(parent) = Path::new(&p).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut text = String::new();
+    for pkg in pkgs {
+        text.push_str(pkg);
+        text.push('\n');
+    }
+    let _ = fs::write(&p, text);
+}
+
+fn add_to_world(layout: &Layout, name: &str) {
+    let mut world = read_world(layout);
+    if !world.iter().any(|p| p == name) {
+        world.push(name.to_string());
+        world.sort();
+        write_world(layout, &world);
+    }
+}
+
+fn remove_from_world(layout: &Layout, name: &str) {
+    let mut world = read_world(layout);
+    world.retain(|p| p != name);
+    write_world(layout, &world);
 }
 
 struct Installed {
@@ -188,12 +238,14 @@ fn main() {
             let layout = layout_for(&root, user_mode, name);
             if !remove::try_remove_package(name, &layout) {
                 failed.push(name.clone());
+            } else {
+                remove_from_world(&layout, name);
             }
         }
         if !failed.is_empty() {
             process::exit(1);
         }
-    } else if args[1] == "get" {
+    } else if args[1] == "get" || args[1] == "install" {
         if positional.is_empty() {
             fail("usage: spk get <package> [package...] [--root DIR] [--user]");
         }
@@ -207,6 +259,8 @@ fn main() {
         for name in &positional {
             let layout = layout_for(&root, user_mode, name);
             get_with_visited(name, &layout, &mut done);
+            // track explicitly requested package in world
+            add_to_world(&layout, name);
         }
     } else if args[1] == "find" {
         if positional.is_empty() {
@@ -218,13 +272,20 @@ fn main() {
         let pattern = positional.first().map(|s| s.as_str()).unwrap_or("");
         search_remote(pattern);
     } else if args[1] == "update" || args[1] == "upgrade" {
-        for name in &positional {
-            if !valid_name(name) {
-                fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
+        let to_update: Vec<String> = if positional.is_empty() {
+            // no args: update everything in the world file
+            let layout = layout_for(&root, user_mode, "");
+            read_world(&layout)
+        } else {
+            for name in &positional {
+                if !valid_name(name) {
+                    fail(&format!("bad package name {:?} (use [a-z0-9_.+-], no / or ..)", name));
+                }
             }
-        }
+            positional
+        };
         let _update_lock = take_lock(&layout_for(&root, user_mode, ""));
-        if !upd::update_packages(&positional, &root, user_mode) {
+        if !upd::update_packages(&to_update, &root, user_mode) {
             process::exit(1);
         }
     } else {
@@ -235,6 +296,7 @@ fn main() {
 fn usage() {
     eprintln!("usage:");
     eprintln!("  spk get <package> [package...] [--root DIR] [--user]");
+    eprintln!("  spk install <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk rm <package> [package...] [--root DIR] [--user]");
     eprintln!("  spk update [<package>...] [--root DIR] [--user]");
     eprintln!("  spk find <pattern>          search installed packages");
@@ -242,10 +304,11 @@ fn usage() {
     eprintln!("  spk list [--root DIR] [--user]");
     eprintln!("  spk self-update [--check]    update spk itself from its release feed");
     eprintln!();
-    eprintln!("  sudo spk get <package>      install a package");
-    eprintln!("  sudo spk rm <package>       remove a package and its files");
-    eprintln!("  sudo spk update              update every installed package");
-    eprintln!("  sudo spk update <package>    update (or install) one package");
+    eprintln!("  spk get <package>             install a package and track it in the world file");
+    eprintln!("  spk install <package>         alias for spk get");
+    eprintln!("  spk rm <package>              remove a package and its files");
+    eprintln!("  spk update                      update all packages in the world file");
+    eprintln!("  spk update <package>          update (or install) one package");
     eprintln!();
     eprintln!("packages live in categories (app-misc, app-editors, sys-apps,");
     eprintln!("dev-tools, sys-monitor, ...): just type the bare name and spk");
@@ -253,6 +316,10 @@ fn usage() {
     eprintln!("like pacman: system packages (sddm, desktops, drivers, firmware,");
     eprintln!("dbus, NetworkManager, ...) install into / ; leaf apps stay");
     eprintln!("isolated with shims in /usr/local/bin (or ~/.local/bin with --user).");
+    eprintln!();
+    eprintln!("The world file (/var/lib/spk/world) tracks packages you explicitly");
+    eprintln!("requested. Dependencies are installed automatically but not added.");
+    eprintln!("Run 'spk update' to refresh everything in your world file.");
 }
 
 pub(crate) fn fail(message: &str) -> ! {
@@ -1330,7 +1397,8 @@ fn list(layout: &Layout) {
             return;
         }
     };
-    let mut rows: Vec<(String, String, String, bool)> = Vec::new();
+    let world = read_world(layout);
+    let mut rows: Vec<(String, String, String, bool, bool)> = Vec::new();
     for entry in entries.flatten() {
         let dir = entry.path();
         if !dir.is_dir() {
@@ -1366,20 +1434,22 @@ fn list(layout: &Layout) {
                 || rel.starts_with("/var/")
                 || rel.starts_with("/opt/")
         });
-        rows.push((pkg, version.trim().to_string(), category.trim().to_string(), system));
+        let in_world = world.iter().any(|w| *w == pkg);
+        rows.push((pkg, version.trim().to_string(), category.trim().to_string(), system, in_world));
     }
     rows.sort();
     if rows.is_empty() {
         println!("spk: nothing installed");
         return;
     }
-    for (pkg, version, category, system) in rows {
+    for (pkg, version, category, system, in_world) in rows {
         let cat = if category.is_empty() { "misc".to_string() } else { category };
         let kind = if system { "system" } else { "leaf" };
+        let world_mark = if in_world { " [w]" } else { "" };
         if version.is_empty() {
-            println!("{} [{}] ({})", pkg, cat, kind);
+            println!("{} [{}] ({}){}", pkg, cat, kind, world_mark);
         } else {
-            println!("{} v{} [{}] ({})", pkg, version, cat, kind);
+            println!("{} v{} [{}] ({}){}", pkg, version, cat, kind, world_mark);
         }
     }
 }
@@ -2259,7 +2329,7 @@ fn make_parent(dest: &str) {
 }
 
 fn clean(name: &str, root: &str) -> String {
-    // jail paths under root
+    // jail paths under root this is a must btw
     let mut parts: Vec<&str> = Vec::new();
     for part in name.split('/') {
         if part.is_empty() || part == "." {
@@ -2280,7 +2350,7 @@ fn clean(name: &str, root: &str) -> String {
 }
 
 fn resolve_link(link_dest: &str, target: &str, root: &str) -> String {
-    // keep symlinks inside root
+    // keep symlinks inside root also a must so dont remove
     if target.starts_with('/') {
 
         let mut parts: Vec<&str> = Vec::new();

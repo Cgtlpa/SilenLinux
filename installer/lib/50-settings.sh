@@ -48,7 +48,7 @@ ask-install-settings() {
 					fi
 					;;
 				*)
-					whiptail --msgbox --title "$title" "must start with a lowercase letter or dash" 8 50 || true
+					whiptail --msgbox --title "$title" "must start with a lowercase letter or underscore" 8 50 || true
 					newuser=""
 					continue
 					;;

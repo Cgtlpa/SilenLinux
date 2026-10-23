@@ -17,3 +17,4 @@ headers-*.tar.gz
 headers-*.tar.xz
 rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
 website/
+silen-installer/target/

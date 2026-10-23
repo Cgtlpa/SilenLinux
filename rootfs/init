@@ -25,13 +25,12 @@ note() {
 	[ -c /dev/ttyS0 ] && echo "$@" > /dev/ttyS0 2>/dev/null || true
 }
 
-if [ -f /etc/modules ]; then
-	qecho "Loading kernel modules"
-	while read -r mod; do
-		case "$mod" in ""|\#*|options\ *) continue ;; esac
-		modprobe -q "$mod" 2>/dev/null || true
-	done < /etc/modules
-fi
+for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
+	xhci-pci ehci-pci ohci-pci uhci-hcd virtio_blk virtio_scsi virtio_pci \
+	nvme nvme_core mmc_block sdhci sdhci-pci isofs ext4 btrfs xfs vfat \
+	exfat ntfs3 loop dm_mod md_mod usbhid hid-generic i8042 psmouse; do
+	modprobe -q "$_m" 2>/dev/null || true
+done
 
 rootarg=""
 for arg in $(cat /proc/cmdline 2>/dev/null); do
@@ -89,7 +88,7 @@ is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
 note "Welcome to Silen Linux"
 
 ip link set lo up 2>/dev/null || true
-mkdir -p /run/dbus /run/user /var/lib/iwd
+mkdir -p /run/dbus /run/user /var/lib/iwd /var/lib/dbus
 chmod 755 /run/user 2>/dev/null || true
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
@@ -97,19 +96,17 @@ fi
 
 if command -v dbus-daemon >/dev/null 2>&1; then
 	echo "Starting D-Bus"
-	[ -s /etc/machine-id ] || dbus-uuidgen --ensure 2>/dev/null || true
+	if command -v dbus-uuidgen >/dev/null 2>&1; then
+		[ -s /etc/machine-id ] || dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || true
+		[ -s /var/lib/dbus/machine-id ] || cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true
+	fi
 	dbus-daemon --system --nofork >/dev/null 2>&1 &
 	sleep 1
 else
 	echo "dbus-daemon missing wifi/dbus will not work"
 fi
-if command -v iwd >/dev/null 2>&1; then
-	echo "Starting iwd"
-	mkdir -p /var/lib/iwd 2>/dev/null || true
-	iwd >/tmp/iwd.log 2>&1 &
-else
-	echo "iwd missing networking will not work"
-fi
+# iwd is intentionally not started in the live environment.
+# It is started on the installed system via OpenRC (rc-update add iwd default).
 (sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
 (
 for _w in 1 2 3 4 5 6; do
@@ -341,7 +338,7 @@ iso_searched=""
 i=0
 fast_medium_scan || true
 if [ -z "$stage3" ]; then
-while [ $i -lt 20 ]; do
+while [ $i -lt 120 ]; do
 	enumerate_devices
 	for dev in $candidates; do
 		[ -b "$dev" ] || continue
@@ -380,7 +377,7 @@ while [ $i -lt 20 ]; do
 	done
 	[ -n "$stage3" ] && break
 	i=$((i + 1))
-	if [ $i -lt 20 ]; then
+	if [ $i -lt 120 ]; then
 		echo "  install medium not here yet, waiting... ($i)"
 		sleep 1
 	fi

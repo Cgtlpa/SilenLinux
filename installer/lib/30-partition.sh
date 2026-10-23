@@ -112,7 +112,7 @@ partitioning() {
 		fi
 	done
 	if [[ ${#disks[@]} -eq 0 ]]; then
-		whiptail --msgbox --title "$title" "no disks found" 8 40 || true
+		whiptail --msgbox --title "$title" "No disks found. Connect a disk and try again." 8 40 || true
 		main_screen
 		return
 	fi
@@ -133,7 +133,7 @@ partitioning() {
 		partitioning
 		return
 	fi
-	if ! whiptail --title "$title" --yesno "wipe $_lbl are you sure" 8 70; then
+	if ! whiptail --title "$title" --yesno "Wipe $_lbl?\n\nThis erases everything on the disk." 10 70; then
 		partitioning
 		return
 	fi
@@ -149,7 +149,7 @@ partitioning() {
 	fi
 
 	if medium_on_disk "$disk"; then
-		whiptail --msgbox --title "$title" "$disk holds the install medium directly or as the Ventoy partition backing the ISO - installing onto it wipes the ISO/tarball Pick a different disk" 9 70 || true
+		whiptail --msgbox --title "$title" "$disk holds the install medium (directly or as the Ventoy partition backing the ISO). Installing onto it would wipe the ISO and the tarball. Pick a different disk." 9 70 || true
 		partitioning
 		return
 	fi

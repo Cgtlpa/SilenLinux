@@ -115,7 +115,23 @@ if command -v modinfo >/dev/null 2>&1 && [ -d /lib/firmware ]; then
 			for src in "/lib/firmware/$fw" "/lib/firmware/$fw.zst" "/lib/firmware/$fw.xz"; do
 				[ -f "$src" ] || continue
 				mkdir -p "$WORK/lib/firmware/$(dirname "$fw")"
-				cp -L "$src" "$WORK/lib/firmware/$fw"
+				case "$src" in
+					*.zst)
+						if command -v zstd >/dev/null 2>&1; then
+							zstd -q -d -c "$src" > "$WORK/lib/firmware/$fw" 2>/dev/null || rm -f "$WORK/lib/firmware/$fw"
+						fi
+						[ -s "$WORK/lib/firmware/$fw" ] || cp -L "$src" "$WORK/lib/firmware/$fw.zst"
+						;;
+					*.xz)
+						if command -v xz >/dev/null 2>&1; then
+							xz -q -d -c "$src" > "$WORK/lib/firmware/$fw" 2>/dev/null || rm -f "$WORK/lib/firmware/$fw"
+						fi
+						[ -s "$WORK/lib/firmware/$fw" ] || cp -L "$src" "$WORK/lib/firmware/$fw.xz"
+						;;
+					*)
+						cp -L "$src" "$WORK/lib/firmware/$fw"
+						;;
+				esac
 				break
 			done
 		done

@@ -413,7 +413,7 @@ EOF
 		_net_broken="$_net_broken iwd"
 	fi
 	if [[ -n "$_net_broken" ]]; then
-		whiptail --msgbox --title "$title" "Network tools copied but fail to run in the new system missing libraries $_net_broken Wi-Fi may not work after reboot run silen-wifi-check then" 10 65 || true
+		whiptail --msgbox --title "$title" "Network tools were copied but fail to run in the new system (missing libraries:$_net_broken). Wi-Fi may not work after reboot. Run silen-wifi-check to diagnose." 10 70 || true
 	fi
 	_rc_ok="1"
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add dbus default" >/dev/null 2>&1 || _rc_ok=""

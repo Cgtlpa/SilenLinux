@@ -33,12 +33,17 @@ fix-permissions() {
 		chown root:shadow "$ROOT_PATH/etc/gshadow" 2>/dev/null || chown root:root "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 		chmod 640 "$ROOT_PATH/etc/gshadow" 2>/dev/null || chmod 600 "$ROOT_PATH/etc/gshadow" 2>/dev/null || true
 	fi
+	chmod 1777 "$ROOT_PATH/tmp" "$ROOT_PATH/var/tmp" 2>/dev/null || true
+	if [[ -d "$ROOT_PATH/usr/lib/dhcpcd" && ! -e "$ROOT_PATH/lib/dhcpcd" ]]; then
+		ln -s ../usr/lib/dhcpcd "$ROOT_PATH/lib/dhcpcd" 2>/dev/null || true
+	fi
+	chroot "$ROOT_PATH" /usr/sbin/groupadd -r netdev >/dev/null 2>&1 || true
 	# create sudoers file if missing
 	if [[ ! -f "$ROOT_PATH/etc/sudoers" ]] || [[ -L "$ROOT_PATH/etc/sudoers" ]]; then
 		cat > "$ROOT_PATH/etc/sudoers" <<'EOF'
 ## Silen Linux sudoers
 root ALL=(ALL:ALL) ALL
-%wheel ALL=(ALL:ALL) NOPASSWD: ALL
+%wheel ALL=(ALL:ALL) ALL
 ## Read drop-in files from /etc/sudoers.d
 @includedir /etc/sudoers.d
 EOF
@@ -82,6 +87,12 @@ fix-user-session() {
 	mkdir -p "$ROOT_PATH/usr/lib/tmpfiles.d" "$ROOT_PATH/etc/tmpfiles.d" 2>/dev/null || true
 	printf 'd /run/user 0755 root root -\n' > "$ROOT_PATH/usr/lib/tmpfiles.d/silen-run-user.conf" 2>/dev/null || true
 	if [[ -f "$ROOT_PATH/etc/rc.conf" ]]; then
+		# Enable parallel boot for faster startup
+		if grep -q '^[[:space:]]*rc_parallel=' "$ROOT_PATH/etc/rc.conf" 2>/dev/null; then
+			sed -i 's/^[[:space:]]*rc_parallel=.*/rc_parallel="YES"/' "$ROOT_PATH/etc/rc.conf" 2>/dev/null || true
+		else
+			printf '\n# Enable parallel service startup for faster boot\nrc_parallel="YES"\n' >> "$ROOT_PATH/etc/rc.conf" 2>/dev/null || true
+		fi
 		if grep -q '^[[:space:]]*rc_autostart_user=' "$ROOT_PATH/etc/rc.conf" 2>/dev/null; then
 			sed -i 's/^[[:space:]]*rc_autostart_user=.*/rc_autostart_user="YES"/' "$ROOT_PATH/etc/rc.conf" 2>/dev/null || true
 		fi
@@ -111,6 +122,9 @@ apply-settings() {
 	fi
 	mkdir -p "$ROOT_PATH"/etc/env.d
 	echo "LANG=\"$locale\"" > "$ROOT_PATH"/etc/env.d/02locale
+	if chroot "$ROOT_PATH" /bin/bash -c "command -v env-update" >/dev/null 2>&1; then
+		chroot "$ROOT_PATH" /bin/bash -c "env-update" >/dev/null 2>&1 || true
+	fi
 
 	made_swapfile=""
 	case "${want_swap:-}" in
@@ -128,7 +142,7 @@ apply-settings() {
 	printf 'Welcome to Silen Linux\n' > "$ROOT_PATH"/etc/motd 2>/dev/null || true
 
 	mkdir -p "$ROOT_PATH"/etc/sudoers.d 2>/dev/null || true
-	printf '%s\n' "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" > "$ROOT_PATH"/etc/sudoers.d/10-silen 2>/dev/null || true
+	printf '%s\n' "%wheel ALL=(ALL:ALL) ALL" > "$ROOT_PATH"/etc/sudoers.d/10-silen 2>/dev/null || true
 	chmod 0440 "$ROOT_PATH"/etc/sudoers.d/10-silen 2>/dev/null || true
 
 	cat > "$ROOT_PATH"/etc/profile.d/silen-hostname.sh <<'EOF'
@@ -187,6 +201,7 @@ EOF
 R="${SPK_ROOT:-/}"
 [ "$R" = "/" ] && R=""
 d="$R/usr/lib64"
+[ -e "$d/libelogind.so.0" ] && ln -sf libelogind.so.0 "$d/libsystemd.so.0"
 [ -e "$d/libfontconfig.so.1.17.0" ] && ln -sf libfontconfig.so.1.17.0 "$d/libfontconfig.so.1"
 [ -e "$d/libEGL.so.1.1.0" ] && ln -sf libEGL.so.1.1.0 "$d/libEGL.so.1"
 [ -e "$d/libGLdispatch.so.0.0.0" ] && ln -sf libGLdispatch.so.0.0.0 "$d/libGLdispatch.so.0"
@@ -238,10 +253,10 @@ create-user() {
 		whiptail --msgbox --title "$title" "user $newuser created but the password couldn't be set - run passwd $newuser after reboot" 8 60 || true
 	fi
 	userpass=""
-	if chroot "$ROOT_PATH" /bin/bash -c "passwd -S $newuser" 2>/dev/null | grep -q " $newuser L "; then
+	if chroot "$ROOT_PATH" /bin/bash -c "passwd -S $newuser" 2>/dev/null | grep -q "^$newuser L "; then
 		chroot "$ROOT_PATH" /bin/bash -c "passwd -u $newuser" >/dev/null 2>&1 || true
 	fi
-	if chroot "$ROOT_PATH" /bin/bash -c "passwd -S $newuser" 2>/dev/null | grep -q " $newuser L "; then
+	if chroot "$ROOT_PATH" /bin/bash -c "passwd -S $newuser" 2>/dev/null | grep -q "^$newuser L "; then
 		whiptail --msgbox --title "$title" "user $newuser is locked and sudo will refuse it. After reboot run as root: passwd $newuser" 9 70 || true
 	fi
 	if ! chroot "$ROOT_PATH" /bin/bash -c "id -nG $newuser 2>/dev/null | grep -qw wheel" >/dev/null 2>&1; then
@@ -250,8 +265,12 @@ create-user() {
 	if ! chroot "$ROOT_PATH" /bin/bash -c "id -nG $newuser 2>/dev/null | grep -qw wheel" >/dev/null 2>&1; then
 		whiptail --msgbox --title "$title" "user $newuser is not in the wheel group, so 'su -' will refuse even the right password. After reboot run as root: usermod -aG wheel $newuser" 9 70 || true
 	fi
-	if ! chroot "$ROOT_PATH" /bin/bash -c "su -s /bin/sh $newuser -c 'sudo -n true'" >/dev/null 2>&1; then
-		whiptail --msgbox --title "$title" "sudo doesn't work for $newuser yet. After reboot run as root: passwd $newuser; chown root:root /etc/sudoers /etc/sudoers.d/*; chmod 440 /etc/sudoers /etc/sudoers.d/*" 10 70 || true
+	if chroot "$ROOT_PATH" /bin/bash -c "command -v visudo >/dev/null 2>&1"; then
+		if ! chroot "$ROOT_PATH" /bin/bash -c "visudo -cf /etc/sudoers" >/dev/null 2>&1; then
+			whiptail --msgbox --title "$title" "/etc/sudoers has a syntax error. After reboot run as root: visudo" 9 70 || true
+		fi
+	elif [[ ! -x "$ROOT_PATH/usr/bin/sudo" ]]; then
+		whiptail --msgbox --title "$title" "sudo is not installed in the new system. After reboot run as root: spk get sudo" 9 70 || true
 	fi
 	if mkdir -p "$ROOT_PATH"/home/$newuser/.local/bin \
 			"$ROOT_PATH"/home/$newuser/.local/share/spk/apps \
