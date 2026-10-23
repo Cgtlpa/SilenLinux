@@ -60,6 +60,6 @@ trap on_int_term INT TERM
 	exit 1
 }
 
-whiptail --msgbox --title "$title" "Welcome to the Silen Linux installer!\n\nChoose Install to wipe a disk and install Silen." 11 60 2>/dev/null || true
+whiptail --msgbox "Welcome to the Silen Linux installer" 8 60 2>/dev/null || true
 
 main_screen

@@ -27,8 +27,8 @@ note() {
 
 for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
 	vmd xhci-pci xhci_hcd ehci-pci ohci-pci uhci-hcd virtio_blk virtio_scsi virtio_pci \
-	nvme nvme_core nvme-core mmc_block sdhci sdhci-pci sdhci-acpi isofs ext4 btrfs xfs vfat \
-	exfat ntfs3 loop dm_mod md_mod usbhid hid-generic i8042 psmouse; do
+	nvme nvme_core nvme-core mmc_block sdhci sdhci-pci sdhci-acpi isofs ext4 btrfs xfs fat vfat \
+	nls_cp437 nls_iso8859-1 nls_utf8 exfat ntfs3 loop dm_mod md_mod usbhid hid-generic i8042 psmouse; do
 	modprobe -q "$_m" 2>/dev/null || true
 done
 
