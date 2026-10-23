@@ -26,8 +26,8 @@ note() {
 }
 
 for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
-	xhci-pci ehci-pci ohci-pci uhci-hcd virtio_blk virtio_scsi virtio_pci \
-	nvme nvme_core mmc_block sdhci sdhci-pci isofs ext4 btrfs xfs vfat \
+	vmd xhci-pci xhci_hcd ehci-pci ohci-pci uhci-hcd virtio_blk virtio_scsi virtio_pci \
+	nvme nvme_core nvme-core mmc_block sdhci sdhci-pci sdhci-acpi isofs ext4 btrfs xfs vfat \
 	exfat ntfs3 loop dm_mod md_mod usbhid hid-generic i8042 psmouse; do
 	modprobe -q "$_m" 2>/dev/null || true
 done
@@ -416,7 +416,7 @@ if [ -x /installer/main.sh ]; then
 	note "Starting the Silen installer"
 	echo "  it also lets you open a shell reboot or power off"
 	echo
-	/installer/main.sh
+	/bin/bash /installer/main.sh
 	echo
 	echo "Installer exited dropping to a shell"
 else

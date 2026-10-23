@@ -2,6 +2,10 @@
 
 set -e
 
+if [ -z "${BASH_VERSION:-}" ]; then
+	exec /bin/bash "$0" "$@"
+fi
+
 title="Silen Linux"
 ROOT_PATH="/silen"
 
@@ -56,6 +60,6 @@ trap on_int_term INT TERM
 	exit 1
 }
 
-whiptail --msgbox --title "$title" "Welcome to the Silen Linux installer!\n\nUEFI system detected. Choose Install to wipe a disk and install Silen." 11 60 2>/dev/null || true
+whiptail --msgbox --title "$title" "Welcome to the Silen Linux installer!\n\nChoose Install to wipe a disk and install Silen." 11 60 2>/dev/null || true
 
 main_screen
