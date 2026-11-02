@@ -116,7 +116,7 @@ func (r *Resolver) Resolve(requested []string, opt Options) (model.Plan, error) 
 			if !explicit && model.Satisfies(installed.Version, op, ver) {
 				return nil
 			}
-			if model.CompareVersions(installed.Version, pkg.Version) >= 0 {
+			if model.NewerOrEqual(installed, *pkg) {
 				return nil
 			}
 		}
@@ -150,7 +150,7 @@ func (r *Resolver) Resolve(requested []string, opt Options) (model.Plan, error) 
 		if pkg == nil {
 			continue
 		}
-		if inst, ok := r.Installed[name]; ok && !opt.Reinstall && model.CompareVersions(inst.Version, pkg.Version) >= 0 {
+		if inst, ok := r.Installed[name]; ok && !opt.Reinstall && model.NewerOrEqual(inst, *pkg) {
 			continue
 		}
 		plan.Install = append(plan.Install, *pkg)

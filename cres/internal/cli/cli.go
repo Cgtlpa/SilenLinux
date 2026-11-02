@@ -188,6 +188,7 @@ func cmdInstall(g globals, args []string) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	addCommon(fs, &g)
 	noDeps := fs.Bool("no-deps", false, "do not install dependencies")
+	noHooks := fs.Bool("no-hooks", false, "do not run package hooks (post-install/post-remove)")
 	reinstall := fs.Bool("reinstall", false, "reinstall even if up to date")
 	force := fs.Bool("force", false, "ignore conflicts")
 	refresh := fs.Bool("refresh", true, "refresh the package index")
@@ -207,7 +208,7 @@ func cmdInstall(g globals, args []string) int {
 	defer logger.Close()
 	opt := installer.Options{
 		Root: g.root, Repo: g.repo, Cache: g.cache, Yes: g.yes,
-		NoDeps: *noDeps, Reinstall: *reinstall, Force: *force, Refresh: *refresh,
+		NoDeps: *noDeps, NoHooks: *noHooks, Reinstall: *reinstall, Force: *force, Refresh: *refresh,
 		Logger: logger,
 	}
 	inst, err := installer.New(opt)
@@ -372,14 +373,56 @@ func cmdInfo(g globals, args []string) int {
 	}
 	fmt.Printf("name:        %s\n", pkg.Name)
 	fmt.Printf("version:     %s\n", pkg.Version)
+	if pkg.Release > 0 {
+		fmt.Printf("release:     %d\n", pkg.Release)
+	}
 	fmt.Printf("description: %s\n", pkg.Description)
 	fmt.Printf("category:    %s\n", pkg.Category)
 	fmt.Printf("system:      %v\n", pkg.System)
+	fmt.Printf("groups:      %s\n", strings.Join(pkg.Groups, " "))
 	fmt.Printf("deps:        %s\n", strings.Join(pkg.Deps, " "))
+	if len(pkg.OptDeps) > 0 {
+		fmt.Printf("optdepends:  %s\n", strings.Join(pkg.OptDeps, "; "))
+	}
+	if len(pkg.Makedepends) > 0 {
+		fmt.Printf("makedepends: %s\n", strings.Join(pkg.Makedepends, " "))
+	}
+	if len(pkg.Checkdepends) > 0 {
+		fmt.Printf("checkdepends: %s\n", strings.Join(pkg.Checkdepends, " "))
+	}
 	fmt.Printf("provides:    %s\n", strings.Join(pkg.Provides, " "))
 	fmt.Printf("conflicts:   %s\n", strings.Join(pkg.Conflicts, " "))
+	fmt.Printf("replaces:    %s\n", strings.Join(pkg.Replaces, " "))
+	if len(pkg.Backup) > 0 {
+		fmt.Printf("backup:      %s\n", strings.Join(pkg.Backup, " "))
+	}
+	if len(pkg.Hooks) > 0 {
+		var hs []string
+		for _, h := range pkg.Hooks {
+			hs = append(hs, h.Event+":"+h.Run)
+		}
+		fmt.Printf("hooks:       %s\n", strings.Join(hs, "; "))
+	}
 	fmt.Printf("checksum:    %s\n", pkg.Checksum)
 	fmt.Printf("url:         %s\n", pkg.URL)
+	if pkg.Filename != "" {
+		fmt.Printf("filename:    %s\n", pkg.Filename)
+	}
+	if pkg.Size > 0 {
+		fmt.Printf("size:        %d\n", pkg.Size)
+	}
+	if pkg.Maintainer != "" {
+		fmt.Printf("maintainer:  %s\n", pkg.Maintainer)
+	}
+	if pkg.Packager != "" {
+		fmt.Printf("packager:    %s\n", pkg.Packager)
+	}
+	if pkg.BuildDate != "" {
+		fmt.Printf("build_date:  %s\n", pkg.BuildDate)
+	}
+	if pkg.Signature != "" {
+		fmt.Printf("signature:   %s\n", pkg.Signature)
+	}
 	if db := database.OpenRead(g.root); db != nil {
 		if inst, err := db.Get(pkg.Name); err == nil && inst != nil {
 			fmt.Printf("installed:   %s (%s)\n", inst.Version, inst.InstalledAt.Format("2006-01-02 15:04"))
@@ -633,23 +676,39 @@ func cmdMkIndex(g globals, args []string) int {
 }
 
 type legacyMeta struct {
-	Name         string   `json:"name"`
-	Filename     string   `json:"filename"`
-	Parts        int      `json:"parts"`
-	SHA256       string   `json:"sha256"`
-	System       bool     `json:"system"`
-	Version      string   `json:"version"`
-	Depends      []string `json:"depends"`
-	Deps         []string `json:"deps"`
-	Provides     []string `json:"provides"`
-	Conflicts    []string `json:"conflicts"`
-	Replaces     []string `json:"replaces"`
-	Category     string   `json:"category"`
-	Description  string   `json:"description"`
-	License      string   `json:"license"`
-	URL          string   `json:"url"`
-	Checksum     string   `json:"checksum"`
-	Architecture string   `json:"architecture"`
+	Name          string       `json:"name"`
+	Filename      string       `json:"filename"`
+	Parts         int          `json:"parts"`
+	SHA256        string       `json:"sha256"`
+	System        bool         `json:"system"`
+	Version       string       `json:"version"`
+	Release       int          `json:"release"`
+	SchemaVersion int          `json:"schema_version"`
+	Depends       []string     `json:"depends"`
+	Deps          []string     `json:"deps"`
+	Optdeps       []string     `json:"optdeps"`
+	Optdepends    []string     `json:"optdepends"`
+	Makedepends   []string     `json:"makedepends"`
+	Checkdepends  []string     `json:"checkdepends"`
+	Provides      []string     `json:"provides"`
+	Conflicts     []string     `json:"conflicts"`
+	Replaces      []string     `json:"replaces"`
+	Groups        []string     `json:"groups"`
+	Backup        []string     `json:"backup"`
+	Hooks         []model.Hook `json:"hooks"`
+	Files         []string     `json:"files"`
+	Category      string       `json:"category"`
+	Description   string       `json:"description"`
+	License       string       `json:"license"`
+	URL           string       `json:"url"`
+	Checksum      string       `json:"checksum"`
+	Architecture  string       `json:"architecture"`
+	OS            string       `json:"os"`
+	Maintainer    string       `json:"maintainer"`
+	Packager      string       `json:"packager"`
+	BuildDate     string       `json:"build_date"`
+	Signature     string       `json:"signature"`
+	Size          int64        `json:"size"`
 }
 
 func MakeIndex(dir, base string) (model.Index, error) {
@@ -675,21 +734,40 @@ func MakeIndex(dir, base string) (model.Index, error) {
 			return model.Index{}, fmt.Errorf("%s: %w", metaPath, err)
 		}
 		pkg := model.Package{
-			Name:         name,
-			Version:      legacy.Version,
-			Description:  legacy.Description,
-			Architecture: legacy.Architecture,
-			License:      legacy.License,
-			Category:     legacy.Category,
-			System:       legacy.System,
-			Parts:        legacy.Parts,
-			Deps:         legacy.Deps,
-			Provides:     legacy.Provides,
-			Conflicts:    legacy.Conflicts,
-			Replaces:     legacy.Replaces,
+			Name:          name,
+			Version:       legacy.Version,
+			Release:       legacy.Release,
+			SchemaVersion: legacy.SchemaVersion,
+			Description:   legacy.Description,
+			Architecture:  legacy.Architecture,
+			OS:            legacy.OS,
+			Filename:      legacy.Filename,
+			License:       legacy.License,
+			Category:      legacy.Category,
+			System:        legacy.System,
+			Parts:         legacy.Parts,
+			Maintainer:    legacy.Maintainer,
+			Packager:      legacy.Packager,
+			BuildDate:     legacy.BuildDate,
+			Signature:     legacy.Signature,
+			Deps:          legacy.Deps,
+			OptDeps:       legacy.Optdepends,
+			Makedepends:   legacy.Makedepends,
+			Checkdepends:  legacy.Checkdepends,
+			Provides:      legacy.Provides,
+			Conflicts:     legacy.Conflicts,
+			Replaces:      legacy.Replaces,
+			Groups:        legacy.Groups,
+			Backup:        legacy.Backup,
+			Hooks:         legacy.Hooks,
+			Files:         legacy.Files,
+			Size:          legacy.Size,
 		}
 		if len(pkg.Deps) == 0 {
 			pkg.Deps = legacy.Depends
+		}
+		if len(pkg.OptDeps) == 0 {
+			pkg.OptDeps = legacy.Optdeps
 		}
 		if pkg.Parts == 0 {
 			pkg.Parts = 1
@@ -706,6 +784,7 @@ func MakeIndex(dir, base string) (model.Index, error) {
 		if filename == "" {
 			return model.Index{}, fmt.Errorf("%s: no archive filename", metaPath)
 		}
+		pkg.Filename = filename
 		pkg.URL = legacy.URL
 		if pkg.URL == "" {
 			pkg.URL = strings.TrimRight(base, "/") + "/packages/" + name + "/" + filename
@@ -721,6 +800,12 @@ func MakeIndex(dir, base string) (model.Index, error) {
 				return model.Index{}, fmt.Errorf("%s: %w", archivePath, err)
 			}
 			pkg.Checksum = sum
+		}
+		if pkg.Size == 0 {
+			archivePath := filepath.Join(pkgDir, filename)
+			if st, err := os.Stat(archivePath); err == nil {
+				pkg.Size = st.Size()
+			}
 		}
 		if pkg.Version == "" {
 			return model.Index{}, fmt.Errorf("%s: missing version", metaPath)

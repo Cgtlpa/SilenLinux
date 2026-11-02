@@ -60,7 +60,7 @@ func (c *Client) LoadIndex(ctx context.Context, refresh bool) (model.Index, erro
 	if !refresh {
 		if data, err := os.ReadFile(c.IndexPath()); err == nil {
 			if idx, err := model.ParseIndex(data); err == nil {
-				return idx, nil
+				return c.enrich(idx), nil
 			}
 		}
 	}
@@ -77,21 +77,36 @@ func (c *Client) LoadIndex(ctx context.Context, refresh bool) (model.Index, erro
 			continue
 		}
 		if err := os.MkdirAll(c.CacheDir, 0o755); err != nil {
-			return idx, nil
+			return c.enrich(idx), nil
 		}
 		_ = atomicWrite(c.IndexPath(), data)
-		return idx, nil
+		return c.enrich(idx), nil
 	}
 	if data, err := os.ReadFile(c.IndexPath()); err == nil {
 		idx, err := model.ParseIndex(data)
 		if err == nil {
-			return idx, nil
+			return c.enrich(idx), nil
 		}
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no package index available")
 	}
 	return model.Index{}, lastErr
+}
+
+func (c *Client) enrich(idx model.Index) model.Index {
+	for n := range idx.Packages {
+		pkg := &idx.Packages[n]
+		if strings.TrimSpace(pkg.URL) != "" {
+			continue
+		}
+		filename := pkg.Filename
+		if filename == "" {
+			filename = pkg.Name + ".spk"
+		}
+		pkg.URL = c.BaseURL + "/packages/" + pkg.Name + "/" + filename
+	}
+	return idx
 }
 
 func (c *Client) get(ctx context.Context, url string, timeout time.Duration) ([]byte, error) {
@@ -133,6 +148,9 @@ func (c *Client) get(ctx context.Context, url string, timeout time.Duration) ([]
 }
 
 func (c *Client) FetchPackage(ctx context.Context, pkg model.Package) (string, error) {
+	if !model.ValidChecksum(pkg.Checksum) {
+		return "", fmt.Errorf("%s: index entry carries no valid sha256 checksum; refusing to download (fail-closed integrity checking)", pkg.Name)
+	}
 	if err := pkg.Validate(); err != nil {
 		return "", err
 	}
@@ -174,6 +192,11 @@ func (c *Client) FetchPackage(ctx context.Context, pkg model.Package) (string, e
 	}
 	if !strings.EqualFold(sum, pkg.Checksum) {
 		return "", fmt.Errorf("sha256 mismatch for %s: expected %s, got %s", pkg.Name, pkg.Checksum, sum)
+	}
+	if pkg.Size > 0 {
+		if st, err := os.Stat(tmpPath); err == nil && st.Size() != pkg.Size {
+			return "", fmt.Errorf("size mismatch for %s: index declares %d bytes, downloaded %d", pkg.Name, pkg.Size, st.Size())
+		}
 	}
 	if err := os.Rename(tmpPath, cachePath); err != nil {
 		return "", err

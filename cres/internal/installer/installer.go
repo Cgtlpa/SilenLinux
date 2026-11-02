@@ -30,6 +30,7 @@ type Options struct {
 	Cache     string
 	Yes       bool
 	NoDeps    bool
+	NoHooks   bool
 	Reinstall bool
 	Force     bool
 	Refresh   bool
@@ -193,8 +194,12 @@ func (i *Installer) installOne(ctx context.Context, pkg model.Package, explicit 
 	installed := model.Installed{
 		Name:        pkg.Name,
 		Version:     pkg.Version,
+		Release:     pkg.Release,
 		Explicit:    explicit,
+		System:      pkg.System,
 		Deps:        append([]string{}, pkg.Deps...),
+		Backup:      append([]string{}, pkg.Backup...),
+		Hooks:       append([]model.Hook{}, pkg.Hooks...),
 		Files:       files,
 		InstalledAt: time.Now().UTC(),
 		Checksum:    pkg.Checksum,
@@ -203,10 +208,10 @@ func (i *Installer) installOne(ctx context.Context, pkg model.Package, explicit 
 		_ = i.rollback(pkg.Name, files, backupDir)
 		return err
 	}
-	if err := i.runPostInstall(pkg); err != nil {
+	if err := i.runHooks(pkg.Name, pkg.Version, pkg.System, pkg.Hooks, files, "post-install"); err != nil {
 		_ = i.DB.Delete(pkg.Name)
 		_ = i.rollback(pkg.Name, files, backupDir)
-		return fmt.Errorf("%s postinstall: %w", pkg.Name, err)
+		return fmt.Errorf("%s %s hook: %w", pkg.Name, "post-install", err)
 	}
 	_ = journal.Close()
 	_ = os.Remove(i.DB.JournalPath(pkg.Name))
@@ -215,32 +220,78 @@ func (i *Installer) installOne(ctx context.Context, pkg model.Package, explicit 
 	return nil
 }
 
-func (i *Installer) runPostInstall(pkg model.Package) error {
-	var script string
-	for _, candidate := range []string{"usr/lib/cres/postinstall", "usr/lib/spk/postinstall"} {
-		if st, err := os.Stat(filepath.Join(i.Opt.Root, candidate)); err == nil && st.Mode().IsRegular() {
-			script = "/" + candidate
+func (i *Installer) runHooks(name, version string, trusted bool, hooks []model.Hook, files []model.File, event string) error {
+	if i.Opt.NoHooks {
+		return nil
+	}
+	if !trusted {
+		return nil
+	}
+	logger := i.Opt.Logger
+	inFiles := map[string]bool{}
+	for _, f := range files {
+		inFiles[f.Path] = true
+	}
+	var runs []string
+	declared := false
+	for _, h := range hooks {
+		if h.Event != event {
+			continue
+		}
+		declared = true
+		runs = append(runs, h.Run)
+	}
+	if !declared && event == "post-install" {
+		for _, candidate := range []string{"usr/lib/cres/postinstall", "usr/lib/spk/postinstall"} {
+			if !inFiles[candidate] {
+				continue
+			}
+			if st, err := os.Stat(filepath.Join(i.Opt.Root, candidate)); err != nil || !st.Mode().IsRegular() {
+				continue
+			}
+			runs = []string{candidate}
 			break
 		}
 	}
-	if script == "" {
+	for _, run := range runs {
+		if !inFiles[run] {
+			return fmt.Errorf("%s %s hook %s is not part of the package payload", name, event, run)
+		}
+		if st, err := os.Stat(filepath.Join(i.Opt.Root, run)); err != nil || !st.Mode().IsRegular() {
+			return fmt.Errorf("%s %s hook %s is missing after extraction", name, event, run)
+		}
+	}
+	if len(runs) == 0 {
 		return nil
 	}
-	env := map[string]string{
-		"CRES_PACKAGE":  pkg.Name,
-		"CRES_VERSION":  pkg.Version,
-		"CRES_ROOT":     "/",
-		"SPK_ROOT":      "/",
-		"SPK_USER_MODE": "0",
-	}
+	var cleanup func()
 	if i.Opt.Root != "/" {
-		cleanup, err := system.MountTarget(i.Opt.Root)
+		mount, err := system.MountTarget(i.Opt.Root)
 		if err != nil {
 			return err
 		}
-		defer cleanup()
+		cleanup = mount
 	}
-	return system.Chroot(i.Opt.Root, fmt.Sprintf("cd / && /bin/sh %s", shellQuote(script)), env, i.Opt.Logger)
+	for _, run := range runs {
+		logger.Printf("running %s hook %s", event, run)
+		env := map[string]string{
+			"CRES_PACKAGE":  name,
+			"CRES_VERSION":  version,
+			"CRES_ROOT":     "/",
+			"SPK_ROOT":      "/",
+			"SPK_USER_MODE": "0",
+		}
+		if err := system.Chroot(i.Opt.Root, fmt.Sprintf("cd / && /bin/sh %s", shellQuote("/"+run)), env, logger); err != nil {
+			if cleanup != nil {
+				cleanup()
+			}
+			return err
+		}
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+	return nil
 }
 
 func (i *Installer) Remove(ctx context.Context, names []string, autoremove bool) error {
@@ -331,6 +382,13 @@ func (i *Installer) removeOne(name string, force bool) error {
 	}
 	logger := i.Opt.Logger
 	logger.Printf("removing %s %s", pkg.Name, pkg.Version)
+	if err := i.runHooks(pkg.Name, pkg.Version, pkg.System, pkg.Hooks, pkg.Files, "post-remove"); err != nil {
+		logger.Printf("warning: %s %s hook failed: %v", pkg.Name, "post-remove", err)
+	}
+	backupSet := map[string]bool{}
+	for _, b := range pkg.Backup {
+		backupSet[b] = true
+	}
 	for idx := len(pkg.Files) - 1; idx >= 0; idx-- {
 		f := pkg.Files[idx]
 		if f.Type == "dir" {
@@ -344,9 +402,11 @@ func (i *Installer) removeOne(name string, force bool) error {
 		if st, err := os.Lstat(path); err != nil {
 			continue
 		} else if st.Mode()&os.ModeSymlink == 0 && st.Mode().IsRegular() && f.SHA256 != "" {
-			if sum, err := fileSum(path); err == nil && sum != f.SHA256 && strings.HasPrefix(f.Path, "etc/") && !force {
-				logger.Printf("kept modified config /%s (use --force to remove)", f.Path)
-				continue
+			if sum, err := fileSum(path); err == nil && sum != f.SHA256 && !force {
+				if strings.HasPrefix(f.Path, "etc/") || isProtected(f.Path) || backupSet[f.Path] {
+					logger.Printf("kept modified config /%s (use --force to remove)", f.Path)
+					continue
+				}
 			}
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
