@@ -45,7 +45,22 @@ func New(base, cache string) *Client {
 	}
 }
 
+func (c *Client) localRoot() string {
+	base := c.BaseURL
+	base = strings.TrimPrefix(base, "file://")
+	if strings.HasPrefix(base, "/") {
+		return strings.TrimRight(base, "/")
+	}
+	return ""
+}
+
 func (c *Client) indexURLs() []string {
+	if local := c.localRoot(); local != "" {
+		return []string{
+			filepath.Join(local, "cres", "index.json"),
+			filepath.Join(local, "index.json"),
+		}
+	}
 	return []string{
 		c.BaseURL + "/cres/index.json",
 		c.BaseURL + "/index.json",
@@ -57,6 +72,26 @@ func (c *Client) IndexPath() string {
 }
 
 func (c *Client) LoadIndex(ctx context.Context, refresh bool) (model.Index, error) {
+	if local := c.localRoot(); local != "" {
+		var lastErr error
+		for _, path := range c.indexURLs() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			idx, err := model.ParseIndex(data)
+			if err != nil {
+				lastErr = fmt.Errorf("%s: %w", path, err)
+				continue
+			}
+			return c.enrich(idx), nil
+		}
+		if lastErr == nil {
+			lastErr = fmt.Errorf("index.json not found under %s (wanted %s)", local, filepath.Join(local, "cres", "index.json"))
+		}
+		return model.Index{}, lastErr
+	}
 	if !refresh {
 		if data, err := os.ReadFile(c.IndexPath()); err == nil {
 			if idx, err := model.ParseIndex(data); err == nil {
@@ -66,6 +101,9 @@ func (c *Client) LoadIndex(ctx context.Context, refresh bool) (model.Index, erro
 	}
 	var lastErr error
 	for _, url := range c.indexURLs() {
+		if local := c.localRoot(); local != "" {
+			continue
+		}
 		data, err := c.get(ctx, url, 60*time.Second)
 		if err != nil {
 			lastErr = err
@@ -172,18 +210,42 @@ func (c *Client) FetchPackage(ctx context.Context, pkg model.Package) (string, e
 	_ = os.Remove(tmpPath)
 	defer os.Remove(tmpPath)
 
-	url := pkg.URL
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = c.BaseURL + "/" + strings.TrimLeft(url, "/")
-	}
+	if local := c.localRoot(); local != "" {
+		name := pkg.Filename
+		if name == "" {
+			name = pkg.Name + ".spk"
+		}
+		src := filepath.Join(local, "packages", pkg.Name, name)
+		in, err := os.Open(src)
+		if err != nil {
+			return "", fmt.Errorf("%s: offline package payload missing: %w", pkg.Name, err)
+		}
+		defer in.Close()
+		out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return "", err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return "", err
+		}
+		if err := out.Close(); err != nil {
+			return "", err
+		}
+	} else {
+		url := pkg.URL
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			url = c.BaseURL + "/" + strings.TrimLeft(url, "/")
+		}
 
-	err = c.download(ctx, pkg.Name, url, tmpPath)
-	if err != nil && pkg.Parts > 1 {
-		_ = os.Remove(tmpPath)
-		err = c.downloadParts(ctx, pkg.Name, url, pkg.Parts, tmpPath)
-	}
-	if err != nil {
-		return "", err
+		err = c.download(ctx, pkg.Name, url, tmpPath)
+		if err != nil && pkg.Parts > 1 {
+			_ = os.Remove(tmpPath)
+			err = c.downloadParts(ctx, pkg.Name, url, pkg.Parts, tmpPath)
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 
 	sum, err := fileSHA256(tmpPath)

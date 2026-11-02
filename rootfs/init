@@ -117,6 +117,44 @@ NameResolvingService=resolvconf
 EOF
 fi
 
+if [ ! -x /usr/bin/resolvconf ]; then
+	mkdir -p /usr/bin 2>/dev/null || true
+	cat > /usr/bin/resolvconf << 'EOF'
+#!/bin/sh
+RDIR=/run/resolvconf
+CONF=/etc/resolv.conf
+cmd="$1"
+case "$cmd" in
+	-a) shift; iface="$1"
+		[ -n "$iface" ] || exit 0
+		mkdir -p "$RDIR" 2>/dev/null || true
+		cat > "$RDIR/$(basename "$iface").conf"
+		;;
+	-d) shift; iface="$1"
+		[ -n "$iface" ] || exit 0
+		rm -f "$RDIR/$(basename "$iface").conf" 2>/dev/null || true
+		;;
+	*) exit 0 ;;
+esac
+TMPF="/etc/resolv.conf.tmp"
+if ! : > "$TMPF" 2>/dev/null; then
+	TMPF=/tmp/resolv.conf.tmp
+	: > "$TMPF" 2>/dev/null || exit 0
+fi
+for f in "$RDIR"/*.conf; do
+	[ -f "$f" ] || continue
+	cat "$f" >> "$TMPF"
+done
+if [ -s "$TMPF" ]; then
+	mv "$TMPF" "$CONF"
+else
+	rm -f "$TMPF" "$CONF" 2>/dev/null || true
+fi
+exit 0
+EOF
+	chmod 0755 /usr/bin/resolvconf 2>/dev/null || true
+fi
+
 if command -v iwd >/dev/null 2>&1; then
 	echo "Starting iwd"
 	iwd >/dev/null 2>&1 &
@@ -446,22 +484,56 @@ else
 fi
 
 echo
-if [ -x /installer/main.sh ]; then
-	note "Starting the Silen installer"
-	echo "  it also lets you open a shell reboot or power off"
-	echo
-	if [ -x /usr/bin/silen-installer ]; then
-		note "Launching graphical installer"
-		silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
-	elif [ -x /silen-installer ]; then
-		/silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
+cmdline_flag_present() {
+	_flag="$1"
+	case " $(cat /proc/cmdline 2>/dev/null) " in
+		*" $_flag "*) return 0 ;;
+	esac
+	return 1
+}
+
+run_text_installer() {
+	if [ -x /installer/main.sh ]; then
+		note "Starting the Silen installer"
+		echo "  it also lets you open a shell reboot or power off"
+		echo
+		if [ -x /usr/bin/silen-installer ]; then
+			note "Launching graphical installer"
+			silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
+		elif [ -x /silen-installer ]; then
+			/silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
+		else
+			/bin/bash /installer/main.sh
+		fi
+		echo
+		echo "Installer exited dropping to a shell"
 	else
-		/bin/bash /installer/main.sh
+		echo "  installer not found dropping to a shell"
 	fi
+}
+
+if cmdline_flag_present silen.text; then
+	echo "silen.text on the command line running the text installer"
+	run_text_installer
+elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /usr/bin/silen-installer ]; then
+	note "Starting the live InstantWM desktop"
+	echo "  the graphical installer opens inside the desktop"
+	echo "  add silen.text to the boot command line for the text installer"
 	echo
-	echo "Installer exited dropping to a shell"
+	if /usr/bin/silen-live-wayland; then
+		echo
+		echo "Desktop session ended dropping to a shell"
+	else
+		echo
+		echo "Live desktop failed falling back to the text installer"
+		echo "  see /tmp/live-gui.log /tmp/instantwm.log for the reason"
+		run_text_installer
+	fi
+elif [ -x /usr/bin/silen-installer ]; then
+	echo "  desktop payload incomplete (instantwm missing) running the text installer"
+	run_text_installer
 else
-	echo "  installer not found dropping to a shell"
+	run_text_installer
 fi
 mkdir -p /etc 2>/dev/null || true
 if touch /etc/silen-shrc 2>/dev/null; then

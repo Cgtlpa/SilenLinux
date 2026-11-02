@@ -801,6 +801,361 @@ fi
 [ -f "$MODULES_DIR/modules.dep" ] || [ -f "$MODULES_DIR/modules.dep.bin" ] || { echo "  ERROR depmod produced no modules.dep"; exit 1; }
 
 
+echo "[5b/7] Live Wayland desktop (instantwm) + installer"
+
+unpack_spk() {
+	_spk="$1"
+	_head="$(dd if="$_spk" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_head" in
+		1f8b*) tar -xzf "$_spk" -C "$RAMROOT" ;;
+		28b52ffd*) zstd -qdc "$_spk" | tar -xf - -C "$RAMROOT" ;;
+		*) return 1 ;;
+	esac
+}
+
+DESKTOP_PRIMARY=""
+for _lp in \
+	instantwm instantmenu instantmenu-extras instantcli \
+	wl-libs gtk-libs mesa xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
+	dejavu noto-fonts nerd-symbols cursor-theme \
+	foot seatd dbus \
+; do
+	_spk="packages/$_lp/$_lp.spk"
+	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _spk="spk-pkgs/packages/$_lp/$_lp.spk"
+	if [ ! -f "$_spk" ]; then
+		mkdir -p build/dl || true
+		_spk="build/dl/$_lp.spk"
+		if [ ! -f "$_spk" ]; then
+			_url="https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/$_lp/$_lp.spk"
+			if curl -fsSL --retry 3 --max-time 600 -o "$_spk.1" "$_url"; then
+				mv "$_spk.1" "$_spk"
+			else
+				rm -f "$_spk.1" "$_spk"
+				continue
+			fi
+		fi
+	fi
+	_spk_size="$(stat -c %s "$_spk" 2>/dev/null)"
+	[ -n "$_spk_size" ] || _spk_size=0
+	echo "    + $_lp ($_spk_size bytes)"
+	if ! unpack_spk "$_spk"; then
+		echo "  ERROR cannot unpack $_lp payload ($_spk unexpected magic)"; exit 1
+	fi
+done
+for _need in instantwm foot; do
+	[ -e "$RAMROOT/usr/bin/$_need" ] && continue
+	echo "  ! desktop payload incomplete: $_need missing (live session may not start)"
+done
+
+SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/silen/SilenLinux/silen-installer}"
+_CARGO_ENV=()
+_CARGO_AS_USER=""
+if [ -n "${SUDO_USER:-}" ]; then
+	_SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+	if [ -n "$_SUDO_HOME" ]; then
+		_CARGO_ENV+=(RUSTUP_HOME="$_SUDO_HOME/.rustup" CARGO_HOME="$_SUDO_HOME/.cargo")
+		if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
+			_CARGO_AS_USER="$SUDO_USER"
+		fi
+	fi
+fi
+_maybe_sudo_env() {
+	if [ -n "$_CARGO_AS_USER" ]; then
+		sudo -u "$_CARGO_AS_USER" env "${_CARGO_ENV[@]}" "$@"
+	else
+		env "${_CARGO_ENV[@]}" "$@"
+	fi
+}
+
+if command -v cargo >/dev/null 2>&1; then
+	echo "  building spk (kept for compatibility, replaced by cres)"
+	if ! _maybe_sudo_env cargo build --release --locked --manifest-path spk/Cargo.toml; then
+		echo "  ! spk build failed live ISO keeps the previous spk handling"
+	fi
+	if [ -f spk/target/release/spk ]; then
+		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
+		mkdir -p "$RAMROOT/usr/bin"
+		cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs"
+		chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
+		copy_libs "$RAMROOT/usr/bin/spk"
+	fi
+
+	if command -v go >/dev/null 2>&1; then
+		echo "  building cres (package manager)"
+		mkdir -p build || true
+		if ! (cd cres && _maybe_sudo_env go build -o ../build/cres .); then
+			echo "  ! cres build failed"
+		fi
+		if [ -f build/cres ]; then
+			cp build/cres "$ISO_DIR/cres" || echo "  ! cannot copy cres to ISO"
+			mkdir -p "$RAMROOT/usr/bin"
+			cp build/cres "$RAMROOT/usr/bin/cres" || echo "  ! cannot copy cres to initramfs"
+			chmod 0755 "$RAMROOT/usr/bin/cres" "$ISO_DIR/cres" 2>/dev/null || true
+			copy_libs "$RAMROOT/usr/bin/cres"
+		fi
+	else
+		echo "  ! go not found live ISO ships without cres"
+	fi
+
+	IWTUI_SRC="${IWTUI_SRC:-}"
+	if [ -z "$IWTUI_SRC" ]; then
+		if [ -n "${SUDO_USER:-}" ]; then
+			_IWTUI_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+			if [ -n "$_IWTUI_HOME" ] && [ -f "$_IWTUI_HOME/iwtui/Cargo.toml" ]; then
+				IWTUI_SRC="$_IWTUI_HOME/iwtui"
+			fi
+		fi
+		[ -n "$IWTUI_SRC" ] || { [ -f ./iwtui/Cargo.toml ] && IWTUI_SRC="./iwtui"; }
+		[ -n "$IWTUI_SRC" ] || { [ -f ../iwtui/Cargo.toml ] && IWTUI_SRC="../iwtui"; }
+	fi
+	if [ -n "$IWTUI_SRC" ] && [ -f "$IWTUI_SRC/Cargo.toml" ]; then
+		echo "  building iwtui ($IWTUI_SRC)"
+		if ! _maybe_sudo_env cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
+			echo "  ! iwtui build failed live ISO ships without iwtui"
+		fi
+		if [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
+			cp "$IWTUI_SRC/target/release/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO"
+			mkdir -p "$RAMROOT/usr/bin"
+			cp "$IWTUI_SRC/target/release/iwtui" "$RAMROOT/usr/bin/iwtui" || echo "  ! cannot copy iwtui to initramfs"
+			chmod 0755 "$RAMROOT/usr/bin/iwtui" 2>/dev/null || true
+			copy_libs "$RAMROOT/usr/bin/iwtui"
+		fi
+	else
+		echo "  ! iwtui sources not found (set IWTUI_SRC=/path/to/iwtui), skipping iwtui"
+	fi
+
+	if [ ! -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ] && [ -f "$SILEN_INSTALLER_SRC/Cargo.toml" ]; then
+		echo "  building silen-installer ($SILEN_INSTALLER_SRC)"
+		if ! _maybe_sudo_env cargo build --release --manifest-path "$SILEN_INSTALLER_SRC/Cargo.toml"; then
+			echo "  ! silen-installer build failed"
+		fi
+	else
+		if [ ! -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
+			echo "  ! no prebuilt silen-installer at $SILEN_INSTALLER_SRC/target/release"
+		fi
+	fi
+	if [ -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
+		cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$ISO_DIR/silen-installer" || echo "  ! cannot copy silen-installer to ISO"
+		mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/share/applications"
+		cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$RAMROOT/usr/bin/silen-installer" || echo "  ! cannot copy silen-installer to initramfs"
+		chmod 0755 "$RAMROOT/usr/bin/silen-installer" "$ISO_DIR/silen-installer" 2>/dev/null || true
+		copy_libs "$RAMROOT/usr/bin/silen-installer"
+	else
+		echo "  ERROR no silen-installer binary available (live ISO needs it)"; exit 1
+	fi
+else
+	echo "  ERROR cargo not found (needed for spk/iwtui/silen-installer)"; exit 1
+fi
+
+cat > "$ISO_DIR/silen-installer.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Install Silen Linux
+Comment=Graphical installer for Silen Linux
+Exec=/silen-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;
+EOF
+
+echo "  resolving live-binary deps via ldd (instantwm, installer, foot, Xorg...)"
+for _lb in "$RAMROOT"/usr/bin/* "$RAMROOT"/usr/sbin/* "$RAMROOT"/usr/libexec/*; do
+	[ -f "$_lb" ] || continue
+	case "$_lb" in
+		*.sh|*.log|*.conf|*.desktop) continue ;;
+	esac
+	if head -c 4 "$_lb" 2>/dev/null | grep -q '^.ELF'; then
+		copy_libs "$_lb"
+	fi
+done
+
+for _crit in instantwm foot; do
+	[ -e "$RAMROOT/usr/bin/$_crit" ] || echo "  ! desktop payload incomplete: $_crit missing (live session may not start)"
+done
+[ -e "$RAMROOT/usr/share/glvnd" ] || echo "  ! no glvnd vendor dir (EGL may fail in live session)"
+
+if [ ! -f "$RAMROOT/usr/share/glvnd/egl_vendor.d/50_mesa.json" ] && [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
+	mkdir -p "$RAMROOT/usr/share/glvnd/egl_vendor.d"
+	cp /usr/share/glvnd/egl_vendor.d/50_mesa.json "$RAMROOT/usr/share/glvnd/egl_vendor.d/" 2>/dev/null || echo "  ! cannot copy mesa egl vendor json"
+fi
+for _tool in fc-cache setxkbmap; do
+	if [ ! -e "$RAMROOT/usr/bin/$_tool" ]; then
+		_src="$(command -v "$_tool" 2>/dev/null)"
+		if [ -n "$_src" ] && [ -x "$_src" ]; then
+			cp --dereference "$_src" "$RAMROOT/usr/bin/$_tool" 2>/dev/null && copy_libs "$RAMROOT/usr/bin/$_tool"
+		fi
+	fi
+done
+
+mkdir -p "$RAMROOT/usr/share/wayland-sessions" "$RAMROOT/usr/share/applications" || true
+if [ ! -f "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" ]; then
+	cat > "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" << 'EOF'
+[Desktop Entry]
+Name=instantwm
+Comment=instantWM hybrid tiling window manager
+Exec=instantwm --backend drm
+Type=Application
+DesktopNames=instantwm
+EOF
+fi
+cat > "$RAMROOT/usr/share/applications/silen-installer.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Silen Installer
+Comment=Install Silen Linux
+Exec=silen-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;
+EOF
+for _h in "$RAMROOT/etc/skel" "$RAMROOT/root"; do
+	mkdir -p "$_h/.config/instantos/default" "$_h/.config/instantwm" 2>/dev/null || continue
+	[ -x "$RAMROOT/usr/bin/foot" ] && ln -sf /usr/bin/foot "$_h/.config/instantos/default/terminal" 2>/dev/null || true
+	[ -x "$RAMROOT/usr/bin/instantmenu_run" ] && ln -sf /usr/bin/instantmenu_run "$_h/.config/instantos/default/appmenu" 2>/dev/null || true
+	if [ -f "$RAMROOT/usr/share/doc/instantwm/config.toml.example" ]; then
+		cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$_h/.config/instantwm/config.toml" 2>/dev/null || true
+	elif [ -f "$RAMROOT/etc/xdg/instantwm/config.toml.example" ]; then
+		cp -a "$RAMROOT/etc/xdg/instantwm/config.toml.example" "$_h/.config/instantwm/config.toml" 2>/dev/null || true
+	fi
+	chmod 755 "$_h"/.config/instantos/default/* 2>/dev/null || true
+done
+
+mkdir -p "$RAMROOT/usr/bin" || true
+cat > "$RAMROOT/usr/bin/silen-live-wayland" << 'EOF'
+#!/bin/sh
+LOG=/tmp/live-gui.log
+echo "=== silen-live-wayland start ===" >"$LOG" 2>&1
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_CURRENT_DESKTOP=instantwm
+export XDG_SESSION_DESKTOP=instantwm
+export XDG_SESSION_TYPE=wayland
+export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
+	seatd -g root >>"$LOG" 2>&1 &
+	_i=0
+	while [ ! -S "$SEATD_SOCK" ] && [ $_i -lt 50 ]; do
+		_i=$((_i + 1))
+		sleep 0.1 2>/dev/null || sleep 1
+	done
+fi
+if dmesg 2>/dev/null | grep -qi "nouveau.*firmware unavailable"; then
+	export LIBGL_ALWAYS_SOFTWARE=1
+	echo "nouveau has no firmware, forcing software rendering" >>"$LOG" 2>&1
+else
+	for _p in /sys/bus/pci/devices/*; do
+		[ "$(cat "$_p/vendor" 2>/dev/null)" = "0x10de" ] || continue
+		case "$(cat "$_p/class" 2>/dev/null)" in
+			0x03*)
+				_drv="$(basename "$(readlink "$_p/driver" 2>/dev/null)" 2>/dev/null)"
+				case "$_drv" in
+					nouveau|"") export LIBGL_ALWAYS_SOFTWARE=1 ;;
+				esac
+				;;
+		esac
+		[ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ] && break
+	done
+	[ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ] && echo "nvidia without acceleration, forcing software rendering" >>"$LOG" 2>&1
+fi
+echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >>"$LOG" 2>&1
+ls /dev/dri/card* >>"$LOG" 2>&1 || echo "no /dev/dri/card* (KMS driver or firmware missing?)" >>"$LOG" 2>&1
+try_drm() {
+	[ -x /usr/bin/instantwm ] || return 1
+	ls /dev/dri/card* >/dev/null 2>&1 || return 1
+	echo "starting instantwm --backend drm" >>"$LOG" 2>&1
+	/usr/bin/instantwm --backend drm >>/tmp/instantwm.log 2>&1 &
+	echo $! >/tmp/instantwm.pid 2>/dev/null || true
+	return 0
+}
+try_x11() {
+	[ -x /usr/bin/Xorg ] && [ -x /usr/bin/instantwm ] || return 1
+	export DISPLAY="${DISPLAY:-:0}"
+	echo "starting Xorg $DISPLAY" >>"$LOG" 2>&1
+	mkdir -p /tmp/.X11-unix 2>/dev/null || true
+	/usr/bin/Xorg "$DISPLAY" vt1 -nolisten tcp -logfile /tmp/xorg.log >>/tmp/xorg.log 2>&1 &
+	echo $! >/tmp/xorg.pid 2>/dev/null || true
+	i=0
+	while [ $i -lt 100 ] && [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
+		i=$((i + 1)); sleep 0.1 2>/dev/null || sleep 1
+	done
+	[ -S "/tmp/.X11-unix/X${DISPLAY#:}" ] || { echo "Xorg socket never appeared" >>"$LOG" 2>&1; return 1; }
+	unset WAYLAND_DISPLAY
+	export XDG_SESSION_TYPE=x11
+	echo "starting instantwm --backend x11" >>"$LOG" 2>&1
+	sleep 1 2>/dev/null || true
+	DISPLAY="$DISPLAY" /usr/bin/instantwm --backend x11 >>/tmp/instantwm.log 2>&1 &
+	echo $! >/tmp/instantwm.pid 2>/dev/null || true
+	sleep 2 2>/dev/null || true
+	read -r _p </tmp/instantwm.pid 2>/dev/null || _p=""
+	[ -n "$_p" ] && kill -0 "$_p" 2>/dev/null || { echo "instantwm x11 died at startup" >>"$LOG" 2>&1; return 1; }
+	return 0
+}
+wait_socket() {
+	i=0
+	while [ $i -lt 150 ]; do
+		[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && return 0
+		if [ -f /tmp/instantwm.pid ]; then
+			read -r _pid </tmp/instantwm.pid 2>/dev/null || _pid=""
+			if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then
+				echo "compositor died while waiting for socket, see /tmp/instantwm.log" >>"$LOG" 2>&1
+				return 1
+			fi
+		fi
+		i=$((i + 1)); sleep 0.2 2>/dev/null || sleep 1
+	done
+	echo "Wayland socket never appeared" >>"$LOG" 2>&1
+	return 1
+}
+cleanup() {
+	[ -f /tmp/instantwm.pid ] && read -r _p </tmp/instantwm.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
+	[ -f /tmp/xorg.pid ] && read -r _p </tmp/xorg.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
+}
+_started=""
+if try_drm && wait_socket; then
+	_started="drm"
+	echo "compositor up (drm)" >>"$LOG" 2>&1
+else
+	cleanup
+	if try_x11; then
+		_started="x11"
+		echo "compositor up (x11 fallback)" >>"$LOG" 2>&1
+	fi
+fi
+if [ -z "$_started" ]; then
+	echo "no compositor available" >>"$LOG" 2>&1
+	cleanup
+	exit 1
+fi
+touch /tmp/gui-was-up 2>/dev/null || true
+if command -v foot >/dev/null 2>&1; then
+	(foot --title "Silen live" sh -c 'echo Silen live terminal; exec sh' >>/tmp/foot.log 2>&1 &) || true
+fi
+if [ -x /usr/bin/silen-installer ]; then
+	echo "launching installer in background" >>"$LOG" 2>&1
+	/usr/bin/silen-installer >>/tmp/silen-installer.log 2>&1 &
+fi
+echo "holding desktop session" >>"$LOG" 2>&1
+while [ -f /tmp/instantwm.pid ]; do
+	read -r _p </tmp/instantwm.pid 2>/dev/null || break
+	[ -n "$_p" ] || break
+	kill -0 "$_p" 2>/dev/null || break
+	sleep 5 2>/dev/null || sleep 5
+done
+cleanup
+echo "compositor gone, session over" >>"$LOG" 2>&1
+exit 0
+EOF
+chmod 0755 "$RAMROOT/usr/bin/silen-live-wayland" 2>/dev/null || true
+
+if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
+	echo "  ERROR ldconfig failed after live desktop merge"; exit 1
+fi
+echo "  live desktop ready: $(du -sh "$RAMROOT" 2>/dev/null | cut -f1) ramroot"
+echo "  $(du -sh "$RAMROOT/usr/bin/instantwm" 2>/dev/null | cut -f1) instantwm usr bin"
+
+
 echo "[6/7] Packing initramfs ($COMPRESS)"
 
 AVAIL_MB="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || true)"
@@ -966,151 +1321,6 @@ else
 	echo
 fi
 
-if command -v cargo >/dev/null 2>&1; then
-	echo "  building spk spk/src/get.rs (deprecated - will be replaced by cres)"
-	CARGO_ENV=()
-	CARGO_AS_USER=""
-	if [ -n "${SUDO_USER:-}" ]; then
-		_SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
-		if [ -n "$_SUDO_HOME" ]; then
-			CARGO_ENV+=(RUSTUP_HOME="$_SUDO_HOME/.rustup" CARGO_HOME="$_SUDO_HOME/.cargo")
-			if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
-				CARGO_AS_USER="$SUDO_USER"
-			fi
-		fi
-	fi
-	_CARGO_OK=0
-	if [ -n "$CARGO_AS_USER" ]; then
-		# build as the calling user
-		if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --locked --manifest-path spk/Cargo.toml; then
-			_CARGO_OK=1
-		fi
-	else
-		if env "${CARGO_ENV[@]}" cargo build --release --locked --manifest-path spk/Cargo.toml; then
-			_CARGO_OK=1
-		fi
-	fi
-	CRES_OK=0
-	if command -v go >/dev/null 2>&1; then
-		echo "  building cres (package manager replacement)"
-		if [ -n "$CARGO_AS_USER" ]; then
-			if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" bash -c "cd /home/vgz/silen/SilenLinux/cres && go build -o /home/vgz/silen/SilenLinux/build/cres ."; then
-				CRES_OK=1
-			fi
-		else
-			if (cd /home/vgz/silen/SilenLinux/cres && go build -o /home/vgz/silen/SilenLinux/build/cres .); then
-				CRES_OK=1
-			fi
-		fi
-		if [ "$CRES_OK" = "1" ]; then
-			echo "  cres built successfully"
-		else
-			echo "  ! cres build failed"
-		fi
-	fi
-	IWTUI_SRC="${IWTUI_SRC:-}"
-	if [ -z "$IWTUI_SRC" ]; then
-		if [ -n "${SUDO_USER:-}" ]; then
-			_IWTUI_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
-			if [ -n "$_IWTUI_HOME" ] && [ -f "$_IWTUI_HOME/iwtui/Cargo.toml" ]; then
-				IWTUI_SRC="$_IWTUI_HOME/iwtui"
-			fi
-		fi
-		[ -n "$IWTUI_SRC" ] || { [ -f ./iwtui/Cargo.toml ] && IWTUI_SRC="./iwtui"; }
-		[ -n "$IWTUI_SRC" ] || { [ -f ../iwtui/Cargo.toml ] && IWTUI_SRC="../iwtui"; }
-	fi
-	_IWTUI_OK=0
-	if [ -n "$IWTUI_SRC" ] && [ -f "$IWTUI_SRC/Cargo.toml" ]; then
-		echo "  building iwtui ($IWTUI_SRC)"
-		if [ -n "$CARGO_AS_USER" ]; then
-			if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
-				_IWTUI_OK=1
-			fi
-		else
-			if env "${CARGO_ENV[@]}" cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
-				_IWTUI_OK=1
-			fi
-		fi
-	else
-		echo "  ! iwtui sources not found (set IWTUI_SRC=/path/to/iwtui), skipping iwtui"
-	fi
-	if [ "$_CARGO_OK" = "1" ]; then
-		echo "  copying spk onto the ISO and into the live initramfs"
-		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
-		if [ -f spk/target/release/spk ]; then
-			mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
-			cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs (live spk will rely on /mnt/spk)"
-			chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
-		fi
-		if [ "$CRES_OK" = "1" ] && [ -f "build/cres" ]; then
-			echo "  copying cres onto the ISO and into the live initramfs"
-			cp build/cres "$ISO_DIR/cres" || echo "  ! cannot copy cres to ISO"
-			mkdir -p "$RAMROOT/usr/bin" || true
-			cp build/cres "$RAMROOT/usr/bin/cres" || echo "  ! cannot copy cres to initramfs"
-			chmod 0755 "$RAMROOT/usr/bin/cres" "$ISO_DIR/cres" 2>/dev/null || true
-		fi
-		if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
-			echo "  copying iwtui into the live initramfs"
-			mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
-			cp "$IWTUI_SRC/target/release/iwtui" "$RAMROOT/usr/bin/iwtui" || echo "  ! cannot copy iwtui to initramfs"
-			chmod 0755 "$RAMROOT/usr/bin/iwtui" 2>/dev/null || true
-		fi
-		# repack once more to include late binaries
-		if { [ -f "$RAMROOT/usr/bin/spk" ] || [ -f "$RAMROOT/usr/bin/iwtui" ] || [ -f "$RAMROOT/usr/bin/cres" ]; } && [ -f "build/$INITRAMFS" ]; then
-			echo "  re-packing initramfs to include spk/iwtui/cres"
-			[ -f "$RAMROOT/usr/bin/spk" ] && copy_libs "$RAMROOT/usr/bin/spk"
-			[ -f "$RAMROOT/usr/bin/cres" ] && copy_libs "$RAMROOT/usr/bin/cres"
-			[ -f "$RAMROOT/usr/bin/iwtui" ] && copy_libs "$RAMROOT/usr/bin/iwtui"
-			if ! (
-				cd "$RAMROOT"
-				find . -print0 | cpio --null -o --format=newc --owner=0:0
-			) > "$CPIO_FILE"; then
-				echo "  ERROR cpio re-pack failed"
-				exit 1
-			fi
-			if [ "$COMPRESS" = "zstd" ]; then
-				zstd -19 -q -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR zstd re-pack failed"; exit 1; }
-			elif [ "$COMPRESS" = "gzip" ]; then
-				gzip -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR gzip re-pack failed"; exit 1; }
-			else
-				xz -9 -c "$CPIO_FILE" > "build/$INITRAMFS" || { echo "  ERROR xz re-pack failed"; exit 1; }
-			fi
-			rm -f "$CPIO_FILE"
-			echo "  initramfs: $(du -h "build/$INITRAMFS" | cut -f1)"
-		fi
-	else
-		echo "  ! spk build failed installer will try to fetch it another way"
-	fi
-		if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
-			echo "  copying iwtui onto the ISO"
-			cp "$IWTUI_SRC/target/release/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO (target gets it via spk instead)"
-		elif [ -n "$IWTUI_SRC" ]; then
-			echo "  ! iwtui build failed, live ISO ships without iwtui"
-		fi
-	else
-		echo "  ! cargo not found skipping spk build installer will try to fetch it"
-	fi
-
-SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/silen/SilenLinux/silen-installer}"
-if [ -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
-	echo "  copying silen-installer onto the ISO and into the live initramfs"
-	cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$ISO_DIR/silen-installer" || echo "  ! cannot copy silen-installer to ISO"
-	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/share/applications" 2>/dev/null || true
-	cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$RAMROOT/usr/bin/silen-installer" 2>/dev/null || true
-	chmod 0755 "$RAMROOT/usr/bin/silen-installer" "$ISO_DIR/silen-installer" 2>/dev/null || true
-	copy_libs "$RAMROOT/usr/bin/silen-installer" 2>/dev/null || true
-	cat > "$ISO_DIR/silen-installer.desktop" << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Install Silen Linux
-Comment=Graphical installer for Silen Linux
-Exec=/silen-installer
-Icon=system-software-install
-Terminal=false
-Categories=System;
-EOF
-fi
-
 echo "  packing network bundle iwd/iwctl + deps for the installed system"
 NETROOT="build/network-root"
 rm -rf "$NETROOT"
@@ -1200,6 +1410,12 @@ menuentry "Silen Linux" {
 menuentry "Silen Linux (fallback, nomodeset)" {
 	echo "Booting Silen (no KMS)"
 	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
+	initrd /boot/$INITRAMFS
+}
+
+menuentry "Silen Linux (text installer)" {
+	echo "Booting Silen (text installer)"
+	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.text
 	initrd /boot/$INITRAMFS
 }
 EOF

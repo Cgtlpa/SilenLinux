@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generated": "2026-11-02T05:59:19Z",
+  "generated": "2026-11-02T06:01:01Z",
   "packages": [
     {
       "name": "7zip",
@@ -2178,19 +2178,24 @@
     },
     {
       "name": "silen-desktop",
-      "version": "1.0.0",
-      "description": "InstantWM desktop, login manager and audio session",
+      "version": "1.1.0",
+      "release": 1,
+      "schema_version": 2,
+      "description": "InstantWM desktop, SDDM login manager and audio session",
+      "os": "silen",
       "filename": "silen-desktop.spk",
       "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-desktop/silen-desktop.spk",
-      "checksum": "e928242f732e8ae24347770e1c410b1ee79ae3b6853d7ac177b26f5c4cfdf14c",
-      "size": 771,
+      "checksum": "506f5f0a05a5429c2317ff0bdd04cbe9d061fa4b05ec2f2bb799558315c9d7ac",
+      "size": 867,
+      "build_date": "2026-11-02T06:00:57Z",
       "deps": [
         "instantwm",
+        "instantmenu",
+        "instantcli",
         "foot",
-        "silen-audio",
-        "greetd",
-        "tuigreet",
-        "dm-openrc"
+        "sddm",
+        "dbus",
+        "silen-audio"
       ],
       "parts": 1,
       "system": true,
