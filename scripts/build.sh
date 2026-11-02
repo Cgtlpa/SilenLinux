@@ -803,6 +803,8 @@ fi
 
 echo "[5b/7] Live Wayland desktop (instantwm) + installer"
 
+mkdir -p "$ISO_DIR"
+
 unpack_spk() {
 	_spk="$1"
 	_head="$(dd if="$_spk" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
@@ -818,7 +820,7 @@ for _lp in \
 	instantwm instantmenu instantmenu-extras instantcli \
 	wl-libs gtk-libs mesa xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
 	dejavu noto-fonts nerd-symbols cursor-theme \
-	foot seatd dbus \
+	foot seatd dbus iwtui \
 ; do
 	_spk="packages/$_lp/$_lp.spk"
 	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _spk="spk-pkgs/packages/$_lp/$_lp.spk"
@@ -908,7 +910,9 @@ if command -v cargo >/dev/null 2>&1; then
 		[ -n "$IWTUI_SRC" ] || { [ -f ./iwtui/Cargo.toml ] && IWTUI_SRC="./iwtui"; }
 		[ -n "$IWTUI_SRC" ] || { [ -f ../iwtui/Cargo.toml ] && IWTUI_SRC="../iwtui"; }
 	fi
-	if [ -n "$IWTUI_SRC" ] && [ -f "$IWTUI_SRC/Cargo.toml" ]; then
+	if [ -x "$RAMROOT/usr/bin/iwtui" ]; then
+		cp "$RAMROOT/usr/bin/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO"
+	elif [ -n "$IWTUI_SRC" ] && [ -f "$IWTUI_SRC/Cargo.toml" ]; then
 		echo "  building iwtui ($IWTUI_SRC)"
 		if ! _maybe_sudo_env cargo build --release --manifest-path "$IWTUI_SRC/Cargo.toml"; then
 			echo "  ! iwtui build failed live ISO ships without iwtui"
@@ -980,7 +984,7 @@ if [ ! -f "$RAMROOT/usr/share/glvnd/egl_vendor.d/50_mesa.json" ] && [ -f /usr/sh
 fi
 for _tool in fc-cache setxkbmap; do
 	if [ ! -e "$RAMROOT/usr/bin/$_tool" ]; then
-		_src="$(command -v "$_tool" 2>/dev/null)"
+		_src="$(command -v "$_tool" 2>/dev/null || true)"
 		if [ -n "$_src" ] && [ -x "$_src" ]; then
 			cp --dereference "$_src" "$RAMROOT/usr/bin/$_tool" 2>/dev/null && copy_libs "$RAMROOT/usr/bin/$_tool"
 		fi
