@@ -32,6 +32,15 @@ for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
 	modprobe -q "$_m" 2>/dev/null || true
 done
 
+if [ -r /etc/modules ]; then
+	while IFS= read -r _m; do
+		case "$_m" in
+			""|\#*) continue ;;
+		esac
+		modprobe -q "$_m" 2>/dev/null || true
+	done < /etc/modules
+fi
+
 rootarg=""
 for arg in $(cat /proc/cmdline 2>/dev/null); do
 	case "$arg" in
@@ -524,9 +533,13 @@ elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /us
 		echo
 		echo "Desktop session ended dropping to a shell"
 	else
-		echo
-		echo "Live desktop failed falling back to the text installer"
-		echo "  see /tmp/live-gui.log /tmp/instantwm.log for the reason"
+		note "Live desktop failed falling back to the text installer"
+		note "  live GUI diagnostics:"
+		for _f in /tmp/live-gui.log /tmp/instantwm.log /tmp/xorg.log; do
+			[ -f "$_f" ] || continue
+			note "--- $_f ---"
+			cat "$_f" >/dev/ttyS0 2>/dev/null || true
+		done
 		run_text_installer
 	fi
 elif [ -x /usr/bin/silen-installer ]; then

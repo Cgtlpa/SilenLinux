@@ -142,7 +142,11 @@ func (c *Client) enrich(idx model.Index) model.Index {
 		if filename == "" {
 			filename = pkg.Name + ".spk"
 		}
-		pkg.URL = c.BaseURL + "/packages/" + pkg.Name + "/" + filename
+		base := c.BaseURL
+		if c.localRoot() != "" {
+			base = DefaultBase
+		}
+		pkg.URL = base + "/packages/" + pkg.Name + "/" + filename
 	}
 	return idx
 }
@@ -218,19 +222,32 @@ func (c *Client) FetchPackage(ctx context.Context, pkg model.Package) (string, e
 		src := filepath.Join(local, "packages", pkg.Name, name)
 		in, err := os.Open(src)
 		if err != nil {
-			return "", fmt.Errorf("%s: offline package payload missing: %w", pkg.Name, err)
-		}
-		defer in.Close()
-		out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-		if err != nil {
-			return "", err
-		}
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return "", err
-		}
-		if err := out.Close(); err != nil {
-			return "", err
+			localErr := err
+			url := pkg.URL
+			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+				url = DefaultBase + "/packages/" + pkg.Name + "/" + name
+			}
+			err = c.download(ctx, pkg.Name, url, tmpPath)
+			if err != nil && pkg.Parts > 1 {
+				_ = os.Remove(tmpPath)
+				err = c.downloadParts(ctx, pkg.Name, url, pkg.Parts, tmpPath)
+			}
+			if err != nil {
+				return "", fmt.Errorf("%s: offline package payload missing: %v; online fallback failed: %w", pkg.Name, localErr, err)
+			}
+		} else {
+			defer in.Close()
+			out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+			if err != nil {
+				return "", err
+			}
+			if _, err := io.Copy(out, in); err != nil {
+				out.Close()
+				return "", err
+			}
+			if err := out.Close(); err != nil {
+				return "", err
+			}
 		}
 	} else {
 		url := pkg.URL

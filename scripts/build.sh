@@ -820,7 +820,7 @@ for _lp in \
 	instantwm instantmenu instantmenu-extras instantcli \
 	wl-libs gtk-libs mesa xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
 	dejavu noto-fonts nerd-symbols cursor-theme \
-	foot seatd dbus iwtui \
+	foot yazi bottom swaylock nano firefox seatd dbus iwtui \
 ; do
 	_spk="packages/$_lp/$_lp.spk"
 	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _spk="spk-pkgs/packages/$_lp/$_lp.spk"
@@ -1016,6 +1016,18 @@ for _h in "$RAMROOT/etc/skel" "$RAMROOT/root"; do
 	mkdir -p "$_h/.config/instantos/default" "$_h/.config/instantwm" 2>/dev/null || continue
 	[ -x "$RAMROOT/usr/bin/foot" ] && ln -sf /usr/bin/foot "$_h/.config/instantos/default/terminal" 2>/dev/null || true
 	[ -x "$RAMROOT/usr/bin/instantmenu_run" ] && ln -sf /usr/bin/instantmenu_run "$_h/.config/instantos/default/appmenu" 2>/dev/null || true
+	if [ -x "$RAMROOT/usr/bin/foot" ] && [ -x "$RAMROOT/usr/bin/yazi" ]; then
+		printf '#!/bin/sh\nexec foot -e yazi "$@"\n' > "$_h/.config/instantos/default/termfilemanager"
+		cp -a "$_h/.config/instantos/default/termfilemanager" "$_h/.config/instantos/default/filemanager"
+	fi
+	if [ -x "$RAMROOT/usr/bin/foot" ] && [ -x "$RAMROOT/usr/bin/nano" ]; then
+		printf '#!/bin/sh\nexec foot -e nano "$@"\n' > "$_h/.config/instantos/default/editor"
+	fi
+	if [ -x "$RAMROOT/usr/bin/foot" ] && [ -x "$RAMROOT/usr/bin/btm" ]; then
+		printf '#!/bin/sh\nexec foot -e btm "$@"\n' > "$_h/.config/instantos/default/systemmonitor"
+	fi
+	[ -x "$RAMROOT/usr/bin/swaylock" ] && ln -sf /usr/bin/swaylock "$_h/.config/instantos/default/lockscreen" 2>/dev/null || true
+	[ -x "$RAMROOT/usr/bin/firefox" ] && ln -sf /usr/bin/firefox "$_h/.config/instantos/default/browser" 2>/dev/null || true
 	if [ -f "$RAMROOT/usr/share/doc/instantwm/config.toml.example" ]; then
 		cp -a "$RAMROOT/usr/share/doc/instantwm/config.toml.example" "$_h/.config/instantwm/config.toml" 2>/dev/null || true
 	elif [ -f "$RAMROOT/etc/xdg/instantwm/config.toml.example" ]; then

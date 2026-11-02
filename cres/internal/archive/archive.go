@@ -121,7 +121,10 @@ func (e *Extractor) Extract(archivePath string) ([]model.File, error) {
 		case tar.TypeDir:
 			if st, err := os.Lstat(dest); err == nil {
 				if st.Mode()&os.ModeSymlink != 0 {
-					return nil, fmt.Errorf("refusing to replace symlink %s with a directory", rel)
+					if !e.safeDirectoryLink(dest) {
+						return nil, fmt.Errorf("refusing to replace symlink %s with a directory", rel)
+					}
+					continue
 				}
 				if !st.IsDir() {
 					return nil, fmt.Errorf("%s exists and is not a directory", rel)
@@ -290,6 +293,10 @@ func (e *Extractor) securePath(rel string) (string, error) {
 	if root == "" {
 		root = "/"
 	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
 	cur := root
 	parts := strings.Split(rel, "/")
 	for i, part := range parts {
@@ -305,18 +312,53 @@ func (e *Extractor) securePath(rel string) (string, error) {
 			return "", err
 		}
 		if st.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("path %s traverses symlink %s", rel, cur)
+			resolved, err := filepath.EvalSymlinks(cur)
+			if err != nil {
+				return "", err
+			}
+			resolved, err = filepath.Abs(resolved)
+			if err != nil {
+				return "", err
+			}
+			if !pathWithin(root, resolved) {
+				return "", fmt.Errorf("path %s traverses symlink outside the install root", rel)
+			}
+			st, err = os.Stat(resolved)
+			if err != nil {
+				return "", err
+			}
+			cur = resolved
 		}
 		if !st.IsDir() {
 			return "", fmt.Errorf("path %s traverses non-directory %s", rel, cur)
 		}
 	}
-	if root != "/" {
-		if !strings.HasPrefix(cur, root+string(os.PathSeparator)) && cur != root {
-			return "", fmt.Errorf("path %s escapes install root", rel)
-		}
+	if !pathWithin(root, cur) {
+		return "", fmt.Errorf("path %s escapes install root", rel)
 	}
 	return cur, nil
+}
+
+func (e *Extractor) safeDirectoryLink(path string) bool {
+	root, err := filepath.Abs(filepath.Clean(e.opt.Root))
+	if err != nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil || !pathWithin(root, resolved) {
+		return false
+	}
+	st, err := os.Stat(resolved)
+	return err == nil && st.IsDir()
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 
 func (e *Extractor) validateLink(rel, target string) error {
