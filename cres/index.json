@@ -1,0 +1,2710 @@
+{
+  "version": 1,
+  "generated": "2026-11-01T18:52:34Z",
+  "packages": [
+    {
+      "name": "7zip",
+      "version": "26.02",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/7zip/7zip.spk",
+      "checksum": "d75125297cc3922955b248a308d27832156f53c98540de5626e9ab30eea8c2fe",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "acpid",
+      "version": "2.0.34",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/acpid/acpid.spk",
+      "checksum": "a4793f38887fd37f449950c85bda3c6930afdab319feab187e988c586288bfb7",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "age",
+      "version": "1.3.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/age/age.spk",
+      "checksum": "a8204a96f075a6bf0fbfff9c00268c4d25e30c149642f55c87f6ea0e1dfbe956",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "alacritty",
+      "version": "0.17.0",
+      "description": "GPU-accelerated terminal emulator",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/alacritty/alacritty.spk",
+      "checksum": "7194f27c32a82345127394c04853ad5727679cea5d9971a80b78d0828491af55",
+      "deps": [
+        "xorg-libs",
+        "gtk-libs",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-terms"
+    },
+    {
+      "name": "alsa-lib",
+      "version": "1.2.16.1",
+      "description": "ALSA library and configuration",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/alsa-lib/alsa-lib.spk",
+      "checksum": "6b90360773e66abf3dc132a6be5bfd06900c73e63c42e3abaef0944a0a9ae3d2",
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "alsa-utils",
+      "version": "1.2.16",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/alsa-utils/alsa-utils.spk",
+      "checksum": "9b69b91fa80b8921fc38d73c3e292156884aa300289a5dfe5451bd5f8078298a",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "antiword",
+      "version": "0.37",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/antiword/antiword.spk",
+      "checksum": "5329d09a4b9bd67e7b9603bb9bfb022a7c2e1c1f95730146fa3700899453015d",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "aria2",
+      "version": "1.37.0-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/aria2/aria2.spk",
+      "checksum": "de39a404b21810af9798e7432e2373a12096432e7ed0d3c352680dc592bdad11",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "ascii-xfr",
+      "version": "2.11.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ascii-xfr/ascii-xfr.spk",
+      "checksum": "9de15fd4b7e5cdf24a03b5fcddff844a5e8cc4ca8b52a8b68884cd89dafb22b9",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "atuin",
+      "version": "18.23.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/atuin/atuin.spk",
+      "checksum": "c9267e147e2729e6981a2f948956ad07973af8ddf96e9547f97ebe5b95371c60",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "awww",
+      "version": "0.12.1",
+      "description": "Wayland wallpaper daemon and client (swww successor)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/awww/awww.spk",
+      "checksum": "66cfbad2bb23b3f442add6a41598f7f5792557cc52ce0c2f2285fde70cde9a85",
+      "deps": [
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "b43-fwcutter",
+      "version": "020",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/b43-fwcutter/b43-fwcutter.spk",
+      "checksum": "b9d900180fb3dfe974ed44b5d455816bd15f772fa376b3ac1b1a0d08a119bce9",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "bat",
+      "version": "0.26.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/bat/bat.spk",
+      "checksum": "ce88d4fa2e8f3c7f67f184c8d8556e8fe1a59c2bdead8c2ea8ef19506d82d1b1",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "bmon",
+      "version": "4.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/bmon/bmon.spk",
+      "checksum": "e3a8afb5ddabc1b0aceba3ededc2cb90db67b4f3215f82db00c3d18275aaf261",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "bottom",
+      "version": "0.12.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/bottom/bottom.spk",
+      "checksum": "1ed4464f273da332362f87559d06d679b9c9c2aea65fb209935fb4eb18047b84",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "brotli",
+      "version": "1.2.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/brotli/brotli.spk",
+      "checksum": "06093518af102a083215d81efc04d41cfd52f765917a292b802b06e3f1011334",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "btop",
+      "version": "1.4.7",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/btop/btop.spk",
+      "checksum": "2e02b7d8c1557c7e0ebfd1ac938f6346db77e5f6ab68710b782af2690cb07028",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "btrfs-progs",
+      "version": "7.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/btrfs-progs/btrfs-progs.spk",
+      "checksum": "93802dcbe2186d91bc8855cca3772adf6687d6e7e2c199a0156924a3607edbb0",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "busybox",
+      "version": "1.37.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/busybox/busybox.spk",
+      "checksum": "f4461db82c1d0db466992ca250aee316ed16bd4c976c0ad7e0f11762cb32c87a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "catdoc",
+      "version": "0.95",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/catdoc/catdoc.spk",
+      "checksum": "60e750a7432712743789564f63bfe38cab0d0243c693a857c1eafb454c4851d7",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "chrony",
+      "version": "4.9",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/chrony/chrony.spk",
+      "checksum": "5c89f25522d53fe57352b2816bb0a398c313c0aa1cfe4cf546101d22c0d8fd29",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "composefs",
+      "version": "1.0.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/composefs/composefs.spk",
+      "checksum": "33a257130f007e28a96f1343f5e32a1d92a7e608ae86913fb75f6c962ef91436",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "compsize",
+      "version": "1.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/compsize/compsize.spk",
+      "checksum": "be43ff06201dee5b17d9a045d3a9e69a0f3df35d168b7ba8850b802485195a73",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "cpupower",
+      "version": "7.2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/cpupower/cpupower.spk",
+      "checksum": "20e0abbd8ffebf8208b4e35d0fd622abae57a42ab6059b164080e878c923b21a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "crc32-check",
+      "version": "1.68",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/crc32-check/crc32-check.spk",
+      "checksum": "25f9bd9ca18f3e8e31f99eaf47000be11a706f9e6c308b0841fd66d973324203",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "cres",
+      "version": "1.0.0",
+      "description": "Cres package manager for Silen Linux",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/cres/cres.spk",
+      "checksum": "f92225a5729150bd16e5d89ca46087e977e51e02180b9ab9f0172816bb0324a4",
+      "deps": [
+        "silen-base"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "cryptsetup",
+      "version": "2.8.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/cryptsetup/cryptsetup.spk",
+      "checksum": "33accd252dc334ad51aeca568a971b85ee73f001d97e9f040b75def19415f43d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "ctags",
+      "version": "6.2.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ctags/ctags.spk",
+      "checksum": "74b2fc70f5e0821c00f14d7ee0308f353723cb8a8b1146e26a14f575d08ecb29",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "curl",
+      "version": "8.18.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/curl/curl.spk",
+      "checksum": "6276a961e060b14e5be85b6075f245b87d43ddb5812472f438dcdf74fa73f62d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "cursor-theme",
+      "version": "50.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/cursor-theme/cursor-theme.spk",
+      "checksum": "b7be556ded009c3777b99742aa0929813d7b813f9da94ac1ba55aed5b1a8a3c4",
+      "deps": [
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "cxx-libs",
+      "version": "20261020-r2",
+      "description": "C++ binding runtimes for glib, cairo and gtk plus GCC 16 libstdc++",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/cxx-libs/cxx-libs.spk",
+      "checksum": "ad8a338341497ca18a3c9b31e1484ee0f86a1466c631afcbdb1083a985dfba87",
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "dbus",
+      "version": "1.16.2-silen1",
+      "description": "D-Bus system bus with OpenRC service and launch helper",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dbus/dbus.spk",
+      "checksum": "be9bfb608e097107cfad44f42c43d3bc645f195e59a4a2161af59479726c0073",
+      "deps": [
+        "elogind"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dbus-config",
+      "version": "1.16.2-silen1",
+      "description": "D-Bus session bus configuration: session.conf and machine-id setup",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dbus-config/dbus-config.spk",
+      "checksum": "08569f8cf768acd8c1b2c91c3d822a737996971aae647567d30bac6be33af3ae",
+      "parts": 1,
+      "system": true,
+      "category": "system"
+    },
+    {
+      "name": "dejavu",
+      "version": "2.37",
+      "description": "DejaVu font family",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dejavu/dejavu.spk",
+      "checksum": "2d41bcd506ce634fd24bd7ebbaea90d59f908a8383c968d1d8b2e7319b5bfd87",
+      "deps": [
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-fonts"
+    },
+    {
+      "name": "dive",
+      "version": "0.13.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dive/dive.spk",
+      "checksum": "6bba4cc47dcf684c1257e7b0d3c261b859acf947177a733dd730ca440bcfb479",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dm-openrc",
+      "version": "1.1",
+      "description": "OpenRC services for display managers (sddm, ly, emptty, greetd)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dm-openrc/dm-openrc.spk",
+      "checksum": "5c40c92c806857a234c7bd523e570a5ce128d099d9147080766000e834fe81b1",
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dmenu",
+      "version": "5.4",
+      "description": "Dynamic menu for X",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dmenu/dmenu.spk",
+      "checksum": "13c42b614644cac01e1f84dd18281588b1104a5f8647b387d0add718e26ab512",
+      "deps": [
+        "xorg-server",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "dmidecode",
+      "version": "3.7",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dmidecode/dmidecode.spk",
+      "checksum": "a5d8e4fdfcce210fb7ed1b419150464926b02aaf83c52bf0e027fb0f79cf8b3b",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dos2unix",
+      "version": "7.5.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dos2unix/dos2unix.spk",
+      "checksum": "5ae562ad9169a6bd49dc8d8d14d52e152d630c445f8aaaba025cde11e92fad17",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dosfstools",
+      "version": "4.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dosfstools/dosfstools.spk",
+      "checksum": "94fe99b0163db13e13c06a03a90106dd0193a7e5d718f9e2c28a6c704b879e22",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "drill",
+      "version": "1.9.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/drill/drill.spk",
+      "checksum": "123379f65ab8e2b8f9829fb1340deef7080d5ace9b76c939da3c1d266132505a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dropbear",
+      "version": "2025.89",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dropbear/dropbear.spk",
+      "checksum": "76eedea89033ced0a23d8c5a4cf98b30e5fb46f30f8a6a33231709a2b0f3cca0",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "duf",
+      "version": "0.9.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/duf/duf.spk",
+      "checksum": "6c632698de3506e4af834160610d2aeb2898ff2ae983bdfd0892ea0c372df643",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dust",
+      "version": "1.2.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dust/dust.spk",
+      "checksum": "372b380d06644da6e3003475c007694bf7a2d67e9e3ffed3760cb29f4138eb60",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "dwm",
+      "version": "6.8",
+      "description": "Dynamic window manager",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/dwm/dwm.spk",
+      "checksum": "b4faee2a3de703224422058607330d96bb5315357617f60d697b68a69bf9ab0a",
+      "deps": [
+        "xorg-server",
+        "xorg-libs",
+        "xkb-data"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-wm"
+    },
+    {
+      "name": "ed",
+      "version": "1.22.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ed/ed.spk",
+      "checksum": "809ab28b6ba9578adda34be5954b3ae0d3e674b4f989e8706385617bdffa84e7",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "efibootmgr",
+      "version": "18",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/efibootmgr/efibootmgr.spk",
+      "checksum": "dbc098cac36f4f8c5e05e17a469ab44dec3fe1c5f1700ddb2934122f78eac4d7",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "ei-libs",
+      "version": "1.6.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ei-libs/ei-libs.spk",
+      "checksum": "2beb3260473a3c6bc3cc78266363a8bae26b3e618875b37da161468791535765",
+      "deps": [
+        "xorg-libs",
+        "wl-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "elogind",
+      "version": "255.24-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/elogind/elogind.spk",
+      "checksum": "af63d775c264b0fbe554d82344376a6d5f121a913541b0b7c68f155a3a3897df",
+      "parts": 1,
+      "system": true,
+      "category": "sys-auth"
+    },
+    {
+      "name": "emptty",
+      "version": "0.16.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/emptty/emptty.spk",
+      "checksum": "c75680d36a7bafa5f3942bfda0c5b65dc7c36203fe818446eb31185a236067bd",
+      "deps": [
+        "dm-openrc"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "ether-wake",
+      "version": "2.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ether-wake/ether-wake.spk",
+      "checksum": "1786c855c1d84a09557203d9b92e3d22bda154de74b568c7457c53042c02f8fc",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "ethtool",
+      "version": "7.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ethtool/ethtool.spk",
+      "checksum": "a15f467ffe0342927d4f52b6acaa962dbc5400604c78e8cb0aef4c4bc391fc89",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "exfatprogs",
+      "version": "1.4.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/exfatprogs/exfatprogs.spk",
+      "checksum": "c0ac2a6c05d7b1e0f69189c0945b0d4924f3fe403bb5659e96ce7308d6f26817",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "eza",
+      "version": "0.23.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/eza/eza.spk",
+      "checksum": "7f128492387e5e1907594f3f174a0038f9466e41ee1c0a4ebbbd69435620fc60",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "f2fs-tools",
+      "version": "1.16.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/f2fs-tools/f2fs-tools.spk",
+      "checksum": "3b0a7c802796de951ab6bea487aceb69625d9769a452b46fbff3c15a35f6c0c6",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "fastfetch",
+      "version": "2.69.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fastfetch/fastfetch.spk",
+      "checksum": "f428647243d0df83ce8de5337ba009e4fe069e21a63e37f225c17ed91bf935de",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "fd",
+      "version": "10.5.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fd/fd.spk",
+      "checksum": "98fe6d135c2ec0bf2f5208fdb107e169966ea51295d287055d9813548a33bf1f",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "fennel",
+      "version": "1.0.0",
+      "description": "Fennel Lisp dialect",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fennel/fennel.spk",
+      "checksum": "0f7054a1bf4cecd519075e55e2399b3b70e8f6d87498844cdb1530be4e769a4f",
+      "parts": 1,
+      "category": "dev-lang"
+    },
+    {
+      "name": "file",
+      "version": "5.46",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/file/file.spk",
+      "checksum": "89f1ac4843d91a5cbfacb67793efa1db319deba815cd856eb1582925c1e152fd",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "firefox",
+      "version": "158.0.1",
+      "description": "Mozilla Firefox web browser (official prebuilt binary)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/firefox/firefox.spk",
+      "checksum": "0310c2944c59729abf642811234764bd5374f7ad93e49d6b031230803bb4981b",
+      "deps": [
+        "gtk3",
+        "gtk-libs",
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "cxx-libs",
+        "alsa-lib"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "www-client"
+    },
+    {
+      "name": "fish",
+      "version": "4.9.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fish/fish.spk",
+      "checksum": "87bda8e7ce341eca2ab1640250e5d0cc47e412ea1a5806f9e401c990363eb080",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "flashrom",
+      "version": "1.6.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/flashrom/flashrom.spk",
+      "checksum": "1270cc19a7a8d4158e5bbc332a3c8623d608a3f74d6228fcf789c7ea7b55f49d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "flatpak",
+      "version": "1.16.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/flatpak/flatpak.spk",
+      "checksum": "5d987d4e224e094e9fecc5da16f87543f9997a69dd4e8b274392057b94cc09d6",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "flatpak-config",
+      "version": "1.0.0-silen1",
+      "description": "Flatpak system configuration: MIME database, profile exports, repo initialization",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/flatpak-config/flatpak-config.spk",
+      "checksum": "f575bcd14fc9adc1d468e8876e4abfaaee903dc704f2c6ae80830f239f44131c",
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "fontconfig-base",
+      "version": "2.18.3-silen1",
+      "description": "Fontconfig default configuration and font alias rules",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fontconfig-base/fontconfig-base.spk",
+      "checksum": "84568e8c5523cae093b1b72daff23150de2f043364a9e7cc8201ea12a2999e21",
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "foot",
+      "version": "1.23.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/foot/foot.spk",
+      "checksum": "5d037ad4c4c459564aa480025127ec6aaf047e72e6687132eff3a88e22acfa34",
+      "deps": [
+        "wl-libs",
+        "xorg-libs",
+        "mesa",
+        "utf8proc"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "fzf",
+      "version": "0.74.4",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/fzf/fzf.spk",
+      "checksum": "498e38fd8aa5163053132850081aad0fdc5ec221e483aa1b3dabb7fac56c8a6f",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "gcc",
+      "version": "16.2.1-silen1",
+      "description": "GCC 16.2.1 C/C++ compiler",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/gcc/gcc.spk",
+      "checksum": "4a34038f761a4d31d5ba01c52522af0046e7375a1e834331bebb73de10921100",
+      "deps": [
+        "linux-headers",
+        "silen-binutils"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "sys-devel"
+    },
+    {
+      "name": "gh",
+      "version": "2.81.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/gh/gh.spk",
+      "checksum": "8b8b3a4aaf5a752fc7fb32258d8cf43f2992b327d0392e0bdb82aab206df7644",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "git",
+      "version": "2.55.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/git/git.spk",
+      "checksum": "6373d9fdb67913657d81f5459eccbc76702b5dde405cef0b6e1fb84885795a4c",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "git-delta",
+      "version": "0.19.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/git-delta/git-delta.spk",
+      "checksum": "256252ed8e3157928cfab9f26018db97af0e15aeceef68cd39ba5c9d30fcad51",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "gojq",
+      "version": "0.12.19",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/gojq/gojq.spk",
+      "checksum": "76417dedd44f43447446205e5063d1162e6df7ae06c5e8cd0aa2e6767602c4a6",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "golang",
+      "version": "1.27.2-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/golang/golang.spk",
+      "checksum": "575143e261baf650d93bbc0ae5f6d77b30afe6edc537f08a3bb30e2f9a50714d",
+      "parts": 1,
+      "system": true,
+      "category": "dev-lang"
+    },
+    {
+      "name": "greetd",
+      "version": "0.10.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/greetd/greetd.spk",
+      "checksum": "a08409aceafe30dd9f337a7a45d9b9d0ca6e1229064a83fac87691c626612704",
+      "deps": [
+        "tuigreet",
+        "dm-openrc"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "grim",
+      "version": "1.4.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/grim/grim.spk",
+      "checksum": "ce2d663b9145c76c14dcb309779636e1d0a9ba14a616aafaf224ce315de240ab",
+      "deps": [
+        "wl-libs",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "grub",
+      "version": "2.12",
+      "description": "GRUB2 UEFI bootloader with prebuilt modules",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/grub/grub.spk",
+      "checksum": "d6f62ec0465328114635fc48c1f2058324c7a4f272fce7ec62ffbf7a8295fb5f",
+      "parts": 1,
+      "system": true,
+      "category": "sys-boot"
+    },
+    {
+      "name": "gtk-libs",
+      "version": "20261020-r2",
+      "description": "glib, cairo (Xlib/XCB), pango, harfbuzz, gdk-pixbuf and font runtimes",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/gtk-libs/gtk-libs.spk",
+      "checksum": "58a98488621ae91e47a45141f1470cf9c25273fc62840cd2493a86bfa5e6cbe3",
+      "deps": [
+        "xorg-libs",
+        "dejavu"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "gtk3",
+      "version": "3.24.52",
+      "description": "GTK+ 3 toolkit",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/gtk3/gtk3.spk",
+      "checksum": "274ebd495f1fecfd23015fc1d5f3c954c397daa7a455494a54321ae6fefeb8bc",
+      "deps": [
+        "gtk-libs",
+        "xorg-libs",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "hdparm",
+      "version": "9.65",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/hdparm/hdparm.spk",
+      "checksum": "7b26b10f6123473b19d4e176eb46c672ae0b95b5c714b5a0359380bf91f202eb",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "helix",
+      "version": "25.07.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/helix/helix.spk",
+      "checksum": "f877113f495f21beac53ca8a10b5f54493d508a3fe8b122fecd8e8c755f21069",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "hexyl",
+      "version": "0.14.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/hexyl/hexyl.spk",
+      "checksum": "41193ff77ae7aeb5f2c6160eab73f78d2114ea29a7d67030b1757c457615b7f5",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "hfsplus-tools",
+      "version": "540.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/hfsplus-tools/hfsplus-tools.spk",
+      "checksum": "c4b52510643e724dd7a9538eb56bc32dae81ae4a739087d7e50701c35af83f57",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "htop",
+      "version": "3.5.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/htop/htop.spk",
+      "checksum": "28fc9022ff73f4e05db1998ef3128fefaa39b8a8f5bfec0bbb99b18e8c814fd3",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "hunspell",
+      "version": "1.7.4",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/hunspell/hunspell.spk",
+      "checksum": "30f7a9ed0692789de403e77d768f86216200eaaa4af22a93902526d94299d623",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "hyperfine",
+      "version": "1.20.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/hyperfine/hyperfine.spk",
+      "checksum": "8aac8bef632ae7b85da34fed9e2684b222aee13e974eed03a46edc446e0b3df2",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "icewm",
+      "version": "4.1.0",
+      "description": "IceWM window manager with session files and themes",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/icewm/icewm.spk",
+      "checksum": "26b44594facab0056b0e9e5aad1091dfe30460debf2a18c40e5fe33239de2ac9",
+      "deps": [
+        "alsa-lib",
+        "imlib2",
+        "libsndfile",
+        "librsvg",
+        "xorg-server",
+        "xorg-drivers",
+        "xorg-libs",
+        "wl-libs",
+        "gtk-libs",
+        "cxx-libs",
+        "xinit",
+        "xkb-data",
+        "dejavu",
+        "xorg-xrandr"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-wm"
+    },
+    {
+      "name": "icoutils",
+      "version": "0.32.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/icoutils/icoutils.spk",
+      "checksum": "ff07da92e3f94ff7e603425b303bab10cc762aca0ac1dc5ac9222aec06f8bf0b",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "ifstat",
+      "version": "6.17.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ifstat/ifstat.spk",
+      "checksum": "b6e0f6b7c6795a0db8e2d58da8a3fc4b2d5dcdef10e13ea479f42223ddd63a9f",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "imlib2",
+      "version": "1.12.7",
+      "description": "Imlib2 image loading library with common loaders",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/imlib2/imlib2.spk",
+      "checksum": "fcb43b5dcd9d7a36ce4a405d235774a83c520612e1f21165b9cc982d988bd1bf",
+      "deps": [
+        "xorg-libs",
+        "gtk-libs",
+        "librsvg"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "instantcli",
+      "version": "0.14.23",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/instantcli/instantcli.spk",
+      "checksum": "27c85a7e5628918f423b69354e323a3d517773dbe78b6861eb23ff77c8692471",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "instantmenu",
+      "version": "5.1.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/instantmenu/instantmenu.spk",
+      "checksum": "7bc7b9be6a7fe4c9a7e36266fa3a3a00df7c11090cf4a1194fee42dcf4d0331b",
+      "deps": [
+        "wl-libs",
+        "xorg-libs",
+        "xkb-data"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "instantmenu-extras",
+      "version": "5.2.1",
+      "description": "itest helper for InstantMenu scripts",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/instantmenu-extras/instantmenu-extras.spk",
+      "checksum": "9ddfa6d8ad8fbd8a0a9fed3776284d95a96ded0f1638e90fd31b5ad3a74ace59",
+      "deps": [
+        "instantmenu"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "instantwm",
+      "version": "0.5.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/instantwm/instantwm.spk",
+      "checksum": "36fa00de2253f6ea60b07ae2b41206917f98616cccf414c79b71cf3591e6623e",
+      "deps": [
+        "wl-libs",
+        "gtk-libs",
+        "mesa",
+        "xorg-libs",
+        "xkb-data",
+        "seatd",
+        "vulkan-loader",
+        "xwayland",
+        "dbus",
+        "cursor-theme",
+        "instantmenu",
+        "instantcli",
+        "dejavu",
+        "noto-fonts",
+        "nerd-symbols",
+        "foot",
+        "instantmenu-extras",
+        "silen-audio"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "inxi",
+      "version": "3.3.41",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/inxi/inxi.spk",
+      "checksum": "b647c0d3e0fb75846c66531723e7a115814319def07cddfc77441c510fd1a03e",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "iperf3",
+      "version": "3.20-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/iperf3/iperf3.spk",
+      "checksum": "1d82e8bfddde698995d98acfda7d4c8d2593429da79778c8991d5fe8e69fde86",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "iptstate",
+      "version": "2.3.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/iptstate/iptstate.spk",
+      "checksum": "cdf8b4e49b466e5b4be3662cc67b11b839578188123b242e0de8ec85feef5f6c",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "iwd",
+      "version": "3.12",
+      "description": "iNet Wireless Daemon with iwctl, iwmon and the OpenRC service",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/iwd/iwd.spk",
+      "checksum": "c1f46be593f071a9718b0c312ccd639a9cc5c74c338c396e09d01a43f729838b",
+      "deps": [
+        "dbus",
+        "silen-firmware"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "net-wireless"
+    },
+    {
+      "name": "iwtui",
+      "version": "0.2.1",
+      "description": "Terminal UI for iwd Wi-Fi management",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/iwtui/iwtui.spk",
+      "checksum": "8c9c62b261c8eddf25e8e63fd1d285b69955018c946741a8ddde25d578072d39",
+      "parts": 1,
+      "category": "net-wireless"
+    },
+    {
+      "name": "janet",
+      "version": "1.42.1",
+      "description": "Janet programming language",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/janet/janet.spk",
+      "checksum": "f34048d518482be2134dcb5581721c4f8d0d213cf3f48f1846d74ea45c20f684",
+      "parts": 1,
+      "category": "dev-lang"
+    },
+    {
+      "name": "jetbrains-mono",
+      "version": "2.304",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/jetbrains-mono/jetbrains-mono.spk",
+      "checksum": "478f3cb488ef43fb631be7dc665803152d77f0288f5c5cbaa545ba4f2912b2c3",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "jose",
+      "version": "14",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/jose/jose.spk",
+      "checksum": "98b3a87f08339edd25fa02408018a5d7b4fc07d0de7ccf3bc588c3f8455ec0a5",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "jq",
+      "version": "1.8.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/jq/jq.spk",
+      "checksum": "86cb8b66ef38a64e8c3229152d0e539ccd38ed386538a386575603a3be7d8145",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "just",
+      "version": "1.57.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/just/just.spk",
+      "checksum": "1645bdb0769668040ebdcf4f41f3fc090ab1fda6ded59f768fc9b539f321d934",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "k9s",
+      "version": "0.50.16",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/k9s/k9s.spk",
+      "checksum": "7e4bcdf6694fc661158e6446e9734327e5244955d045b489e1d54d537f4aa33e",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "kacpimon",
+      "version": "2.0.34",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kacpimon/kacpimon.spk",
+      "checksum": "41217b2a4e7c43a51c4f002113cd3655a214e6edbffcb92ce08e4a09f10af99b",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "kakoune",
+      "version": "2026.04.12",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kakoune/kakoune.spk",
+      "checksum": "b18185cde3425245ee39dc332c5cb7a5d25b2f1a8a11a343a1165c76bbc4543f",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "kcapi-hasher",
+      "version": "1.5.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kcapi-hasher/kcapi-hasher.spk",
+      "checksum": "27aa4c9f7e84abe363a8dc03122b369fe5a1d66e4db260971064134a426ab7f4",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "kexec",
+      "version": "2.0.32",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kexec/kexec.spk",
+      "checksum": "a9f85bddd1c52636e60afe4ed4ebfb5f7f64987f37187536128ecbed138ef9f8",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "kitty",
+      "version": "0.49.2",
+      "description": "GPU-accelerated terminal emulator",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kitty/kitty.spk",
+      "checksum": "644f34bcd682e1b395271f57d31f699880d13d12dc5a6e1502a000d80833cfa6",
+      "deps": [
+        "xorg-libs",
+        "gtk-libs",
+        "wl-libs",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-terms"
+    },
+    {
+      "name": "kpartx",
+      "version": "0.13.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kpartx/kpartx.spk",
+      "checksum": "b0b28f81a3e83558af788ef689d61251a35c862fbed0eb578b6d3274d99bf10b",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "kvm-stat",
+      "version": "7.2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/kvm-stat/kvm-stat.spk",
+      "checksum": "182f32d558394358d5b0858e638d80d4b299bd6127348e2bc9d9b4f9945b5971",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "lazydocker",
+      "version": "0.24.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lazydocker/lazydocker.spk",
+      "checksum": "e29c76e0ebab88b90f1fd8f6c5d2968e74d313f66d5f2a1898459c2f01fe47ea",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "lazygit",
+      "version": "0.55.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lazygit/lazygit.spk",
+      "checksum": "7f58688b44071d8085fdc881053a489a240726e6f166665da97fff3004ba1423",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "less",
+      "version": "704",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/less/less.spk",
+      "checksum": "16d051ca36bf2fa4a044a7576680d525add132b86a761ae0085fad461290ec21",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "libasyncns",
+      "version": "0.8-r5",
+      "description": "Asynchronous DNS resolver library for PulseAudio",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libasyncns/libasyncns.spk",
+      "checksum": "9c9c80ff93ab8f46dfc79a6d56674ec3814da51ace51605d40a8eee06b308d6d",
+      "parts": 1,
+      "system": true,
+      "category": "net-libs"
+    },
+    {
+      "name": "libcjson",
+      "version": "1.7.19",
+      "description": "Ultralightweight JSON parser in C",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libcjson/libcjson.spk",
+      "checksum": "bc4101ed6cf575409ef26a15e9667902a2c66f954c3e0cc3f0c29a5d95b04c29",
+      "parts": 1,
+      "system": true,
+      "category": "dev-libs"
+    },
+    {
+      "name": "liberation",
+      "version": "2.1.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/liberation/liberation.spk",
+      "checksum": "1584da05a217ece4871986cb2aaed99555d1dae4727b45a94f23368a0a7541a9",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "libglvnd",
+      "version": "1.7.0",
+      "description": "GL Vendor-Neutral Dispatch library (EGL, GLX, OpenGL, GLES)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libglvnd/libglvnd.spk",
+      "checksum": "5708f08669feabea4e49481054713f42a978fe4af0e95d16e8c72b93623dc732",
+      "deps": [
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "libinput",
+      "version": "1.31.3",
+      "description": "Input device handling library",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libinput/libinput.spk",
+      "checksum": "83be35a0bc9b9b7e18a99e86b86f926c406bd26544d6a36ed1b1c80c6a647909",
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "libpulse",
+      "version": "17.0",
+      "description": "PulseAudio client libraries and tools for PipeWire-Pulse",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libpulse/libpulse.spk",
+      "checksum": "fbe46da42eedfdc65c87233d8b9d18694b4a0ba63d92544f315ea8b1671f8657",
+      "deps": [
+        "libsndfile",
+        "libasyncns",
+        "dbus",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "librewolf",
+      "version": "158.0-1",
+      "description": "LibreWolf privacy-focused web browser (official build)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/librewolf/librewolf.spk",
+      "checksum": "c0ee74d6c16a3312d3dc88c83a52bf792de3988a65028701c3412b68ed8206a7",
+      "deps": [
+        "gtk3",
+        "gtk-libs",
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "cxx-libs",
+        "alsa-lib"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "www-client"
+    },
+    {
+      "name": "librsvg",
+      "version": "2.63.3",
+      "description": "SVG rendering library",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/librsvg/librsvg.spk",
+      "checksum": "4aa2ae1a08312b67bf7697f18967c6018c9cb9f424ad6223aa44f266ea7df8e7",
+      "deps": [
+        "gtk-libs",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gnome"
+    },
+    {
+      "name": "libsndfile",
+      "version": "1.2.2",
+      "description": "libsndfile and audio codec runtimes",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/libsndfile/libsndfile.spk",
+      "checksum": "1bc8bef5a3ef2aece18c2c64127c95671a729fa9fae90ec41d9c4c8026e750f5",
+      "deps": [
+        "alsa-lib"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "linux-6.18",
+      "version": "6.18.54-silen",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/linux-6.18/linux-6.18.spk",
+      "checksum": "8935b91d2c21f23592cc8d48499843bcbf3f0a4f33c451af898bee61254cf669",
+      "parts": 2,
+      "system": true
+    },
+    {
+      "name": "linux-firmware",
+      "version": "20261006",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/linux-firmware/linux-firmware.spk",
+      "checksum": "50a504b942de4e6eca7854f240f38c17a761fe75c1551ca7623168bc402b7114",
+      "parts": 3,
+      "system": true
+    },
+    {
+      "name": "linux-headers",
+      "version": "6.18.54-silen",
+      "description": "Linux kernel headers 6.18.54-silen",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/linux-headers/linux-headers.spk",
+      "checksum": "54b9671ef153bda2eb35dd51e0a8e7925fbe84f9f5e40d8321ea3abad5ff37f0",
+      "parts": 1,
+      "system": true,
+      "category": "sys-libs"
+    },
+    {
+      "name": "llvm",
+      "version": "22.1.8",
+      "description": "LLVM compiler infrastructure",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/llvm/llvm.spk",
+      "checksum": "05b85bbe5afbefd316cddd429b0d341fe17376c50b71e551991130fb8814b73e",
+      "parts": 1,
+      "system": true,
+      "category": "llvm-runtimes"
+    },
+    {
+      "name": "logrotate",
+      "version": "3.22.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/logrotate/logrotate.spk",
+      "checksum": "ed1fa0a38ece39c4d68b1652470123a2e1915a74a8f864321c9dd136cfbcf846",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "lrzsz",
+      "version": "0.12.20",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lrzsz/lrzsz.spk",
+      "checksum": "02ae73201f93edb4b0bfa2efbd317427feb7d46da35e6d958a3d10c19fe745ab",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "lua",
+      "version": "5.4.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lua/lua.spk",
+      "checksum": "45b8e15e1f6b76e577848ae8bbc83b3a9f049e9112c4205354250f9a092ec46b",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "lua-libs",
+      "version": "5.4.8",
+      "description": "Lua 5.4 runtime library for WirePlumber",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lua-libs/lua-libs.spk",
+      "checksum": "fdb4c065d7ad3a823aab3138c1046066b5e0c923e37f29cf2055773abd90b084",
+      "parts": 1,
+      "system": true,
+      "category": "dev-libs"
+    },
+    {
+      "name": "luajit",
+      "version": "2.1.1767980792",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/luajit/luajit.spk",
+      "checksum": "c1d3ef31c9689a308497e3aaa77e2ae0a58eff8fe252e5fc2750acf0ce0fed2e",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "lwp-request",
+      "version": "6.83",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lwp-request/lwp-request.spk",
+      "checksum": "9c5158b7859e97d740cc555d90638057a502ca79b4858588d8d8d4d52ec2d512",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "ly",
+      "version": "1.4.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ly/ly.spk",
+      "checksum": "318f3145670dd8f7323ee94c489f9ad47481f5ba9e649fe3a824448fc9ce6be2",
+      "deps": [
+        "dm-openrc",
+        "xorg-server"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "lz4",
+      "version": "1.10.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/lz4/lz4.spk",
+      "checksum": "396e0f291f3b50acd4c5c59869888cfe11a598fb91125687f0e438c0982aa584",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "make",
+      "version": "4.4.1-silen1",
+      "description": "GNU Make 4.4.1-silen1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/make/make.spk",
+      "checksum": "8bf01050bd60a0520a2fc128cf15e79e2e1f7190973a9d99ca37b17019824461",
+      "parts": 1,
+      "system": true,
+      "category": "sys-devel"
+    },
+    {
+      "name": "mako",
+      "version": "1.9.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mako/mako.spk",
+      "checksum": "22a36be9107e6ca6c78059c4a31ff5b4983f3dd98473b637e2e3cbf7b2a3e843",
+      "deps": [
+        "wl-libs",
+        "gtk-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "mango",
+      "version": "0.17.5.2-r3",
+      "description": "MangoWC tiling Wayland compositor",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mango/mango.spk",
+      "checksum": "adb25664f2215ded1eae2dcf2406e7d3d82fcc70524bbbc52e7cda22698929a4",
+      "deps": [
+        "wlroots",
+        "scenefx",
+        "seatd",
+        "wl-libs",
+        "gtk-libs",
+        "mesa",
+        "xorg-libs",
+        "xkb-data",
+        "libcjson",
+        "vulkan-loader",
+        "silen-audio"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-wm"
+    },
+    {
+      "name": "mcelog",
+      "version": "175",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mcelog/mcelog.spk",
+      "checksum": "806e17869f5558778ba62465f60f4406ef965bf362803bcb42821335564fa486",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mdadm",
+      "version": "4.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mdadm/mdadm.spk",
+      "checksum": "ea461f48639696a93fd23e3fa19b1a939f9653bb1403c3315ac973693230989d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "memstrack",
+      "version": "0.2.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/memstrack/memstrack.spk",
+      "checksum": "87444903cea175bf518571809f6191c90584e41218a239ca7618d4ae81ec821a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mesa",
+      "version": "26.1.8",
+      "description": "OpenGL and Vulkan driver stack",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mesa/mesa.spk",
+      "checksum": "c10a146ea331b589b5da6e0dc5fcba73dc7dd7b11009f36681fc764a57b387fc",
+      "deps": [
+        "libglvnd"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "micro",
+      "version": "2.0.15",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/micro/micro.spk",
+      "checksum": "e4ddcd37cb308091c3fa56b4a9be0a7aec341a8a371a85f0b22e5b5035d75210",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "mii-diag",
+      "version": "2.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mii-diag/mii-diag.spk",
+      "checksum": "3cce4649f3b59ab1181ffda754bd2e902ebae186ad8a48f25caba7e6f537a7d2",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "minicom",
+      "version": "2.11.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/minicom/minicom.spk",
+      "checksum": "97b20040513d254979ee0aa59bfe4940c87e8b26d3519a48d0587074bfdcd163",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "minisign",
+      "version": "0.12",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/minisign/minisign.spk",
+      "checksum": "476dc201f100948e3f055aa93d10420b627164891ca484db9b9e9d33e6a5c46b",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mkpasswd",
+      "version": "5.6.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mkpasswd/mkpasswd.spk",
+      "checksum": "587647191c7bd4ffaa68928744db5f5c7f7d5a05ecab61cbd6a04c4a26c20cc8",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mmc-tool",
+      "version": "2.3.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mmc-tool/mmc-tool.spk",
+      "checksum": "831f05ccb44b42e797226e443e46856768f3b0d1cf5bff9d4f7235e4cb83bd37",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mmdblookup",
+      "version": "1.14.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mmdblookup/mmdblookup.spk",
+      "checksum": "eb11e066a41d9e6072f4eb2dcf54fbb919d141671aa55e5e6617764203e0a1ed",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mokutil",
+      "version": "0.7.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mokutil/mokutil.spk",
+      "checksum": "073577a5f63f9e2505629fd696077c65d5349c86c281fc365e79a6d684a9b451",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mpage",
+      "version": "2.5.7",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mpage/mpage.spk",
+      "checksum": "a09f11eafdb762af179f5de48791d8ef5a1b6da75796c0e1dfe67bb2ff8eab8e",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "mtools",
+      "version": "4.0.49",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mtools/mtools.spk",
+      "checksum": "7437db56ad66a291f65b36f4e947809272e109eb828d2fff0b37858672be26dc",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "mtr",
+      "version": "0.96",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/mtr/mtr.spk",
+      "checksum": "5e8850ed3f0df37e0b48dd6be6700df87973636fb314b06f147793fea4f5b8a6",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "nano",
+      "version": "8.7.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nano/nano.spk",
+      "checksum": "7ad47b858fd053aab0cac8c5c35531fa83fc88ada72816ff7ca9808cf19587a5",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "nbd",
+      "version": "1.25.7-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nbd/nbd.spk",
+      "checksum": "5e19c7253df374f0ef186c8c609e43baf5d9c4afb99385135bf47521c7df2d6e",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "neovim",
+      "version": "0.11.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/neovim/neovim.spk",
+      "checksum": "39c514d7418511f79946706d9c94f00a583e48da849704a2f0a39f5697699934",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "nerd-symbols",
+      "version": "3.4.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nerd-symbols/nerd-symbols.spk",
+      "checksum": "bbc77dcd226bd1aece2144dc24079c7790ff93b1320b676c054c14694cfa8d0c",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "netsurf",
+      "version": "3.12-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/netsurf/netsurf.spk",
+      "checksum": "e4b75e70a62432fac4a8feebf849624bcc17be63df1a01d0c5ad6d28b11267b3",
+      "deps": [
+        "gtk3",
+        "wl-libs",
+        "utf8proc"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "www-client"
+    },
+    {
+      "name": "nilfs-tools",
+      "version": "2.2.11",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nilfs-tools/nilfs-tools.spk",
+      "checksum": "fa8869de0159b8673fa34d94af781f8f293bb9b4d7f6805101074a0202d99164",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "nim",
+      "version": "2.2.10",
+      "description": "Nim programming language compiler",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nim/nim.spk",
+      "checksum": "19893efd9bdb1ebac38273d460e0ce062c060eca0bba0d61da2ec3114da1397c",
+      "parts": 1,
+      "category": "dev-lang"
+    },
+    {
+      "name": "niri",
+      "version": "26.4.2-r1",
+      "description": "Scrollable-tiling Wayland compositor",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/niri/niri.spk",
+      "checksum": "c1c29722dcf66761e834947624abd47244b8092834d7846cb20669d196c96486",
+      "deps": [
+        "wl-libs",
+        "gtk-libs",
+        "mesa",
+        "xorg-libs",
+        "seatd",
+        "pipewire",
+        "xkb-data",
+        "vulkan-loader",
+        "silen-audio"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-wm"
+    },
+    {
+      "name": "nload",
+      "version": "0.7.4",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nload/nload.spk",
+      "checksum": "464889a913e8801aa6e5e7421a1291c98a98ebe9ab79e72f0e75dc74535e2319",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "nnn",
+      "version": "5.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nnn/nnn.spk",
+      "checksum": "9ae66e5cd38b23355ebb36cabe66f96e68991a4b101924b6cbc38915d86717be",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "noto-emoji",
+      "version": "20251011",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/noto-emoji/noto-emoji.spk",
+      "checksum": "a1c494bf72c7f947e883351c7d76467f6e969d1b4e31ef6e97e4710e8fe2de06",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "noto-fonts",
+      "version": "20251011",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/noto-fonts/noto-fonts.spk",
+      "checksum": "408f4108d1de7789a921df11275e6ac99322ed35c4cd3ed81287ba8728a289d1",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "ntfs-3g",
+      "version": "2026.2.25",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ntfs-3g/ntfs-3g.spk",
+      "checksum": "31a81c4136fcdc13866cac568218c7adce79f0318424ffe047066fdded851d3d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "nushell",
+      "version": "0.116.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nushell/nushell.spk",
+      "checksum": "8bae8951626aa8ba2693a20c905248907870e28fc536b3b24ff08bba3bfa61b4",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "nvidia-drivers",
+      "version": "580.142",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/nvidia-drivers/nvidia-drivers.spk",
+      "checksum": "59e8f8903c74183392e45bb8316799e8c44656d5133385fd805b0432c36b9c6f",
+      "parts": 5,
+      "system": true
+    },
+    {
+      "name": "onefetch",
+      "version": "3.0.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/onefetch/onefetch.spk",
+      "checksum": "5410c17449e47c6d778953db4052811dc87098828745c844daa394603f606b45",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "openssh",
+      "version": "10.2p1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/openssh/openssh.spk",
+      "checksum": "82f44ec73aea6fcf05e4c6b77dbf8b34845351e56e6bf4b9a1dd68ca3e3bc210",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "parallel",
+      "version": "20260822",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/parallel/parallel.spk",
+      "checksum": "74de2f77a7e1ee668b37e9eeb4bdc3dbbaef21115657f73378aca9790716cd98",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "parted",
+      "version": "3.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/parted/parted.spk",
+      "checksum": "00f6f636af32d923e89d51cb63ffdec26f152029378f80c0bcfd983d4831f447",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "passt",
+      "version": "20260728",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/passt/passt.spk",
+      "checksum": "a525bed1970fef6c8b970218990dbbfacdc2b5e9b11c3c28b2516c85cbb122d3",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "perl",
+      "version": "5.44.0-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/perl/perl.spk",
+      "checksum": "2efde79ca8f9f910ba44b071c5b6b2fd2964120d3fcd0ef307235f1f7be359ce",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "picocom",
+      "version": "2024.07",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/picocom/picocom.spk",
+      "checksum": "997a863204c3c9b00615103e20a9f9202b829f0be90d732ccd50f68a4f35ae3c",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "pigz",
+      "version": "2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/pigz/pigz.spk",
+      "checksum": "0ad3c97d6597712035fd2c44a9863cfad52af75cd71ff2f557885b7ee135454a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "pipewire",
+      "version": "1.6.8-silen1",
+      "description": "PipeWire multimedia server with SPA plugins, ALSA integration and PulseAudio compatibility",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/pipewire/pipewire.spk",
+      "checksum": "8116c056d306d78b4f317536c6b3372c96cdc3c1369b9f63d818d4121df1fd04",
+      "deps": [
+        "alsa-lib",
+        "dbus"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-sound"
+    },
+    {
+      "name": "plocate",
+      "version": "1.1.25",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/plocate/plocate.spk",
+      "checksum": "b7aa3d3ca573ab809a2fa7d0c34dbcce87a8dab2b6c96014e10c935724b4432f",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "ppp-tools",
+      "version": "2.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ppp-tools/ppp-tools.spk",
+      "checksum": "4dabf5c913c63d899b075d270c2272ecb544cf7d23520683bfb7817de7af238c",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "procs",
+      "version": "0.14.10",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/procs/procs.spk",
+      "checksum": "10ea06f0a6bd491459fb52ca035267146f970ecd137569994dee418f4baec707",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "pulsemixer",
+      "version": "1.5.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/pulsemixer/pulsemixer.spk",
+      "checksum": "3d81aa44530acb26521e452cbf766459dc680c2225e98bc35ec897f4353d17b5",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "pwgen",
+      "version": "2.08",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/pwgen/pwgen.spk",
+      "checksum": "3463d859ee303354a0db8db6997c8d8cc01a4dd7832b081e7b47fd9f708c8d63",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "pwscore-utils",
+      "version": "1.4.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/pwscore-utils/pwscore-utils.spk",
+      "checksum": "f2d8fe43b203c1a780673c9b681f5324c976d964603ea693447ac21ed4e9c300",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "python",
+      "version": "3.15.0",
+      "description": "Python 3.15.0 portable build with pip, ssl, sqlite and Tk",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/python/python.spk",
+      "checksum": "019f2785717669978979f312f491e0bf9c042e290ff444650288d18b88850168",
+      "parts": 1,
+      "category": "dev-lang"
+    },
+    {
+      "name": "quickjs",
+      "version": "0.14.0",
+      "description": "Small embeddable JavaScript engine",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/quickjs/quickjs.spk",
+      "checksum": "9d0fd22d1f82b3fd6fa20679bfff0d89231eda0a8a23291c9c52326c67d25267",
+      "parts": 1,
+      "category": "dev-lang"
+    },
+    {
+      "name": "ranger",
+      "version": "1.9.4",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ranger/ranger.spk",
+      "checksum": "2aebd62a88a54b692bf89799d4b3eedde986277c9eeb6a8f29016acd4991d6aa",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "rclone",
+      "version": "1.75.2",
+      "description": "Cloud storage sync tool",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/rclone/rclone.spk",
+      "checksum": "6037db7a075e1b9f69440dc0891e7eded2dcf489a7bf06fde59a41976f38386e",
+      "parts": 1,
+      "system": true,
+      "category": "net-misc"
+    },
+    {
+      "name": "restic",
+      "version": "0.19.1",
+      "description": "Fast, secure backup program",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/restic/restic.spk",
+      "checksum": "8fd62ca0969f08c9e54f3e6c9d0b1c377c91fddff213625e666835bbf3b03edf",
+      "parts": 1,
+      "system": true,
+      "category": "app-backup"
+    },
+    {
+      "name": "ripgrep",
+      "version": "15.2.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/ripgrep/ripgrep.spk",
+      "checksum": "78e56028704156fe2c3777343e0d43002f8cd1a595400a6d7dbc88e6c540ae13",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "rofi",
+      "version": "1.7.9.2",
+      "description": "Window switcher and application launcher",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/rofi/rofi.spk",
+      "checksum": "df61796ee7107ffce271e0c10f377b10a783934d39bb165adde136d67533c12d",
+      "deps": [
+        "xorg-libs",
+        "gtk-libs",
+        "wl-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "rsync",
+      "version": "3.5.0-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/rsync/rsync.spk",
+      "checksum": "48d192ad33b527049203efa049271f3dfd2e293d2dd00e8334d93390f1684e00",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "rustup",
+      "version": "1.29.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/rustup/rustup.spk",
+      "checksum": "92051d6ee78fee2cdc413f77d08e112d0fa762112ac4fe3b615d9da68d81140f",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "scenefx",
+      "version": "0.5",
+      "description": "Scene effects library for wlroots compositors",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/scenefx/scenefx.spk",
+      "checksum": "74274adb0eee7b7d45f671905bcad707286cf2a3b1224f0a8fbcf6e93411e6a9",
+      "deps": [
+        "wlroots",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-libs"
+    },
+    {
+      "name": "screen",
+      "version": "5.0.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/screen/screen.spk",
+      "checksum": "2c345e4b0259ac9a9e62a1f04e066cd9b92089ddb1ac06264c13c1ebde6f2b34",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "sddm",
+      "version": "0.21.0-silen5",
+      "description": "SDDM display manager with X11 greeter config",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sddm/sddm.spk",
+      "checksum": "e4058a23f3ecb5f417d0f25e1a19353d19578b75bc0cbfd4b1c07586729eb62f",
+      "deps": [
+        "dm-openrc",
+        "xorg-server",
+        "xorg-libs",
+        "xorg-drivers",
+        "xinit",
+        "dejavu",
+        "libglvnd",
+        "mesa",
+        "elogind"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "seatd",
+      "version": "0.9.3-r1",
+      "description": "Seat management daemon for Wayland compositors",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/seatd/seatd.spk",
+      "checksum": "c84d2b6a7553c0bfebdf84f0b20c9b4b4823c733291d85d73102004282b3af03",
+      "parts": 1,
+      "system": true,
+      "category": "sys-auth"
+    },
+    {
+      "name": "sensors",
+      "version": "3.6.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sensors/sensors.spk",
+      "checksum": "995f374ebe9d4c463725cdbf8302ac91f9dd3a452ddfdd1a2239d0d2263cff44",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "setpci",
+      "version": "3.15.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/setpci/setpci.spk",
+      "checksum": "dc789e2273ee6e35e26cbaa92db5b4fc5602c7f2f1e291a7a81b8e9c5ce86b2a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "silen-audio",
+      "version": "1.0.0",
+      "description": "PipeWire, WirePlumber and PipeWire-Pulse session autostart",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-audio/silen-audio.spk",
+      "checksum": "ff1b03cc0b91458ff3f138ca44ed00b68211348860798edbb8b5feaaeb92f7eb",
+      "deps": [
+        "pipewire",
+        "wireplumber",
+        "alsa-lib",
+        "libpulse"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-sound"
+    },
+    {
+      "name": "silen-base",
+      "version": "1.0.0",
+      "description": "Silen Linux base system with OpenRC, udev, elogind, dhcpcd and core userland",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-base/silen-base.spk",
+      "checksum": "d2f16bb32572b2b7b3e158555f836bd4e04e521b6e1b9e4c457a427576b6b617",
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "silen-binutils",
+      "version": "2.46.1",
+      "description": "GNU binutils assembler, linker and binary utilities",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-binutils/silen-binutils.spk",
+      "checksum": "17464d00b048560bedea7f2d431355b707dfc1c273b7b7676a77121ac4b3460f",
+      "parts": 1,
+      "system": true,
+      "category": "sys-devel"
+    },
+    {
+      "name": "silen-cmake",
+      "version": "4.3.4",
+      "description": "CMake build system",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-cmake/silen-cmake.spk",
+      "checksum": "bd4dfcf3d71c0b5d53613f77c053065602dc8a4b269282b8545db2c85f8a02d7",
+      "parts": 1,
+      "system": true,
+      "category": "dev-util"
+    },
+    {
+      "name": "silen-config",
+      "version": "1.0.0",
+      "description": "Silen Lua configuration, defaults and user skeleton",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-config/silen-config.spk",
+      "checksum": "03bf126e5663f93c252a8979793022879b79291893d1430b85be88ba7661dfd8",
+      "deps": [
+        "silen-base",
+        "cres"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "silen-desktop",
+      "version": "1.0.0",
+      "description": "InstantWM desktop, login manager and audio session",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-desktop/silen-desktop.spk",
+      "checksum": "e928242f732e8ae24347770e1c410b1ee79ae3b6853d7ac177b26f5c4cfdf14c",
+      "deps": [
+        "instantwm",
+        "foot",
+        "silen-audio",
+        "greetd",
+        "tuigreet",
+        "dm-openrc"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-wm"
+    },
+    {
+      "name": "silen-devtools",
+      "version": "1.0.0",
+      "description": "GCC, binutils, make, cmake, ninja, git, Go and kernel headers",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-devtools/silen-devtools.spk",
+      "checksum": "89fa041ec1b2d55df399e99d8e12a616e3d9eabdd6cc357340d09b9e73c68214",
+      "deps": [
+        "gcc",
+        "silen-binutils",
+        "make",
+        "silen-cmake",
+        "silen-ninja",
+        "git",
+        "golang",
+        "linux-headers"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "dev-util"
+    },
+    {
+      "name": "silen-firmware",
+      "version": "20261006",
+      "description": "Wi-Fi, GPU and CPU microcode firmware for Silen Linux",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-firmware/silen-firmware.spk",
+      "checksum": "5dd1fec67a823378bca8813c435b530ae15d5358e611a4fa0c3cea32f7a3ad41",
+      "parts": 1,
+      "system": true,
+      "category": "sys-firmware"
+    },
+    {
+      "name": "silen-installer",
+      "version": "1.0.0",
+      "description": "Graphical online installer for Silen Linux",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-installer/silen-installer.spk",
+      "checksum": "9ebde73ba32b222fea65f8bd617144774d1a07206e1c8abbf78252ace352a015",
+      "deps": [
+        "silen-base",
+        "cres",
+        "iwd",
+        "dosfstools",
+        "parted",
+        "btrfs-progs",
+        "efibootmgr",
+        "mtools",
+        "grub"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "sys-apps"
+    },
+    {
+      "name": "silen-ninja",
+      "version": "1.13.2",
+      "description": "Ninja build system",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/silen-ninja/silen-ninja.spk",
+      "checksum": "eaee05a8a5f0de4c291b2fb31eff7d73f9e806309b974134eac607bee9c69b30",
+      "parts": 1,
+      "system": true,
+      "category": "dev-util"
+    },
+    {
+      "name": "slurp",
+      "version": "1.4.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/slurp/slurp.spk",
+      "checksum": "9901b6b08d25dd37864a871761d698494ee945844dd8f8587ac1daf4c12fb6d9",
+      "deps": [
+        "wl-libs",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "smartmontools",
+      "version": "7.5",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/smartmontools/smartmontools.spk",
+      "checksum": "32193c0b0985fae70aa7f850186ddd1d61838269b00c7374161b412c34c7b5f1",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "socat",
+      "version": "1.8.1.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/socat/socat.spk",
+      "checksum": "92442bf0ccba73f524ffd760ec8a3785c307518b664719f44c663983c7f36581",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "squashfs-tools",
+      "version": "4.6.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/squashfs-tools/squashfs-tools.spk",
+      "checksum": "19fdaf62f49d61a4cdef433241453dba1d7fccdcbb70a921d365ff9e7d891bd5",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "st",
+      "version": "0.9.2",
+      "description": "Simple terminal emulator",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/st/st.spk",
+      "checksum": "6c59a4f64af0e77e671967ccf88092c152349c31c626afea3efa932af4ad547e",
+      "deps": [
+        "xorg-server",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-terms"
+    },
+    {
+      "name": "starship",
+      "version": "1.26.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/starship/starship.spk",
+      "checksum": "8dde436ac3f75e80420ce557fd43e027cd1faa00184ca7a3db5587eef696e6e4",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "stun-client",
+      "version": "0.1.23",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/stun-client/stun-client.spk",
+      "checksum": "d37b778ce4ff6f1a351f533417610fe73d99013c137f734741142b47f036c2ee",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "swaybg",
+      "version": "1.2.2",
+      "description": "Wallpaper utility for Wayland compositors",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/swaybg/swaybg.spk",
+      "checksum": "3b7a1fbad2cb8de0df2e4fd7acd4e325c38c016451f9bd304a6f2d4b048a90e3",
+      "deps": [
+        "xorg-libs",
+        "gtk-libs",
+        "wl-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "swayidle",
+      "version": "1.9.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/swayidle/swayidle.spk",
+      "checksum": "a9f7709228dda3bdf39ab856c59898150753be86767ffb4e81ac1faaea19c4d1",
+      "deps": [
+        "wl-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "swaylock",
+      "version": "1.8.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/swaylock/swaylock.spk",
+      "checksum": "03e21df403a271bc4acadac158e4fc19feb8369f722e5c66a968572d2015ae21",
+      "deps": [
+        "wl-libs",
+        "xorg-libs",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "swww",
+      "version": "0.12.1",
+      "description": "Compatibility symlinks for the swww CLI (uses awww)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/swww/swww.spk",
+      "checksum": "6e1942b956b9dcfb4201d55bcf5f98d58847b26ebac164533fb41d8124e462a0",
+      "deps": [
+        "awww"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "syncthing",
+      "version": "2.1.6",
+      "description": "Continuous file synchronization",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/syncthing/syncthing.spk",
+      "checksum": "c684ef8cfc377b364aa54d25992ae813b427b29ee987273ddf00b96baf89d4f3",
+      "parts": 1,
+      "system": true,
+      "category": "net-p2p"
+    },
+    {
+      "name": "sysstat",
+      "version": "12.7.9",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/sysstat/sysstat.spk",
+      "checksum": "33d07faf26bee85a354e3e539f8bc61c1ee281862dc2b1ba470995449b59bd9e",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "tailscale",
+      "version": "1.104.1",
+      "description": "WireGuard-based mesh VPN",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tailscale/tailscale.spk",
+      "checksum": "e0f6d6708341a676b4a93b49bab0c4d23f3bc4986af1fb70fb4def99571990fd",
+      "parts": 1,
+      "system": true,
+      "category": "net-vpn"
+    },
+    {
+      "name": "tealdeer",
+      "version": "1.9.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tealdeer/tealdeer.spk",
+      "checksum": "a5e691784272e21b849ac9211cb21a5b4295ff990a1e800cf8adb3e5c94f81b7",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "thunderbird",
+      "version": "158.0",
+      "description": "Mozilla Thunderbird email client (official build)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/thunderbird/thunderbird.spk",
+      "checksum": "a0691b45fa180382fd19c2729f58c457808b1d46c778a9a3d695d786e1af82bc",
+      "deps": [
+        "gtk3",
+        "gtk-libs",
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "cxx-libs",
+        "alsa-lib"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "mail-client"
+    },
+    {
+      "name": "tig",
+      "version": "2.6.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tig/tig.spk",
+      "checksum": "0b6603446aa0bd38fddbc4b036375516d98932af2b2991eb43dd59a78be48b4f",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "time-proc",
+      "version": "1.9",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/time-proc/time-proc.spk",
+      "checksum": "75fef5667a7b546bf5b3c4623aa3dadf650cc8115e0b8dec5f63cee89a2e0cb5",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "tmon",
+      "version": "7.2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tmon/tmon.spk",
+      "checksum": "3ab794d9a15f2385297befa08719a4e41bb64f68eaac6a516a3ae61addfa7295",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "tmux",
+      "version": "3.6a",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tmux/tmux.spk",
+      "checksum": "a0c6d7b600b3bccc8306785c37f10e255e2c02fe3a1f5625dd37d05fcfa3b2e5",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "tokei",
+      "version": "15.0.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tokei/tokei.spk",
+      "checksum": "69c069251aea3fd23f1e6caed614b449ff4b1375280618a095a0bb404ff117c8",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "torbrowser",
+      "version": "15.0.25",
+      "description": "Tor Browser privacy browser bundle (official build)",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/torbrowser/torbrowser.spk",
+      "checksum": "e8c2f2037566c844c74631deec23af6bfcd32b99844433f4e18dd3bc1b3cac21",
+      "deps": [
+        "gtk3",
+        "gtk-libs",
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "cxx-libs",
+        "alsa-lib"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "www-client"
+    },
+    {
+      "name": "traceroute",
+      "version": "2.1.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/traceroute/traceroute.spk",
+      "checksum": "4b65a1b18fe4d3a4be6a0b3028d69d830f804f50bd2e5cfc9af334fe1973368d",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "tree",
+      "version": "2.2.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tree/tree.spk",
+      "checksum": "25513c85402f9c355945955828ee1fc23fabef19aa59b73ca6047119fc31dae2",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "tuigreet",
+      "version": "0.11.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/tuigreet/tuigreet.spk",
+      "checksum": "66e036b61ebc5e8000e836ed41ba526c2b0b63daa408dfce1df9ba68f2966beb",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "turbostat",
+      "version": "7.2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/turbostat/turbostat.spk",
+      "checksum": "7007f931261b0c5e30f2ba7b6930fdebbe6a07a2bca87a1147e831db1ad3ebfd",
+      "parts": 1,
+      "category": "sys-monitor"
+    },
+    {
+      "name": "uchardet",
+      "version": "0.0.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/uchardet/uchardet.spk",
+      "checksum": "e7208b1524546967fc18c6c380b1c31a6b7dc568bdfa36a4c1ae7b702f50964d",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "udf-tools",
+      "version": "2.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/udf-tools/udf-tools.spk",
+      "checksum": "50223494d88b5a57b9e196a0449ab3717005cff0fd0f74f09da141f7f8461f2a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "unzip",
+      "version": "6.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/unzip/unzip.spk",
+      "checksum": "d4c3c8621bc0845215e285762e4bae7ee21e14f89264515866e973278d17237b",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "usb-modeswitch",
+      "version": "2.6.2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/usb-modeswitch/usb-modeswitch.spk",
+      "checksum": "e64d4679591781a3b716d59020ca64a694f029668cecc1e22b0156a7be50d107",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "usbextras",
+      "version": "019",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/usbextras/usbextras.spk",
+      "checksum": "8478413d360520da416e949a56ab66420b62515e238e94a1f2c02bb1ec28926f",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "utf8proc",
+      "version": "2.11.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/utf8proc/utf8proc.spk",
+      "checksum": "98827a1e663447dd2dd971a2fb36bac8cc0b34a6046027c44d6d7f893e62034d",
+      "parts": 1,
+      "system": true,
+      "category": "sys-libs"
+    },
+    {
+      "name": "uutils-coreutils",
+      "version": "0.7.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/uutils-coreutils/uutils-coreutils.spk",
+      "checksum": "e867a48e67b4ab75b754135f56874fd1a2d7870a054b810f47861b598a6eeb97",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "vim",
+      "version": "9.1.1652-r2",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/vim/vim.spk",
+      "checksum": "c205bbba95f95936248fd5080f039126f9abfd8448d0814c1aef4b28027bdc03",
+      "parts": 1,
+      "category": "app-editors"
+    },
+    {
+      "name": "virt-what",
+      "version": "1.27",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/virt-what/virt-what.spk",
+      "checksum": "194211e1e09171f216c10731426b5152c0d71f663fdd0cc8e66352868d29740a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "vlock",
+      "version": "2.9.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/vlock/vlock.spk",
+      "checksum": "ed7d9fe222e894a160b27279670550268cf6a984356f0d9cde637cc62e212c07",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "vulkan-loader",
+      "version": "1.4.350.0",
+      "description": "Vulkan ICD loader",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/vulkan-loader/vulkan-loader.spk",
+      "checksum": "b0b1b56556c0575f3b1a98db65d29c9510b1debd06c7b98d9d5268610bd0e4d5",
+      "deps": [
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-libs"
+    },
+    {
+      "name": "wavpack",
+      "version": "5.9.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wavpack/wavpack.spk",
+      "checksum": "8dc92f8d9d89304b8cfc956ee5e13a9904c8020755c235a01d56d5bfcb52c41a",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "waybar",
+      "version": "0.15.1-silen1",
+      "description": "Highly customizable Wayland bar",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/waybar/waybar.spk",
+      "checksum": "f61f172c195174f540cb556fb82b8ff0f3edd47dbd830d572b330d3175f38ce0",
+      "deps": [
+        "wl-libs",
+        "gtk-libs",
+        "gtk3",
+        "mesa",
+        "xorg-libs",
+        "pipewire",
+        "xkb-data",
+        "cxx-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "wget",
+      "version": "2.2.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wget/wget.spk",
+      "checksum": "ec8b8b18118ec3d51a5e71b55855ec9aa8c99ac17df0f1d8e6dcb9a82e70f5b5",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "whois",
+      "version": "5.6.6",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/whois/whois.spk",
+      "checksum": "90e57b856fa9a97004bdef3e32284a53e63fb3824ee8d74f5fec2c93d1cd742f",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "wireplumber",
+      "version": "0.5.15",
+      "description": "WirePlumber session and policy manager for PipeWire",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wireplumber/wireplumber.spk",
+      "checksum": "699f795222f21759443a60ba9ea521adb89bb2d66bf047aa90e98af31f3406e4",
+      "deps": [
+        "pipewire",
+        "lua-libs",
+        "gtk-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "media-sound"
+    },
+    {
+      "name": "wl-clipboard",
+      "version": "2.2.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wl-clipboard/wl-clipboard.spk",
+      "checksum": "9bfeddc22a1c67af49253e0c78df469b4c9fdc8bee375873bc1cdf317079381f",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "wl-libs",
+      "version": "20261007",
+      "description": "Wayland protocol and runtime libraries",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wl-libs/wl-libs.spk",
+      "checksum": "50a6ef19698980274067789cdbb0d4925f266eb0dc4b7c7a72e33da4b0df3884",
+      "deps": [
+        "xorg-libs",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-libs"
+    },
+    {
+      "name": "wlroots",
+      "version": "0.20.2",
+      "description": "Modular Wayland compositor library",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wlroots/wlroots.spk",
+      "checksum": "5e358142e76f5efb47719f180aa9bbbcaccb72853985fcad0d3904a5abc4d888",
+      "deps": [
+        "xorg-libs",
+        "mesa",
+        "wl-libs",
+        "seatd"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-libs"
+    },
+    {
+      "name": "wofi",
+      "version": "1.4.2",
+      "description": "Wayland application launcher",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wofi/wofi.spk",
+      "checksum": "c345d8f49bf243c0a477a2d52c6ddb3b5294d1221f910ba0676fcab53522042b",
+      "deps": [
+        "wl-libs",
+        "gtk-libs",
+        "gtk3",
+        "mesa"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "gui-apps"
+    },
+    {
+      "name": "wpa-passphrase",
+      "version": "2.11",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/wpa-passphrase/wpa-passphrase.spk",
+      "checksum": "62a07f8265b8ec5c33a14e0900743664453a01d660c71916510d20aa902538af",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "x86-energy-perf-policy",
+      "version": "7.2.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/x86-energy-perf-policy/x86-energy-perf-policy.spk",
+      "checksum": "eb285de3837d61b5e4a2663503c5fc64fd352ef756cb9375b324c75beede0925",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "xdm",
+      "version": "1.1.17",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xdm/xdm.spk",
+      "checksum": "17432e37b5707f2c7dd3f605055cb113dbfb5251e44e53ab59735a5d09ce37b1",
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "xfsprogs",
+      "version": "7.1.1-r1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xfsprogs/xfsprogs.spk",
+      "checksum": "18f8fbbcd66ae2d36dccd8e7e3ee17bb7d7f68081a9d66c465c0f36cbed31b92",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "xinit",
+      "version": "1.4.4",
+      "description": "X session startup utility",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xinit/xinit.spk",
+      "checksum": "5ee229cf07d7d6ddb2b1ea306ff5b8f3f30c670b8bfe58245997430434dd8e52",
+      "deps": [
+        "xorg-server",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-apps"
+    },
+    {
+      "name": "xkb-data",
+      "version": "2.48",
+      "description": "XKB keyboard configuration data",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xkb-data/xkb-data.spk",
+      "checksum": "fafaf7c58f1d28602bcf9a2cfbd1acb80fe103dd25e40de5eb445f8cb58eacff",
+      "parts": 1,
+      "system": true,
+      "category": "x11-misc"
+    },
+    {
+      "name": "xorg-drivers",
+      "version": "20261007",
+      "description": "Xorg video and input drivers",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xorg-drivers/xorg-drivers.spk",
+      "checksum": "02fcdcfccfd777fb6de4da381b89aedf1e1233ebaafd90f4e6bb5ef826b97645",
+      "deps": [
+        "xorg-server",
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-base"
+    },
+    {
+      "name": "xorg-libs",
+      "version": "20261020-r5",
+      "description": "X11, input, font, MIME, crypto and GL dispatch runtime for Xorg and compositors",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xorg-libs/xorg-libs.spk",
+      "checksum": "1e5058c38420cd1c3a91975f1096e57e8bec3e8c7003cf753539a4d622f9c6f2",
+      "parts": 1,
+      "system": true,
+      "category": "x11-libs"
+    },
+    {
+      "name": "xorg-server",
+      "version": "21.1.24",
+      "description": "Xorg server 21.1 with modesetting driver",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xorg-server/xorg-server.spk",
+      "checksum": "9733c4755d7aec3857a2ccad5764bb7e20093ce2b6430f046c2addb1e9ca5e36",
+      "deps": [
+        "xorg-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-base"
+    },
+    {
+      "name": "xorg-xrandr",
+      "version": "1.5.4",
+      "description": "X11 RandR configuration utility",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xorg-xrandr/xorg-xrandr.spk",
+      "checksum": "0aade063284c31fddb448e29fc4ae277638f050476c44916db6b25cc45b8e798",
+      "deps": [
+        "xorg-libs",
+        "wl-libs"
+      ],
+      "parts": 1,
+      "system": true,
+      "category": "x11-apps"
+    },
+    {
+      "name": "xorriso",
+      "version": "1.5.8",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xorriso/xorriso.spk",
+      "checksum": "1793107faa17dacbe80b088e10500857ad633a94f4e603378efad7526ed965a4",
+      "parts": 1,
+      "category": "app-misc"
+    },
+    {
+      "name": "xwayland",
+      "version": "24.1.13",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xwayland/xwayland.spk",
+      "checksum": "6b821177b650c96bb875c7359fc5e1ab5ca2bb56319b824d655a3911332c7f4d",
+      "deps": [
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "ei-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "xwayland-satellite",
+      "version": "0.8.3",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/xwayland-satellite/xwayland-satellite.spk",
+      "checksum": "e5347442e3f9e5f6ecb53c842cff9988312a0b98658bf805712484dc2875c5ae",
+      "deps": [
+        "xorg-libs",
+        "wl-libs",
+        "mesa",
+        "ei-libs"
+      ],
+      "parts": 1,
+      "system": true
+    },
+    {
+      "name": "yajl-tools",
+      "version": "2.1.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/yajl-tools/yajl-tools.spk",
+      "checksum": "7d98d7baf50ea55b3da081d8fa7f7eab24a46db686c3b6215eacdda90747b289",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "yazi",
+      "version": "26.9.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/yazi/yazi.spk",
+      "checksum": "1066986a785f4ff44741e695d70267eaddeaf8c0450215704a2d71df2b67c01a",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "zellij",
+      "version": "0.45.1",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/zellij/zellij.spk",
+      "checksum": "a20cc06d5753cf79bef042f883d7cb0dab190e282c3c1dd4a0e955cfcb4128b0",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "zip",
+      "version": "3.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/zip/zip.spk",
+      "checksum": "f0a5cd71dfbcfd5877e3b6b4e70f96a2eef6b73f7d7449dbfadedcde47b59044",
+      "parts": 1,
+      "category": "sys-apps"
+    },
+    {
+      "name": "zoxide",
+      "version": "0.10.0",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/zoxide/zoxide.spk",
+      "checksum": "e4a51d1a42ead3c1d9611aac0f0c0521ded3926a8acb14fb8ce5931aecf8331d",
+      "parts": 1,
+      "category": "dev-tools"
+    },
+    {
+      "name": "zsh",
+      "version": "5.9",
+      "url": "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/zsh/zsh.spk",
+      "checksum": "34c809b57ac9fc2566d1600899f77b09b598c9289a5ca7063ab90172ec657d91",
+      "parts": 1,
+      "system": true
+    }
+  ]
+}

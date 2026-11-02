@@ -967,7 +967,7 @@ else
 fi
 
 if command -v cargo >/dev/null 2>&1; then
-	echo "  building spk spk/src/get.rs"
+	echo "  building spk spk/src/get.rs (deprecated - will be replaced by cres)"
 	CARGO_ENV=()
 	CARGO_AS_USER=""
 	if [ -n "${SUDO_USER:-}" ]; then
@@ -988,6 +988,24 @@ if command -v cargo >/dev/null 2>&1; then
 	else
 		if env "${CARGO_ENV[@]}" cargo build --release --locked --manifest-path spk/Cargo.toml; then
 			_CARGO_OK=1
+		fi
+	fi
+	CRES_OK=0
+	if command -v go >/dev/null 2>&1; then
+		echo "  building cres (package manager replacement)"
+		if [ -n "$CARGO_AS_USER" ]; then
+			if sudo -u "$CARGO_AS_USER" env "${CARGO_ENV[@]}" bash -c "cd /home/vgz/silen/SilenLinux/cres && go build -o /home/vgz/silen/SilenLinux/build/cres ."; then
+				CRES_OK=1
+			fi
+		else
+			if (cd /home/vgz/silen/SilenLinux/cres && go build -o /home/vgz/silen/SilenLinux/build/cres .); then
+				CRES_OK=1
+			fi
+		fi
+		if [ "$CRES_OK" = "1" ]; then
+			echo "  cres built successfully"
+		else
+			echo "  ! cres build failed"
 		fi
 	fi
 	IWTUI_SRC="${IWTUI_SRC:-}"
@@ -1024,6 +1042,13 @@ if command -v cargo >/dev/null 2>&1; then
 			cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs (live spk will rely on /mnt/spk)"
 			chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
 		fi
+		if [ "$CRES_OK" = "1" ] && [ -f "build/cres" ]; then
+			echo "  copying cres onto the ISO and into the live initramfs"
+			cp build/cres "$ISO_DIR/cres" || echo "  ! cannot copy cres to ISO"
+			mkdir -p "$RAMROOT/usr/bin" || true
+			cp build/cres "$RAMROOT/usr/bin/cres" || echo "  ! cannot copy cres to initramfs"
+			chmod 0755 "$RAMROOT/usr/bin/cres" "$ISO_DIR/cres" 2>/dev/null || true
+		fi
 		if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
 			echo "  copying iwtui into the live initramfs"
 			mkdir -p "$RAMROOT/usr/bin" || { echo "  ERROR cannot create usr/bin"; exit 1; }
@@ -1031,9 +1056,10 @@ if command -v cargo >/dev/null 2>&1; then
 			chmod 0755 "$RAMROOT/usr/bin/iwtui" 2>/dev/null || true
 		fi
 		# repack once more to include late binaries
-		if { [ -f "$RAMROOT/usr/bin/spk" ] || [ -f "$RAMROOT/usr/bin/iwtui" ]; } && [ -f "build/$INITRAMFS" ]; then
-			echo "  re-packing initramfs to include spk/iwtui"
+		if { [ -f "$RAMROOT/usr/bin/spk" ] || [ -f "$RAMROOT/usr/bin/iwtui" ] || [ -f "$RAMROOT/usr/bin/cres" ]; } && [ -f "build/$INITRAMFS" ]; then
+			echo "  re-packing initramfs to include spk/iwtui/cres"
 			[ -f "$RAMROOT/usr/bin/spk" ] && copy_libs "$RAMROOT/usr/bin/spk"
+			[ -f "$RAMROOT/usr/bin/cres" ] && copy_libs "$RAMROOT/usr/bin/cres"
 			[ -f "$RAMROOT/usr/bin/iwtui" ] && copy_libs "$RAMROOT/usr/bin/iwtui"
 			if ! (
 				cd "$RAMROOT"
@@ -1055,14 +1081,34 @@ if command -v cargo >/dev/null 2>&1; then
 	else
 		echo "  ! spk build failed installer will try to fetch it another way"
 	fi
-	if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
-		echo "  copying iwtui onto the ISO"
-		cp "$IWTUI_SRC/target/release/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO (target gets it via spk instead)"
-	elif [ -n "$IWTUI_SRC" ]; then
-		echo "  ! iwtui build failed, live ISO ships without iwtui"
+		if [ "$_IWTUI_OK" = "1" ] && [ -f "$IWTUI_SRC/target/release/iwtui" ]; then
+			echo "  copying iwtui onto the ISO"
+			cp "$IWTUI_SRC/target/release/iwtui" "$ISO_DIR/iwtui" || echo "  ! cannot copy iwtui to ISO (target gets it via spk instead)"
+		elif [ -n "$IWTUI_SRC" ]; then
+			echo "  ! iwtui build failed, live ISO ships without iwtui"
+		fi
+	else
+		echo "  ! cargo not found skipping spk build installer will try to fetch it"
 	fi
-else
-	echo "  ! cargo not found skipping spk build installer will try to fetch it"
+
+SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/silen/SilenLinux/silen-installer}"
+if [ -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
+	echo "  copying silen-installer onto the ISO and into the live initramfs"
+	cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$ISO_DIR/silen-installer" || echo "  ! cannot copy silen-installer to ISO"
+	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/share/applications" 2>/dev/null || true
+	cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$RAMROOT/usr/bin/silen-installer" 2>/dev/null || true
+	chmod 0755 "$RAMROOT/usr/bin/silen-installer" "$ISO_DIR/silen-installer" 2>/dev/null || true
+	copy_libs "$RAMROOT/usr/bin/silen-installer" 2>/dev/null || true
+	cat > "$ISO_DIR/silen-installer.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Install Silen Linux
+Comment=Graphical installer for Silen Linux
+Exec=/silen-installer
+Icon=system-software-install
+Terminal=false
+Categories=System;
+EOF
 fi
 
 echo "  packing network bundle iwd/iwctl + deps for the installed system"
@@ -1116,6 +1162,8 @@ if [ -d target-scripts ]; then
 	mkdir -p "$ISO_DIR/target-scripts"
 	cp -a target-scripts/. "$ISO_DIR/target-scripts/" || { echo "  ERROR cannot copy target-scripts"; exit 1; }
 fi
+
+mkdir -p "$ISO_DIR/boot/grub" 2>/dev/null || true
 
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz" || { echo "  ERROR cannot copy kernel to ISO"; exit 1; }
 cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS" || { echo "  ERROR cannot copy initramfs to ISO"; exit 1; }

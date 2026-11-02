@@ -88,7 +88,7 @@ is_mounted /run || mount -t tmpfs tmpfs /run 2>/dev/null || true
 note "Welcome to Silen Linux"
 
 ip link set lo up 2>/dev/null || true
-mkdir -p /run/dbus /run/user /var/lib/iwd /var/lib/dbus
+mkdir -p /run/dbus /run/user /var/lib/iwd /var/lib/dbus /var/lib/dhcpcd
 chmod 755 /run/user 2>/dev/null || true
 if command -v rfkill >/dev/null 2>&1; then
 	rfkill unblock all >/dev/null 2>&1 || true
@@ -105,8 +105,42 @@ if command -v dbus-daemon >/dev/null 2>&1; then
 else
 	echo "dbus-daemon missing wifi/dbus will not work"
 fi
-# iwd is intentionally not started in the live environment.
-# It is started on the installed system via OpenRC (rc-update add iwd default).
+
+mkdir -p /etc/iwd
+if [ ! -f /etc/iwd/main.conf ]; then
+	cat > /etc/iwd/main.conf << 'EOF'
+[General]
+EnableNetworkConfiguration=true
+
+[Network]
+NameResolvingService=resolvconf
+EOF
+fi
+
+if command -v iwd >/dev/null 2>&1; then
+	echo "Starting iwd"
+	iwd >/dev/null 2>&1 &
+	sleep 2
+else
+	for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
+		if [ -x "$_iwd" ]; then
+			echo "Starting iwd ($_iwd)"
+			"$_iwd" >/dev/null 2>&1 &
+			sleep 2
+			break
+		fi
+	done
+fi
+
+if command -v dhcpcd >/dev/null 2>&1; then
+	dhcpcd -b 2>/dev/null &
+elif command -v udhcpc >/dev/null 2>&1; then
+	for iface in $(ip link | grep '^[0-9]' | grep -v lo | awk -F: '{print $2}' | tr -d ' '); do
+		[ -z "$iface" ] && continue
+		udhcpc -i "$iface" -b -q 2>/dev/null &
+	done
+fi
+
 (sleep 5; rfkill unblock all >/dev/null 2>&1 || true) &
 (
 for _w in 1 2 3 4 5 6; do
@@ -416,7 +450,14 @@ if [ -x /installer/main.sh ]; then
 	note "Starting the Silen installer"
 	echo "  it also lets you open a shell reboot or power off"
 	echo
-	/bin/bash /installer/main.sh
+	if [ -x /usr/bin/silen-installer ]; then
+		note "Launching graphical installer"
+		silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
+	elif [ -x /silen-installer ]; then
+		/silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
+	else
+		/bin/bash /installer/main.sh
+	fi
 	echo
 	echo "Installer exited dropping to a shell"
 else

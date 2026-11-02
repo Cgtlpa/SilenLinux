@@ -18,3 +18,5 @@ headers-*.tar.xz
 rootfs/lib/modules/*/updates/dkms/nvidia.ko.zst
 website/
 silen-installer/target/
+linux-6.18.*/
+packages/

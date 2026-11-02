@@ -29,6 +29,7 @@ qemu:
 	kvm=""; [ -e /dev/kvm ] && kvm="-enable-kvm"; \
 	firmware=""; code=""; vars=""; \
 	for f in /usr/share/edk2/x64/OVMF.4m.fd \
+	         /usr/share/edk2/OvmfX64/OVMF.fd \
 	         /usr/share/edk2-ovmf/OVMF.fd \
 	         /usr/share/ovmf/OVMF.fd \
 	         /usr/share/OVMF/OVMF.fd \
@@ -36,6 +37,7 @@ qemu:
 		[ -f "$$f" ] && firmware="$$f" && break; \
 	done; \
 	for f in /usr/share/edk2/x64/OVMF_CODE.4m.fd \
+	         /usr/share/edk2/OvmfX64/OVMF_CODE.fd \
 	         /usr/share/edk2-ovmf/OVMF_CODE.fd \
 	         /usr/share/ovmf/OVMF_CODE.fd \
 	         /usr/share/OVMF/OVMF_CODE.fd \
@@ -43,6 +45,7 @@ qemu:
 		[ -f "$$f" ] && code="$$f" && break; \
 	done; \
 	for f in /usr/share/edk2/x64/OVMF_VARS.4m.fd \
+	         /usr/share/edk2/OvmfX64/OVMF_VARS.fd \
 	         /usr/share/edk2-ovmf/OVMF_VARS.fd \
 	         /usr/share/ovmf/OVMF_VARS.fd \
 	         /usr/share/OVMF/OVMF_VARS.fd \

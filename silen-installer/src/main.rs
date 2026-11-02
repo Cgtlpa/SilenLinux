@@ -3,12 +3,12 @@ mod backend;
 use backend::{InstallSettings, TITLE};
 use std::sync::{Arc, Mutex};
 
-// wizard pages in order, installing runs on its own thread
 #[derive(PartialEq, Clone, Copy)]
 enum Page {
     Loading,
     Welcome,
     Disk,
+    Network,
     Settings,
     Confirm,
     Installing,
@@ -31,6 +31,9 @@ struct InstallerApp {
     error: String,
     preview: bool,
     loading_since: std::time::Instant,
+    network_status: String,
+    wifi_networks: Vec<String>,
+    network_msg: String,
 }
 
 impl Default for InstallerApp {
@@ -51,14 +54,15 @@ impl Default for InstallerApp {
             error: String::new(),
             preview,
             loading_since: std::time::Instant::now(),
+            network_status: backend::network_status(),
+            wifi_networks: Vec::new(),
+            network_msg: String::new(),
         }
     }
 }
 
 impl InstallerApp {
-
     fn start_install(&mut self, ctx: egui::Context) {
-        // the wipe runs on a thread so the window never freezes up
         if self.installing {
             return;
         }
@@ -117,7 +121,7 @@ impl eframe::App for InstallerApp {
                         ui.add_space(16.0);
                         ui.spinner();
                         ui.add_space(8.0);
-                        ui.label("Starting… probing disks and install medium");
+                        ui.label("Starting… probing disks and network");
                     });
                     if self.loading_since.elapsed() >= std::time::Duration::from_millis(700) {
                         self.page = Page::Welcome;
@@ -126,9 +130,12 @@ impl eframe::App for InstallerApp {
                     }
                 }
                 Page::Welcome => {
-                    ui.label("Welcome to the Silen Linux installer (instantwm live edition).");
+                    ui.label("Welcome to the Silen Linux installer.");
+                    ui.label("Packages are downloaded from the Silen repository and installed online with cres.");
                     ui.label("This will wipe the selected disk: GPT with a 1G ESP (FAT32) + root.");
-                    ui.label("Live session runs as root with no login; the installer auto-launched on boot.");
+                    ui.add_space(8.0);
+                    ui.label("Network status:");
+                    ui.monospace(&self.network_status);
                     ui.add_space(8.0);
                     if ui.button("Install Silen").clicked() {
                         self.disks = backend::list_disks();
@@ -168,17 +175,79 @@ impl eframe::App for InstallerApp {
                                 self.error = format!("{} holds the install medium, pick a different disk", self.settings.disk);
                             } else if !self.confirm_wipe {
                                 self.error = "tick the wipe confirmation to continue".into();
-                            } else if !backend::medium_has_tarball() {
-                                self.error = "no Silen tarball found at /mnt".into();
+                            } else if !backend::is_efi() {
+                                self.error = "UEFI boot is required".into();
                             } else {
                                 self.error.clear();
-                                self.page = Page::Settings;
+                                self.network_status = backend::network_status();
+                                self.page = Page::Network;
                             }
                         }
                     });
                     if ui.button("Rescan disks").clicked() {
                         self.disks = backend::list_disks();
                     }
+                }
+                Page::Network => {
+                    ui.label("Network is required to download packages.");
+                    ui.monospace(&self.network_status);
+                    ui.add_space(8.0);
+                    ui.label("Wi-Fi (iwd):");
+                    ui.horizontal(|ui| {
+                        if ui.button("Scan Wi-Fi").clicked() {
+                            self.network_msg = "scanning…".into();
+                            self.wifi_networks = backend::wifi_scan();
+                            self.network_msg = if self.wifi_networks.is_empty() {
+                                "no Wi-Fi networks found (or no Wi-Fi device)".into()
+                            } else {
+                                format!("found {} networks", self.wifi_networks.len())
+                            };
+                        }
+                        if ui.button("Refresh status").clicked() {
+                            self.network_status = backend::network_status();
+                        }
+                    });
+                    for ssid in self.wifi_networks.clone() {
+                        let selected = self.settings.wifi_ssid == ssid;
+                        if ui.selectable_label(selected, &ssid).clicked() {
+                            self.settings.wifi_ssid = ssid;
+                        }
+                    }
+                    if !self.settings.wifi_ssid.is_empty() {
+                        ui.horizontal(|ui| {
+                            ui.label("password:");
+                            ui.add(egui::TextEdit::singleline(&mut self.settings.wifi_pass).password(true));
+                            if ui.button("Connect").clicked() {
+                                match backend::wifi_connect(&self.settings.wifi_ssid, &self.settings.wifi_pass) {
+                                    Ok(()) => {
+                                        self.network_msg = "Wi-Fi connected".into();
+                                        self.network_status = backend::network_status();
+                                    }
+                                    Err(e) => self.network_msg = format!("Wi-Fi failed: {}", e),
+                                }
+                            }
+                        });
+                    }
+                    if !self.network_msg.is_empty() {
+                        ui.label(&self.network_msg);
+                    }
+                    if !self.error.is_empty() {
+                        ui.colored_label(egui::Color32::RED, &self.error);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Back").clicked() {
+                            self.page = Page::Disk;
+                        }
+                        if ui.button("Next").clicked() {
+                            self.network_status = backend::network_status();
+                            if !self.network_status.contains("default") && !self.network_status.contains("nameserver") {
+                                self.error = "no default route or DNS yet; connect Ethernet or Wi-Fi first".into();
+                            } else {
+                                self.error.clear();
+                                self.page = Page::Settings;
+                            }
+                        }
+                    });
                 }
                 Page::Settings => {
                     ui.label("System settings:");
@@ -251,7 +320,7 @@ impl eframe::App for InstallerApp {
                     }
                     ui.horizontal(|ui| {
                         if ui.button("Back").clicked() {
-                            self.page = Page::Disk;
+                            self.page = Page::Network;
                         }
                         if ui.button("Next").clicked() {
                             if self.settings.rootpass.is_empty() {
@@ -275,6 +344,7 @@ impl eframe::App for InstallerApp {
                     ui.label(format!("user: {}", if self.settings.newuser.is_empty() { "none" } else { &self.settings.newuser }));
                     ui.label(format!("timezone: {}  keyboard: {}  locale: {}", self.settings.zone, self.settings.keymap, self.settings.locale));
                     ui.label(format!("filesystem: {}  swapfile: {}", self.settings.fstype, if self.settings.want_swap.is_empty() { "none" } else { &self.settings.want_swap }));
+                    ui.label(format!("packages: {}", backend::PACKAGES.join(", ")));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button("Back").clicked() {
@@ -294,8 +364,7 @@ impl eframe::App for InstallerApp {
                                 ui.monospace(line);
                             }
                             let finished = v.iter().any(|l| l.contains("Silen is installed") || l.contains("FAILED:"));
-                            if finished && !self.installing {
-                            } else if finished {
+                            if finished && self.installing {
                                 self.installing = false;
                                 self.done_ok = v.iter().any(|l| l.contains("Silen is installed"));
                                 self.done_msg = v.iter().rev().find(|l| l.contains("FAILED:") || l.contains("installed")).cloned().unwrap_or_default();
@@ -310,9 +379,14 @@ impl eframe::App for InstallerApp {
                     }
                 }
                 Page::Done => {
-                    ui.label(&self.done_msg);
-                    ui.label("Wi-Fi: use iwctl in the installed system (help: silen-wifi-check).");
-                    ui.label("Guide saved to /usr/share/silen/spk-help.txt");
+                    if self.done_ok {
+                        ui.colored_label(egui::Color32::GREEN, &self.done_msg);
+                        ui.label("Installed with cres. Reboot and log in with the user you created.");
+                        ui.label("The desktop is InstantWM; Wi-Fi is managed by iwd (iwctl).");
+                    } else {
+                        ui.colored_label(egui::Color32::RED, &self.done_msg);
+                        ui.label("The install did not complete. The log above is the source of truth.");
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Reboot now").clicked() {
                             let _ = std::process::Command::new("reboot").arg("-f").status();
@@ -332,19 +406,18 @@ impl eframe::App for InstallerApp {
 }
 
 fn main() -> eframe::Result<()> {
-    // --cli just prints a checklist, no args opens the real gui
     if std::env::args().any(|a| a == "--cli-help" || a == "--help" || a == "-h") {
-        eprintln!("usage: silen-installer [--cli] [--preview] — graphical Silen installer (Rust+egui port of installer/*.sh)");
-        eprintln!("  no args: open the egui wizard (auto-launched by live init under instantwm, no login)");
-        eprintln!("  --preview: open the wizard without root (look around only, install still needs root)");
-        eprintln!("  --cli:   run a non-interactive checklist (disks, medium, efi) and exit");
+        eprintln!("usage: silen-installer [--cli] [--preview] — graphical Silen installer");
+        eprintln!("  no args: open the egui wizard");
+        eprintln!("  --preview: open the wizard without root");
+        eprintln!("  --cli:   run a non-interactive checklist and exit");
         return Ok(());
     }
     if std::env::args().any(|a| a == "--cli") {
         println!("Silen installer CLI check:");
         println!("  root: {}", if backend::must_be_root() { "yes" } else { "NO (needs root)" });
-        println!("  efi: {}", if backend::is_efi() { "yes" } else { "NO (legacy boot, EFI install will refuse)" });
-        println!("  medium tarball: {}", if backend::medium_has_tarball() { "found" } else { "MISSING at /mnt" });
+        println!("  efi: {}", if backend::is_efi() { "yes" } else { "NO (legacy boot)" });
+        println!("  network:\n{}", backend::network_status());
         for (dev, label) in backend::list_disks() {
             println!("  disk: {} [{}]", dev, label);
         }
