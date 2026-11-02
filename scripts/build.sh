@@ -1373,6 +1373,20 @@ if [ -d target-scripts ]; then
 	cp -a target-scripts/. "$ISO_DIR/target-scripts/" || { echo "  ERROR cannot copy target-scripts"; exit 1; }
 fi
 
+if [ -f cres/index.json ]; then
+	echo "  packing offline cres repository onto the ISO at cres-repo"
+	mkdir -p "$ISO_DIR/cres-repo/cres" "$ISO_DIR/cres-repo/packages" || { echo "  ERROR cannot create cres-repo"; exit 1; }
+	cp cres/index.json "$ISO_DIR/cres-repo/cres/" || { echo "  ERROR cannot copy cres/index.json"; exit 1; }
+	for _p in packages/*; do
+		[ -d "$_p" ] || continue
+		mkdir -p "$ISO_DIR/cres-repo/packages/$(basename "$_p")" || { echo "  ERROR cannot create cres-repo package dir"; exit 1; }
+		cp -a "$_p/." "$ISO_DIR/cres-repo/packages/$(basename "$_p")/" || { echo "  ERROR cannot copy $_p to cres-repo"; exit 1; }
+	done
+	echo "  offline repo: $(du -sh "$ISO_DIR/cres-repo" 2>/dev/null | cut -f1)"
+else
+	echo "  ! cres/index.json missing, no offline cres repo on the ISO"
+fi
+
 mkdir -p "$ISO_DIR/boot/grub" 2>/dev/null || true
 
 cp "$KERNEL_SOURCE" "$ISO_DIR/boot/vmlinuz" || { echo "  ERROR cannot copy kernel to ISO"; exit 1; }

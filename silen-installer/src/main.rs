@@ -195,7 +195,6 @@ impl eframe::App for InstallerApp {
                     ui.label("Wi-Fi (iwd):");
                     ui.horizontal(|ui| {
                         if ui.button("Scan Wi-Fi").clicked() {
-                            self.network_msg = "scanning…".into();
                             self.wifi_networks = backend::wifi_scan();
                             self.network_msg = if self.wifi_networks.is_empty() {
                                 "no Wi-Fi networks found (or no Wi-Fi device)".into()
@@ -405,15 +404,58 @@ impl eframe::App for InstallerApp {
     }
 }
 
+fn run_auto(disk: &str) -> i32 {
+    println!("Silen Linux installer (headless --auto)");
+    println!();
+    if disk.is_empty() || !disk.starts_with("/dev/") || !std::path::Path::new(disk).exists() {
+        eprintln!("usage: silen-installer --auto <disk>");
+        eprintln!("  <disk> must be a whole disk (like /dev/vda). It is WIPED without further confirmation.");
+        eprintln!("  fixed settings: hostname silen, user silen (password vmuser), root password silen,");
+        eprintln!("  timezone UTC, keyboard us, locale en_US.UTF-8, ext4, no swap");
+        return 2;
+    }
+    println!("disk: {} ({})", disk, backend::disk_label(disk));
+    println!("settings: hostname silen, user silen, password vmuser, root password silen, UTC, us, en_US.UTF-8, ext4, no swap");
+    let mut settings = InstallSettings {
+        disk: disk.to_string(),
+        hostname: "silen".into(),
+        rootpass: "silen".into(),
+        newuser: "silen".into(),
+        userpass: "vmuser".into(),
+        ..Default::default()
+    };
+    let mut log_fn = |line: String| println!("{}", line);
+    println!();
+    let res = backend::do_install(&mut settings, &mut log_fn);
+    match res {
+        Ok(()) => {
+            println!("[installer] Silen is installed. Reboot to use it.");
+            0
+        }
+        Err(e) => {
+            eprintln!("[installer] FAILED: {}", e);
+            1
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
-    if std::env::args().any(|a| a == "--cli-help" || a == "--help" || a == "-h") {
-        eprintln!("usage: silen-installer [--cli] [--preview] — graphical Silen installer");
-        eprintln!("  no args: open the egui wizard");
-        eprintln!("  --preview: open the wizard without root");
-        eprintln!("  --cli:   run a non-interactive checklist and exit");
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--cli-help" || a == "--help" || a == "-h") {
+        eprintln!("usage: silen-installer [--preview] [--auto <disk>] -- Silen installer");
+        eprintln!("  no args:       open the egui wizard");
+        eprintln!("  --preview:     open the wizard without root");
+        eprintln!("  --auto <disk>: headless install to <disk> with default settings (WIPES the disk)");
+        eprintln!("                 hostname silen, user silen (password vmuser), root password silen,");
+        eprintln!("                 UTC, us, en_US.UTF-8, ext4, no swap");
+        eprintln!("  --cli:         run a non-interactive checklist and exit");
         return Ok(());
     }
-    if std::env::args().any(|a| a == "--cli") {
+    if let Some(pos) = args.iter().position(|a| a == "--auto") {
+        let disk = args.get(pos + 1).cloned().unwrap_or_default();
+        std::process::exit(run_auto(&disk));
+    }
+    if args.iter().any(|a| a == "--cli") {
         println!("Silen installer CLI check:");
         println!("  root: {}", if backend::must_be_root() { "yes" } else { "NO (needs root)" });
         println!("  efi: {}", if backend::is_efi() { "yes" } else { "NO (legacy boot)" });

@@ -7,6 +7,7 @@ use std::thread;
 
 pub const ROOT_PATH: &str = "/silen";
 pub const TITLE: &str = "Silen Linux";
+pub const MEDIUM_PATH: &str = "/mnt";
 pub const REPO: &str = "https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main";
 
 pub const PACKAGES: &[&str] = &[
@@ -15,7 +16,14 @@ pub const PACKAGES: &[&str] = &[
     "silen-firmware",
     "dbus",
     "iwd",
+    "instantwm",
+    "instantmenu",
+    "instantcli",
+    "foot",
+    "sddm",
     "silen-desktop",
+    "python",
+    "git",
     "cres",
     "silen-config",
     "grub",
@@ -125,16 +133,6 @@ fn run_stream(program: &str, args: &[String], log: &mut LogFn) -> Result<(), Str
     } else {
         Err(format!("{} exited with {}", program, status))
     }
-}
-
-fn run_sh(script: &str) -> bool {
-    Command::new("/bin/sh")
-        .arg("-c")
-        .arg(script)
-        .stdin(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 fn chroot_run(root: &str, cmd: &str) -> bool {
@@ -463,11 +461,10 @@ pub fn apply_settings(s: &InstallSettings, log: &mut LogFn) {
     let _ = fs::write(format!("{}/etc/locale.gen", r), format!("{} UTF-8\n", s.locale));
     let _ = fs::create_dir_all(format!("{}/etc/env.d", r));
     let _ = fs::write(format!("{}/etc/env.d/02locale", r), format!("LANG=\"{}\"\nLC_ALL=\"{}\"\n", s.locale, s.locale));
-    if !s.want_swap.is_empty() {
-        if !chroot_run(r, &format!("fallocate -l {} /swapfile && chmod 600 /swapfile && mkswap /swapfile", s.want_swap)) {
+    if !s.want_swap.is_empty()
+        && !chroot_run(r, &format!("fallocate -l {} /swapfile && chmod 600 /swapfile && mkswap /swapfile", s.want_swap)) {
             sh_log(log, "couldn't create the swapfile");
         }
-    }
     let _ = fs::write(format!("{}/etc/motd", r), "Welcome to Silen Linux\n");
     let _ = fs::create_dir_all(format!("{}/etc/sudoers.d", r));
     let _ = fs::write(format!("{}/etc/sudoers.d/10-silen", r), "%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n");
@@ -519,7 +516,7 @@ fn write_silen_config(s: &InstallSettings) {
     let r = ROOT_PATH;
     let packages = PACKAGES.iter().map(|p| format!("\t\t\"{}\",\n", p)).collect::<String>();
     let config = format!(
-        "return {{\n\tversion = 1,\n\thostname = \"{}\",\n\ttimezone = \"{}\",\n\tkeymap = \"{}\",\n\tlocale = \"{}\",\n\tpackages = {{\n{}\t}},\n\tservices = {{\n\t\t{{ name = \"dbus\", runlevel = \"boot\" }},\n\t\t{{ name = \"dhcpcd\", runlevel = \"default\" }},\n\t\t{{ name = \"iwd\", runlevel = \"default\" }},\n\t\t{{ name = \"seatd\", runlevel = \"default\" }},\n\t\t{{ name = \"greetd\", runlevel = \"default\" }},\n\t}},\n\tsysctl = {{\n\t\t[\"kernel.sysrq\"] = \"1\",\n\t}},\n}}\n",
+        "return {{\n\tversion = 1,\n\thostname = \"{}\",\n\ttimezone = \"{}\",\n\tkeymap = \"{}\",\n\tlocale = \"{}\",\n\tpackages = {{\n{}\t}},\n\tservices = {{\n\t\t{{ name = \"dbus\", runlevel = \"boot\" }},\n\t\t{{ name = \"dhcpcd\", runlevel = \"default\" }},\n\t\t{{ name = \"iwd\", runlevel = \"default\" }},\n\t\t{{ name = \"seatd\", runlevel = \"default\" }},\n\t\t{{ name = \"sddm\", runlevel = \"default\" }},\n\t}},\n\tsysctl = {{\n\t\t[\"kernel.sysrq\"] = \"1\",\n\t}},\n}}\n",
         s.hostname, s.zone, s.keymap, s.locale, packages
     );
     let _ = fs::create_dir_all(format!("{}/etc/silen", r));
@@ -530,14 +527,14 @@ pub fn configure_services(log: &mut LogFn) {
     let r = ROOT_PATH;
     let _ = fs::create_dir_all(format!("{}/run/dbus", r));
     let _ = fs::create_dir_all(format!("{}/var/lib/iwd", r));
-    let _ = fs::create_dir_all(format!("{}/var/lib/greetd", r));
+    let _ = fs::create_dir_all(format!("{}/var/lib/sddm", r));
     let _ = fs::write(format!("{}/etc/iwd/main.conf", r), "[General]\nEnableNetworkConfiguration=true\n");
     for (svc, level) in [
         ("dbus", "boot"),
         ("iwd", "default"),
         ("dhcpcd", "default"),
         ("seatd", "default"),
-        ("greetd", "default"),
+        ("sddm", "default"),
         ("local", "default"),
         ("elogind", "boot"),
     ] {
@@ -585,12 +582,54 @@ pub fn setup_grub(s: &InstallSettings, log: &mut LogFn) -> Result<(), String> {
     Ok(())
 }
 
+pub fn local_repo_available() -> bool {
+    Path::new(&format!("{}/cres-repo/cres/index.json", MEDIUM_PATH)).exists()
+        || Path::new(&format!("{}/cres/index.json", MEDIUM_PATH)).exists()
+}
+
+pub fn network_reachable() -> bool {
+    let out = Command::new("sh")
+        .args(["-c", "ip route show 2>/dev/null | grep -q default"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    out && Command::new("sh")
+        .args([
+            "-c",
+            "cres search --repo https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main --refresh silen-base >/dev/null 2>&1",
+        ])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+pub fn choose_repo() -> Result<String, String> {
+    if local_repo_available() {
+        let base = if Path::new(&format!("{}/cres-repo", MEDIUM_PATH)).exists() {
+            format!("{}/cres-repo", MEDIUM_PATH)
+        } else {
+            MEDIUM_PATH.to_string()
+        };
+        return Ok(base);
+    }
+    if network_reachable() {
+        return Ok(REPO.to_string());
+    }
+    Err("no internet and no offline cres repo on the medium (/mnt/cres-repo or /mnt/cres): cannot install".into())
+}
+
 pub fn install_packages(log: &mut LogFn) -> Result<(), String> {
+    let repo = choose_repo()?;
+    if repo == REPO {
+        sh_log(log, "installing from the online repo (internet verified)");
+    } else {
+        sh_log(log, &format!("installing from the local repo on the medium ({})", repo));
+    }
     let mut args = vec![
         "--root".to_string(),
         ROOT_PATH.to_string(),
         "--repo".to_string(),
-        REPO.to_string(),
+        repo,
         "--cache".to_string(),
         "/var/cache/cres".to_string(),
         "--yes".to_string(),
@@ -698,7 +737,7 @@ pub fn wifi_devices() -> Vec<String> {
     let out = run_capture("iwctl", &["device", "list"]);
     let mut devs = Vec::new();
     for line in out.lines().skip(2) {
-        let line = line.replace('>', " ").replace('*', " ");
+        let line = line.replace(['>', '*'], " ");
         let mut parts = line.split_whitespace();
         if let Some(name) = parts.next() {
             if !name.is_empty() && name != "Name" {
@@ -717,7 +756,7 @@ pub fn wifi_scan() -> Vec<String> {
         thread::sleep(std::time::Duration::from_secs(2));
         let out = run_capture("iwctl", &["station", &dev, "get-networks"]);
         for line in out.lines().skip(2) {
-            let clean = line.replace('>', " ").replace('*', " ");
+            let clean = line.replace(['>', '*'], " ");
             let mut parts = clean.split_whitespace();
             if let Some(ssid) = parts.next() {
                 if !ssid.is_empty() && ssid != "Network" && !networks.contains(&ssid.to_string()) {
