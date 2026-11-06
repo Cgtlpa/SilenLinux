@@ -238,11 +238,46 @@ install-network-config() {
 		cat > "$ROOT_PATH"/etc/iwd/main.conf <<'EOF'
 [General]
 EnableNetworkConfiguration=true
+CountryCode=US
+
+[Network]
+NameResolvingService=resolvconf
 EOF
 	fi
 	if [[ ! -f "$ROOT_PATH"/usr/share/dbus-1/system.d/iwd-dbus.conf ]] && [[ -f /usr/share/dbus-1/system.d/iwd-dbus.conf ]]; then
 		cp /usr/share/dbus-1/system.d/iwd-dbus.conf "$ROOT_PATH"/usr/share/dbus-1/system.d/ 2>/dev/null || true
 	fi
+	# Override with correct D-Bus service name (net.iwd.IWD, not net.connman.iwd)
+	mkdir -p "$ROOT_PATH"/usr/share/dbus-1/system.d "$ROOT_PATH"/usr/share/dbus-1/system-services 2>/dev/null || true
+	cat > "$ROOT_PATH"/usr/share/dbus-1/system.d/iwd-dbus.conf << 'IWDEOF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <policy user="root">
+    <allow own="net.iwd.IWD"/>
+    <allow send_destination="net.iwd.IWD"/>
+    <allow send_interface="net.iwd.IWD.Agent"/>
+    <allow send_interface="net.iwd.IWD.SignalLevelAgent"/>
+    <allow send_interface="net.iwd.IWD.SharedCodeAgent"/>
+  </policy>
+  <policy group="wheel">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+  <policy group="netdev">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+  <policy context="default">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+</busconfig>
+IWDEOF
+	cat > "$ROOT_PATH"/usr/share/dbus-1/system-services/net.iwd.IWD.service << 'IWDSVC'
+[D-BUS Service]
+Name=net.iwd.IWD
+Exec=/usr/libexec/iwd
+User=root
+SystemdService=iwd.service
+IWDSVC
 	if [[ ! -f "$ROOT_PATH"/usr/share/dbus-1/system.conf ]] && [[ -f /usr/share/dbus-1/system.conf ]]; then
 		cp /usr/share/dbus-1/system.conf "$ROOT_PATH"/usr/share/dbus-1/system.conf 2>/dev/null || true
 	fi
@@ -429,6 +464,41 @@ EOF
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update del wpa_supplicant default" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update del NetworkManager default" >/dev/null 2>&1 || true
 	rm -f "$ROOT_PATH"/etc/runlevels/*/net.* 2>/dev/null || true
+
+	# Configure getty on virtual terminals for text login
+	if [[ ! -x "$ROOT_PATH/usr/sbin/agetty" && ! -x "$ROOT_PATH/bin/agetty" && ! -x "$ROOT_PATH/usr/bin/agetty" ]]; then
+		if [[ -x /usr/sbin/agetty ]]; then
+			mkdir -p "$ROOT_PATH/usr/sbin"
+			cp /usr/sbin/agetty "$ROOT_PATH/usr/sbin/agetty"
+			chmod 755 "$ROOT_PATH/usr/sbin/agetty"
+		elif [[ -x /sbin/agetty ]]; then
+			mkdir -p "$ROOT_PATH/sbin"
+			cp /sbin/agetty "$ROOT_PATH/sbin/agetty"
+			chmod 755 "$ROOT_PATH/sbin/agetty"
+		fi
+	fi
+	mkdir -p "$ROOT_PATH/etc/init.d" "$ROOT_PATH/etc/runlevels/default"
+	if [[ ! -f "$ROOT_PATH/etc/init.d/agetty" ]]; then
+		cat > "$ROOT_PATH/etc/init.d/agetty" << 'AGETTYEOF'
+#!/sbin/openrc-run
+description="Start agetty on a terminal line"
+supervisor=supervise-daemon
+command=/usr/sbin/agetty
+command_args="$tty linux"
+pidfile="/run/${RC_SVCNAME}.pid"
+depend() {
+    after localmount
+    after dbus
+}
+AGETTYEOF
+		chmod 755 "$ROOT_PATH/etc/init.d/agetty"
+	fi
+	for _tty in tty2 tty3 tty4 tty5 tty6; do
+		if [[ ! -e "$ROOT_PATH/etc/init.d/agetty.$_tty" ]]; then
+			ln -sf /etc/init.d/agetty "$ROOT_PATH/etc/init.d/agetty.$_tty" 2>/dev/null || true
+		fi
+		chroot "$ROOT_PATH" /bin/bash -c "rc-update add agetty.$_tty default" >/dev/null 2>&1 || true
+	done
 	if [[ -z "$_rc_ok" ]]; then
 		whiptail --msgbox --title "$title" "iwd was copied but couldn't be enabled; after reboot run: rc-update add dbus default; rc-update add iwd default; for wired also: rc-update add dhcpcd default" 9 70 || true
 	fi

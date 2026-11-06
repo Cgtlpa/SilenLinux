@@ -27,6 +27,8 @@ pub const PACKAGES: &[&str] = &[
     "flatpak-config",
     "git",
     "iwtui",
+    "seatd",
+    "libinput",
     "cres",
     "silen-config",
     "grub",
@@ -167,31 +169,128 @@ pub fn is_efi() -> bool {
     Path::new("/sys/firmware/efi").is_dir()
 }
 
+pub fn is_whole_disk_name(name: &str) -> bool {
+    let patterns = ["sd", "vd", "xvd", "nvme", "mmcblk"];
+    if !patterns.iter().any(|p| name.starts_with(p)) {
+        return false;
+    }
+    if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("zram") || name.starts_with("fd") {
+        return false;
+    }
+    // Reject partition names: sd/vd/xvd partitions end in a digit.
+    if (name.starts_with("sd") || name.starts_with("vd") || name.starts_with("xvd")) && name.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        return false;
+    }
+    // nvme/mmcblk partitions contain a 'p' followed by digits at the end.
+    if name.starts_with("nvme") || name.starts_with("mmcblk") {
+        if let Some(idx) = name.rfind('p') {
+            let suffix = &name[idx + 1..];
+            if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+pub fn disk_in_use(dev: &str, mounts: &str) -> bool {
+    // Fail closed: if mounts data is empty/unreadable, treat as in use.
+    if mounts.trim().is_empty() {
+        return true;
+    }
+    let base = dev.trim_start_matches("/dev/");
+    for line in mounts.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.is_empty() {
+            continue;
+        }
+        let src = fields[0];
+        if src == dev {
+            return true;
+        }
+        // Partition of the same disk (e.g. /dev/sda1 for /dev/sda).
+        let src_base = src.trim_start_matches("/dev/");
+        if src_base.starts_with(base) && src_base != base {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn validate_disk(dev: &str) -> bool {
+    // Must be a block device path.
+    if !dev.starts_with("/dev/") {
+        return false;
+    }
+    let name = dev.trim_start_matches("/dev/");
+    let base = name;
+    if !is_whole_disk_name(name) {
+        return false;
+    }
+    // Must exist.
+    if !Path::new(dev).exists() {
+        return false;
+    }
+    // Must not be in use. Read /proc/mounts; fail closed on read error.
+    let mounts = match fs::read_to_string("/proc/mounts") {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    if disk_in_use(dev, &mounts) {
+        return false;
+    }
+    // Swap check
+    if let Ok(swaps) = fs::read_to_string("/proc/swaps") {
+        for line in swaps.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.is_empty() { continue; }
+            let src = fields[0];
+            let src_base = src.trim_start_matches("/dev/");
+            if src == dev || src_base.starts_with(base) {
+                return false;
+            }
+        }
+    } else {
+        return false;
+    }
+    // MD RAID check
+    if let Ok(mdstat) = fs::read_to_string("/proc/mdstat") {
+        for line in mdstat.lines() {
+            if line.contains(base) {
+                return false;
+            }
+        }
+    } else {
+        return false;
+    }
+    true
+}
+
 pub fn list_disks() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let patterns = ["sd", "vd", "xvd", "nvme", "mmcblk"];
     let mut seen: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir("/sys/block") {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if !patterns.iter().any(|p| name.starts_with(p)) {
-                continue;
-            }
-            if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("zram") || name.starts_with("fd") {
+            if !is_whole_disk_name(&name) {
                 continue;
             }
             let dev = format!("/dev/{}", name);
             if !Path::new(&dev).exists() || seen.contains(&dev) {
                 continue;
             }
+            if !validate_disk(&dev) {
+                continue;
+            }
             seen.push(dev.clone());
             out.push((dev.clone(), disk_label(&dev)));
         }
     }
+    // Fallback for environments without /sys/block population: only single-letter whole disks.
     for d in ["/dev/sd", "/dev/vd", "/dev/xvd"] {
         for c in b'a'..=b'z' {
             let dev = format!("{}{}", d, c as char);
-            if Path::new(&dev).exists() && !seen.contains(&dev) {
+            if Path::new(&dev).exists() && !seen.contains(&dev) && validate_disk(&dev) {
                 seen.push(dev.clone());
                 out.push((dev.clone(), disk_label(&dev)));
             }
@@ -324,6 +423,9 @@ fn part_devs(disk: &str) -> (String, String) {
 }
 
 pub fn do_partition(s: &mut InstallSettings, log: &mut LogFn) -> Result<(), String> {
+    if !validate_disk(&s.disk) {
+        return Err(format!("refusing to partition {}: device is not a safe whole-disk target or is in use", s.disk));
+    }
     sh_log(log, &format!("Partitioning {} (GPT, 1G ESP + root)", s.disk));
     for cmd in ["sfdisk", "mkfs.vfat", "mkfs.ext4", "blkid"] {
         if run_capture("sh", &["-c", &format!("command -v {}", cmd)]).is_empty() {
@@ -663,6 +765,9 @@ pub fn do_install(s: &mut InstallSettings, log: &mut LogFn) -> Result<(), String
     if medium_on_disk(&s.disk) {
         return Err(format!("{} holds the install medium, pick a different disk", s.disk));
     }
+    if !validate_disk(&s.disk) {
+        return Err(format!("{} is not a safe whole-disk install target or is in use", s.disk));
+    }
     if disk_bytes(&s.disk) < 8 * 1024 * 1024 * 1024 {
         return Err(format!("{} is smaller than the 8 GiB minimum", s.disk));
     }
@@ -771,22 +876,197 @@ pub fn wifi_scan() -> Vec<String> {
     networks
 }
 
-pub fn wifi_connect(ssid: &str, pass: &str) -> Result<(), String> {
-    let devs = wifi_devices();
-    let dev = devs.first().ok_or("no Wi-Fi device found")?;
-    let mut args = Vec::new();
-    if !pass.is_empty() {
-        args.push("--passphrase".to_string());
-        args.push(pass.to_string());
+/// Run Wi-Fi scan in a background thread, returning a receiver for results.
+/// The GUI remains responsive while scanning.
+pub fn wifi_scan_async() -> std::sync::mpsc::Receiver<Result<Vec<String>, String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = (|| -> Result<Vec<String>, String> {
+            let devs = wifi_devices();
+            if devs.is_empty() {
+                return Err("no Wi-Fi device found".into());
+            }
+            let mut networks = Vec::new();
+            for dev in devs {
+                // Start scan (fire and forget; iwctl returns immediately)
+                let _ = run("iwctl", &["station", &dev, "scan"]);
+                // Wait for scan results to populate
+                thread::sleep(std::time::Duration::from_secs(3));
+                let out = run_capture("iwctl", &["station", &dev, "get-networks"]);
+                for line in out.lines().skip(2) {
+                    let clean = line.replace(['>', '*'], " ");
+                    let mut parts = clean.split_whitespace();
+                    if let Some(ssid) = parts.next() {
+                        if !ssid.is_empty()
+                            && ssid != "Network"
+                            && !networks.contains(&ssid.to_string())
+                        {
+                            networks.push(ssid.to_string());
+                        }
+                    }
+                }
+            }
+            Ok(networks)
+        })();
+        let _ = tx.send(result);
+    });
+    rx
+}
+
+/// Run Wi-Fi connect in a background thread, returning a receiver for results.
+pub fn wifi_connect_async(
+    ssid: String,
+    pass: String,
+) -> std::sync::mpsc::Receiver<Result<(), String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = (|| -> Result<(), String> {
+            let devs = wifi_devices();
+            let dev = devs.first().ok_or("no Wi-Fi device found")?;
+            let mut args = Vec::new();
+            if !pass.is_empty() {
+                args.push("--passphrase".to_string());
+                args.push(pass);
+            }
+            args.extend([
+                "station".to_string(),
+                dev.clone(),
+                "connect".to_string(),
+                ssid,
+            ]);
+            let mut log = |line: String| eprintln!("{}", line);
+            run_stream("iwctl", &args, &mut log)?;
+            // Wait up to 30 seconds for a default route
+            for _ in 0..30 {
+                thread::sleep(std::time::Duration::from_secs(1));
+                if run_capture("ip", &["route"]).contains("default") {
+                    return Ok(());
+                }
+            }
+            Err("Wi-Fi connected but no default route appeared yet".into())
+        })();
+        let _ = tx.send(result);
+    });
+    rx
+}
+
+
+#[cfg(test)]
+mod tests_disk_safety {
+    use super::*;
+
+    #[test]
+    fn whole_disk_names_accepted() {
+        assert!(is_whole_disk_name("sda"));
+        assert!(is_whole_disk_name("vdb"));
+        assert!(is_whole_disk_name("nvme0n1"));
+        assert!(is_whole_disk_name("mmcblk0"));
+        assert!(is_whole_disk_name("xvda"));
     }
-    args.extend(["station".to_string(), dev.clone(), "connect".to_string(), ssid.to_string()]);
-    let mut log = |line: String| eprintln!("{}", line);
-    run_stream("iwctl", &args, &mut log)?;
-    for _ in 0..30 {
-        thread::sleep(std::time::Duration::from_secs(1));
-        if run_capture("ip", &["route"]).contains("default") {
-            return Ok(());
+
+    #[test]
+    fn partition_names_rejected() {
+        assert!(!is_whole_disk_name("sda1"));
+        assert!(!is_whole_disk_name("sda2"));
+        assert!(!is_whole_disk_name("nvme0n1p1"));
+        assert!(!is_whole_disk_name("mmcblk0p1"));
+        assert!(!is_whole_disk_name("vda1"));
+    }
+
+    #[test]
+    fn unrelated_names_rejected() {
+        assert!(!is_whole_disk_name("loop0"));
+        assert!(!is_whole_disk_name("ram0"));
+        assert!(!is_whole_disk_name("zram0"));
+        assert!(!is_whole_disk_name("fd0"));
+        assert!(!is_whole_disk_name("sr0"));
+    }
+
+    #[test]
+    fn disk_in_use_detects_mounted() {
+        let mounts = "/dev/sda1 / ext4 rw 0 0
+";
+        assert!(disk_in_use("/dev/sda", mounts));
+    }
+
+    #[test]
+    fn disk_not_in_use_when_absent() {
+        let mounts = "/dev/sdb1 /mnt ext4 rw 0 0
+";
+        assert!(!disk_in_use("/dev/sda", mounts));
+    }
+
+    #[test]
+    fn disk_in_use_fails_closed_on_empty() {
+        assert!(disk_in_use("/dev/sda", ""));
+    }
+}
+
+/// Check if iwd is running on D-Bus by testing if iwctl can communicate with it.
+pub fn iwd_running() -> bool {
+    let out = run_capture("iwctl", &["device", "list"]);
+    // iwctl returns an error message if iwd is not running
+    !out.contains("Failed") && !out.contains("Error") && !out.trim().is_empty()
+}
+
+/// Check rfkill status for wireless devices.
+pub fn rfkill_status() -> String {
+    let out = run_capture("rfkill", &["list"]);
+    if out.is_empty() {
+        "rfkill unavailable".into()
+    } else {
+        out
+    }
+}
+
+/// Check if any wireless interfaces exist in the system (regardless of iwd state).
+pub fn wifi_interfaces() -> Vec<String> {
+    // Check /sys/class/net for wireless interfaces
+    let mut ifaces = Vec::new();
+    if let Ok(entries) = fs::read_dir("/sys/class/net") {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let wireless_path = format!("/sys/class/net/{}/wireless", name);
+            if Path::new(&wireless_path).exists() {
+                ifaces.push(name);
+            }
         }
     }
-    Err("Wi-Fi connected but no default route appeared yet".into())
+    ifaces
+}
+
+/// Wi-Fi diagnostic summary: distinguishes between different failure modes.
+pub fn wifi_diagnostic() -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Check for wireless interfaces
+    let ifaces = wifi_interfaces();
+    if ifaces.is_empty() {
+        lines.push("No wireless network interfaces detected in the system.".to_string());;
+        lines.push("If you have a Wi-Fi adapter, check that it is properly connected and that the kernel driver is loaded.".to_string());;
+        return lines.join("\n");
+    }
+    lines.push(format!("Wireless interface(s): {}", ifaces.join(", ")));
+
+    // Check rfkill status
+    let rfkill = rfkill_status();
+    for line in rfkill.lines() {
+        if line.contains("Wireless") || line.contains("WLAN") || line.contains("wifi") || line.contains("Wi-Fi") {
+            if line.contains("blocked") {
+                lines.push(format!("rfkill: {} (blocked - unblock with: rfkill unblock all)", line.trim()));
+            } else {
+                lines.push(format!("rfkill: {}", line.trim()));
+            }
+        }
+    }
+
+    // Check if iwd is running
+    if !iwd_running() {
+        lines.push("iwd is not running on D-Bus. Wi-Fi scanning requires iwd to be active.".to_string());;
+        lines.push("Start iwd with: iwd (as root) or ensure the iwd OpenRC service is enabled.".to_string());;
+        return lines.join("\n");
+    }
+    lines.push("iwd is running.".to_string());;
+
+    lines.join("\n")
 }

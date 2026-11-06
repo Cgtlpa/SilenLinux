@@ -5,10 +5,77 @@ install-extras() {
 	install-bootlogd
 	install-efibootmgr
 	install-fstrim-service
+	install-desktop
 	install-display-manager
 	build-microcode-image
 	compute-resume-params
 	build-installed-initramfs
+}
+
+install-desktop() {
+	# Install InstantWM + seat management + input stack into the target so the
+	# installed system boots to a graphical session (not just a tty).
+	mkdir -p "$ROOT_PATH"/usr/bin "$ROOT_PATH"/usr/lib64 "$ROOT_PATH"/etc/init.d "$ROOT_PATH"/etc/conf.d "$ROOT_PATH"/usr/share/wayland-sessions 2>/dev/null || true
+
+	copy_from_live() {
+		local src="$1" dst="$2"
+		[[ -e "$src" ]] || return 0
+		mkdir -p "$ROOT_PATH/$(dirname "$dst")" 2>/dev/null || true
+		if [[ -d "$src" ]]; then
+			cp -a "$src/." "$ROOT_PATH/$dst/" 2>/dev/null || true
+		else
+			cp -a "$src" "$ROOT_PATH/$dst" 2>/dev/null || true
+		fi
+	}
+
+	# InstantWM and its Wayland session entry
+	copy_from_live /usr/bin/instantwm /usr/bin/instantwm
+	copy_from_live /usr/bin/instantmenu /usr/bin/instantmenu
+	copy_from_live /usr/bin/instantmenu_run /usr/bin/instantmenu_run
+	copy_from_live /usr/bin/instantctl /usr/bin/instantctl 2>/dev/null || true
+	copy_from_live /usr/share/wayland-sessions/instantwm.desktop /usr/share/wayland-sessions/instantwm.desktop
+
+	# Seat manager (seatd) + libinput for input device handling
+	copy_from_live /usr/bin/seatd /usr/bin/seatd
+	copy_from_live /usr/bin/libseat /usr/bin/libseat 2>/dev/null || true
+	copy_from_live /usr/share/libinput /usr/share/libinput
+	for _lib in /usr/lib64/libinput* /usr/lib/libinput*; do
+		[[ -e "$_lib" ]] || continue
+		cp -a "$_lib" "$ROOT_PATH/usr/lib64/" 2>/dev/null || true
+	done
+
+	# Fallback terminal / apps referenced by InstantWM defaults
+	copy_from_live /usr/bin/foot /usr/bin/foot
+	copy_from_live /usr/bin/yazi /usr/bin/yazi
+	copy_from_live /usr/bin/swaylock /usr/bin/swaylock
+
+	# seatd OpenRC service
+	if [[ ! -f "$ROOT_PATH/etc/init.d/seatd" ]]; then
+		cat > "$ROOT_PATH/etc/init.d/seatd" <<'EOF'
+#!/sbin/openrc-run
+description="seatd seat management daemon"
+supervisor=supervise-daemon
+command=/usr/bin/seatd
+command_args="-g root"
+pidfile="/run/${RC_SVCNAME}.pid"
+depend() {
+	need localmount
+	after bootmisc udev
+}
+start_pre() {
+	mkdir -p /run 2>/dev/null || true
+}
+EOF
+		chmod 755 "$ROOT_PATH/etc/init.d/seatd" 2>/dev/null || true
+	fi
+	if [[ ! -f "$ROOT_PATH/etc/conf.d/seatd" ]]; then
+		printf 'SEATD_ARGS="-g root"\n' > "$ROOT_PATH/etc/conf.d/seatd" 2>/dev/null || true
+	fi
+	chroot "$ROOT_PATH" /bin/bash -c "rc-update add seatd default" >/dev/null 2>&1 || true
+
+	# Seatd depends on udev; ensure udev is enabled
+	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev sysinit" >/dev/null 2>&1 || true
+	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev-trigger sysinit" >/dev/null 2>&1 || true
 }
 
 install-display-manager() {

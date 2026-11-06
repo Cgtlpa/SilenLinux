@@ -7,6 +7,17 @@ mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
+[ -c /dev/ttyS0 ] && echo "TTYS0_OK" >/dev/ttyS0 2>&1 || echo "NO_TTYS0" >/dev/ttyS0 2>&1
+# Start udevd so libinput/seatd can enumerate input devices
+if [ -x /usr/bin/udevd ]; then
+	/usr/bin/udevd --daemon 2>/dev/null || true
+	# wait for udevd socket
+	_i=0
+	while [ ! -S /run/udev/control ] && [ $_i -lt 50 ]; do
+		_i=$((_i + 1))
+		sleep 0.1 2>/dev/null || sleep 1
+	done
+fi
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 mount -t tmpfs tmpfs /run 2>/dev/null
@@ -21,8 +32,7 @@ for _q in $(cat /proc/cmdline 2>/dev/null); do
 done
 qecho() { [ -n "$QUIET" ] || echo "$@"; }
 note() {
-	echo "$@"
-	[ -c /dev/ttyS0 ] && echo "$@" > /dev/ttyS0 2>/dev/null || true
+	echo "$@" >/dev/ttyS0 2>&1 || true
 }
 
 for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
@@ -120,11 +130,46 @@ if [ ! -f /etc/iwd/main.conf ]; then
 	cat > /etc/iwd/main.conf << 'EOF'
 [General]
 EnableNetworkConfiguration=true
+CountryCode=US
 
 [Network]
 NameResolvingService=resolvconf
 EOF
 fi
+
+# iwd D-Bus configuration - use correct service name net.iwd.IWD
+mkdir -p /usr/share/dbus-1/system.d /usr/share/dbus-1/system-services
+cat > /usr/share/dbus-1/system.d/iwd-dbus.conf << 'EOF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <policy user="root">
+    <allow own="net.iwd.IWD"/>
+    <allow send_destination="net.iwd.IWD"/>
+    <allow send_interface="net.iwd.IWD.Agent"/>
+    <allow send_interface="net.iwd.IWD.SignalLevelAgent"/>
+    <allow send_interface="net.iwd.IWD.SharedCodeAgent"/>
+  </policy>
+  <policy group="wheel">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+  <policy group="netdev">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+  <policy context="default">
+    <allow send_destination="net.iwd.IWD"/>
+  </policy>
+</busconfig>
+EOF
+
+# iwd D-Bus service activation
+cat > /usr/share/dbus-1/system-services/net.iwd.IWD.service << 'EOF'
+[D-BUS Service]
+Name=net.iwd.IWD
+Exec=/usr/libexec/iwd
+User=root
+SystemdService=iwd.service
+EOF
 
 if [ ! -x /usr/bin/resolvconf ]; then
 	mkdir -p /usr/bin 2>/dev/null || true
@@ -166,14 +211,20 @@ fi
 
 if command -v iwd >/dev/null 2>&1; then
 	echo "Starting iwd"
+	if command -v rfkill >/dev/null 2>&1; then
+		rfkill unblock all 2>/dev/null || true
+	fi
 	iwd >/dev/null 2>&1 &
-	sleep 2
+	sleep 3
 else
 	for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
 		if [ -x "$_iwd" ]; then
 			echo "Starting iwd ($_iwd)"
+			if command -v rfkill >/dev/null 2>&1; then
+				rfkill unblock all 2>/dev/null || true
+			fi
 			"$_iwd" >/dev/null 2>&1 &
-			sleep 2
+			sleep 3
 			break
 		fi
 	done
@@ -501,25 +552,21 @@ cmdline_flag_present() {
 	return 1
 }
 
-run_text_installer() {
+ run_text_installer() {
 	if [ -x /installer/main.sh ]; then
 		note "Starting the Silen installer"
 		echo "  it also lets you open a shell reboot or power off"
 		echo
-		if [ -x /usr/bin/silen-installer ]; then
-			note "Launching graphical installer"
-			silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
-		elif [ -x /silen-installer ]; then
-			/silen-installer 2>&1 | tee -a /var/log/silen-installer.log || /bin/bash /installer/main.sh
-		else
-			/bin/bash /installer/main.sh
-		fi
+		/bin/bash /installer/main.sh
 		echo
 		echo "Installer exited dropping to a shell"
 	else
 		echo "  installer not found dropping to a shell"
 	fi
 }
+
+# Start a verification shell on ttyS1 for runtime diagnostics
+[ -c /dev/ttyS1 ] && setsid sh -c 'exec sh </dev/ttyS1 >/dev/ttyS1 2>&1' &
 
 if cmdline_flag_present silen.text; then
 	echo "silen.text on the command line running the text installer"
@@ -529,19 +576,37 @@ elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /us
 	echo "  the graphical installer opens inside the desktop"
 	echo "  add silen.text to the boot command line for the text installer"
 	echo
-	if /usr/bin/silen-live-wayland; then
-		echo
-		echo "Desktop session ended dropping to a shell"
-	else
-		note "Live desktop failed falling back to the text installer"
-		note "  live GUI diagnostics:"
-		for _f in /tmp/live-gui.log /tmp/instantwm.log /tmp/xorg.log; do
-			[ -f "$_f" ] || continue
-			note "--- $_f ---"
-			cat "$_f" >/dev/ttyS0 2>/dev/null || true
-		done
-		run_text_installer
-	fi
+	# Ensure InstantWM config is available for root (XDG_CONFIG_HOME=/root/.config)
+	mkdir -p /root/.config/instantwm 2>/dev/null || true
+	cp -a /etc/skel/.config/instantwm/config.toml /root/.config/instantwm/config.toml 2>/dev/null || true
+	/usr/bin/silen-live-wayland &
+	_lwp=$!
+	sleep 3
+	echo "=== LIVE INPUT VERIFICATION ==="
+	if [ -S /run/udev/control ]; then echo "udevd: control socket OK"; else echo "udevd: control socket MISSING"; fi
+	udevadm trigger --action=add 2>/dev/null || true
+	sleep 1
+	if [ -c /dev/input/event0 ]; then echo "input: /dev/input/event0 present"; else echo "input: /dev/input/event0 MISSING"; fi
+	libinput list-devices 2>/dev/null | head -30 || echo "libinput: not available or failed"
+	if [ -S /run/seatd.sock ]; then echo "seatd: socket OK"; else echo "seatd: socket MISSING"; fi
+	if [ -f /tmp/instantwm.pid ]; then
+		read -r _iwpid </tmp/instantwm.pid 2>/dev/null || true
+		if [ -n "$_iwpid" ] && kill -0 "$_iwpid" 2>/dev/null; then echo "instantwm: running (pid $_iwpid)"; else echo "instantwm: NOT running"; fi
+	else echo "instantwm: no pid file"; fi
+echo "=== END VERIFICATION ==="
+echo
+
+# Start getty on virtual terminals for text login
+if [ -x /usr/sbin/agetty ] || [ -x /bin/agetty ]; then
+	for _tty in tty2 tty3 tty4 tty5 tty6; do
+		setsid /usr/sbin/agetty /dev/$_tty linux 2>/dev/null &
+	done
+fi
+
+wait "$_lwp"
+_rc=$?
+echo "desktop exited with $_rc"
+echo "Desktop session ended dropping to a shell"
 elif [ -x /usr/bin/silen-installer ]; then
 	echo "  desktop payload incomplete (instantwm missing) running the text installer"
 	run_text_installer

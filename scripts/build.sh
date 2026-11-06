@@ -248,6 +248,13 @@ module_file() {
 
 is_blacklisted() {
 	local name="$1"
+	# For NVIDIA ISO builds, do not blacklist nvidia modules so they
+	# can be loaded on NVIDIA hardware after driver installation.
+	if [ "$NVIDIA" = "1" ]; then
+		case "$name" in
+			nvidia|nvidia_drm|nvidia_modeset|nvidia_uvm|nvidia_peermem) return 1 ;;
+		esac
+	fi
 	for bad in $BLACKLIST; do
 		if [ "$name" = "$bad" ]; then
 			return 0
@@ -263,6 +270,12 @@ if [ "$FULL" = "1" ]; then
 	done < <(find "$MODULES_SOURCE" \( -name '*.ko' -o -name '*.ko.zst' \))
 else
 	queue=($ALLOW $ALLOW_WIFI)
+	if [ "$NVIDIA" = "1" ]; then
+		# For NVIDIA ISO builds, allow nouveau for open-source NVIDIA
+		# support in the live environment, and do not blacklist nvidia
+		# modules so they can be loaded after driver installation.
+		queue+=(nouveau)
+	fi
 	if [ "$AUTO_HOST" = "1" ]; then
 		for _mp in /sys/module/*; do
 			[ -e "$_mp" ] || continue
@@ -500,6 +513,22 @@ fi
 copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app dbus-launch  /usr/bin/dbus-launch
 copy_app dbus-run-session /usr/bin/dbus-run-session
+copy_app udevd /usr/bin/udevadm
+copy_app udevadm /usr/bin/udevadm 2>/dev/null || true
+if [ -x /usr/sbin/agetty ]; then copy_app agetty /usr/sbin/agetty; elif [ -x /usr/bin/agetty ]; then copy_app agetty /usr/bin/agetty; elif [ -x /sbin/agetty ]; then copy_app agetty /sbin/agetty; fi
+ln -sf /usr/sbin/agetty "$RAMROOT/bin/agetty" 2>/dev/null || true
+# Stage udev helpers, rules, and config so input/storage devices are discovered
+mkdir -p "$RAMROOT/usr/lib/udev" "$RAMROOT/etc/udev" 2>/dev/null || true
+cp -a /usr/lib/udev/rules.d "$RAMROOT/usr/lib/udev/" 2>/dev/null || echo "  ! cannot copy udev rules"
+cp -a /usr/lib/udev/input-id "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/keyboard "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/libinput-device-group "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/libinput-fuzz-extract "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/libinput-fuzz-to-zero "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/scsi_id "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /usr/lib/udev/ata_id "$RAMROOT/usr/lib/udev/" 2>/dev/null || true
+cp -a /etc/udev "$RAMROOT/etc/" 2>/dev/null || true
+copy_libs /usr/bin/udevadm
 mkdir -p "$RAMROOT/usr/sbin" || { echo "  ERROR cannot create $RAMROOT/usr/bin"; exit 1; }
 # keep old sbin paths working
 for _sbin_link in mkfs.ext4 mkfs.vfat blkid; do
@@ -818,9 +847,9 @@ unpack_spk() {
 DESKTOP_PRIMARY=""
 for _lp in \
 	instantwm instantmenu instantmenu-extras instantcli \
-	wl-libs gtk-libs mesa xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
-	dejavu noto-fonts nerd-symbols cursor-theme \
-	foot yazi bottom swaylock nano firefox seatd dbus iwtui \
+	wl-libs gtk-libs mesa llvm xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
+	dejavu noto-fonts nerd-symbols cursor-theme libinput \
+	foot kitty rofi yazi bottom swaylock nano firefox seatd dbus iwtui \
 ; do
 	_spk="packages/$_lp/$_lp.spk"
 	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _spk="spk-pkgs/packages/$_lp/$_lp.spk"
@@ -885,6 +914,9 @@ if command -v cargo >/dev/null 2>&1; then
 	if command -v go >/dev/null 2>&1; then
 		echo "  building cres (package manager)"
 		mkdir -p build || true
+		if [ -n "$SUDO_USER" ] && [ -d build ]; then
+			chown -R "$SUDO_USER" build 2>/dev/null || true
+		fi
 		if ! (cd cres && _maybe_sudo_env go build -o ../build/cres .); then
 			echo "  ! cres build failed"
 		fi
@@ -972,6 +1004,70 @@ for _lb in "$RAMROOT"/usr/bin/* "$RAMROOT"/usr/sbin/* "$RAMROOT"/usr/libexec/*; 
 		copy_libs "$_lb"
 	fi
 done
+for _gbmdep in "$RAMROOT"/usr/lib64/libgallium-*.so; do
+	[ -f "$_gbmdep" ] || continue
+	copy_libs "$_gbmdep"
+done
+
+if [ ! -d "$RAMROOT/usr/share/libinput" ] && [ -d /usr/share/libinput ]; then
+	mkdir -p "$RAMROOT/usr/share" 2>/dev/null || true
+	cp -a /usr/share/libinput "$RAMROOT/usr/share/" 2>/dev/null || echo "  ! cannot stage libinput data devices will lack quirks"
+fi
+if [ ! -d "$RAMROOT/usr/share/X11/locale" ] && [ -d /usr/share/X11/locale ]; then
+	mkdir -p "$RAMROOT/usr/share/X11" 2>/dev/null || true
+	cp -a /usr/share/X11/locale "$RAMROOT/usr/share/X11/" 2>/dev/null || echo "  ! cannot stage X11 locale compose data"
+fi
+command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$RAMROOT" >/dev/null 2>&1 || true
+_missing_libs() {
+	_m=""
+	for _lb in "$RAMROOT"/usr/bin/* "$RAMROOT"/usr/libexec/* "$RAMROOT"/usr/lib64/*.so "$RAMROOT"/usr/lib64/*.so.*; do
+		[ -f "$_lb" ] || [ -L "$_lb" ] || continue
+		_m="$_m $(ldd "$_lb" 2>/dev/null | awk '/not found/{print $1}' || true)"
+	done
+	printf '%s\n' $_m | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//'
+}
+_hsweep="$(_missing_libs)"
+if [ -n "$_hsweep" ]; then
+	echo "  harvesting missing libs from tarball-silen.xz:$_hsweep"
+	_tb=""
+	[ -f tarball-silen.xz ] && _tb="tarball-silen.xz"
+	_harv=/tmp/opencode/xorg-harvest
+	if [ -n "$_tb" ]; then
+		rm -rf "$_harv" 2>/dev/null || true
+		mkdir -p "$_harv"
+		xz -dc "$_tb" 2>/dev/null | tar -C "$_harv" -x stage3-tarball-silen/usr/lib64 2>/dev/null || true
+		_go="$_hsweep"
+		_r=0
+		while [ "$_r" -lt 6 ]; do
+			_r=$((_r + 1))
+			_next=""
+			for _lib in $_go; do
+				[ -n "$_lib" ] || continue
+				_src="$(find "$_harv" -name "$_lib" 2>/dev/null | head -n 1)"
+				[ -n "$_src" ] || { _next="$_next $_lib"; continue; }
+				cp -a "$_src" "$RAMROOT/usr/lib64/$_lib" 2>/dev/null || { _next="$_next $_lib"; continue; }
+				echo "    + $_lib"
+				_dep="$(ldd "$RAMROOT/usr/lib64/$_lib" 2>/dev/null | awk '/not found/{print $1}' || true)"
+				for _d in $_dep; do
+					case " $_next $_go " in
+						*" $_d "*) ;;
+						*) _next="$_next $_d" ;;
+					esac
+				done
+			done
+			_go="$(printf '%s\n' $_next | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//')"
+			[ -n "$_go" ] || break
+		done
+		rm -rf "$_harv" 2>/dev/null || true
+	fi
+	command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$RAMROOT" >/dev/null 2>&1 || true
+	_left=""
+	for _lib in $_hsweep; do
+		[ -e "$RAMROOT/usr/lib64/$_lib" ] || _left="$_left $_lib"
+	done
+	_left="$(printf '%s\n' $_left | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//')"
+	[ -z "$_left" ] || echo "  ! still missing after harvest: $_left"
+fi
 
 for _crit in instantwm foot; do
 	[ -e "$RAMROOT/usr/bin/$_crit" ] || echo "  ! desktop payload incomplete: $_crit missing (live session may not start)"
@@ -1020,8 +1116,12 @@ for _h in "$RAMROOT/etc/skel" "$RAMROOT/root"; do
 		printf '#!/bin/sh\nexec foot -e yazi "$@"\n' > "$_h/.config/instantos/default/termfilemanager"
 		cp -a "$_h/.config/instantos/default/termfilemanager" "$_h/.config/instantos/default/filemanager"
 	fi
-	if [ -x "$RAMROOT/usr/bin/foot" ] && [ -x "$RAMROOT/usr/bin/nano" ]; then
-		printf '#!/bin/sh\nexec foot -e nano "$@"\n' > "$_h/.config/instantos/default/editor"
+	if [ -x "$RAMROOT/usr/bin/foot" ]; then
+		if [ -x "$RAMROOT/usr/bin/nano" ]; then
+			printf '#!/bin/sh\nexec foot -e /usr/bin/nano "$@"\n' > "$_h/.config/instantos/default/editor"
+		elif [ -x "$RAMROOT/bin/nano" ]; then
+			printf '#!/bin/sh\nexec foot -e /bin/nano "$@"\n' > "$_h/.config/instantos/default/editor"
+		fi
 	fi
 	if [ -x "$RAMROOT/usr/bin/foot" ] && [ -x "$RAMROOT/usr/bin/btm" ]; then
 		printf '#!/bin/sh\nexec foot -e btm "$@"\n' > "$_h/.config/instantos/default/systemmonitor"
@@ -1033,6 +1133,37 @@ for _h in "$RAMROOT/etc/skel" "$RAMROOT/root"; do
 	elif [ -f "$RAMROOT/etc/xdg/instantwm/config.toml.example" ]; then
 		cp -a "$RAMROOT/etc/xdg/instantwm/config.toml.example" "$_h/.config/instantwm/config.toml" 2>/dev/null || true
 	fi
+	# Set default terminal to kitty and add rofi launcher keybinding
+	if [ -f "$_h/.config/instantwm/config.toml" ]; then
+		cat > "$_h/.config/instantwm/config.toml" << 'TOML_EOF'
+theme = "catppuccin-mocha"
+keybinds = [
+    { mod = ["mod4"], key = "Return", action = "spawn", args = ["kitty"] },
+    { mod = ["mod4", "Shift"], key = "Q", action = "kill" },
+    { mod = ["mod4"], key = "E", action = "spawn", args = ["instantmenu"] },
+    { mod = ["mod4"], key = "Space", action = "spawn", args = ["rofi", "-show", "drun"] },
+    { mod = ["mod4"], key = "C", action = "toggle_floating" },
+    { mod = ["mod4"], key = "M", action = "toggle_tiling_maximized" },
+    { mod = ["mod4"], key = "Left", action = "focus_left" },
+    { mod = ["mod4"], key = "Right", action = "focus_right" },
+    { mod = ["mod4"], key = "Up", action = "focus_up" },
+    { mod = ["mod4"], key = "Down", action = "focus_down" },
+    { mod = ["mod4"], key = "R", action = "reset_layout" },
+]
+desktop_keybinds = []
+raise_floating_on_click = false
+rules = []
+exec_once = []
+exec = []
+hooks = []
+
+[fonts]
+text_family = "Inter"
+text_size = 12.0
+icon_family = "Symbols Nerd Font"
+icon_size = 16.0
+TOML_EOF
+	fi
 	chmod 755 "$_h"/.config/instantos/default/* 2>/dev/null || true
 done
 
@@ -1041,6 +1172,14 @@ cat > "$RAMROOT/usr/bin/silen-live-wayland" << 'EOF'
 #!/bin/sh
 LOG=/tmp/live-gui.log
 echo "=== silen-live-wayland start ===" >"$LOG" 2>&1
+export HOME=/root
+export USER=root
+export LOGNAME=root
+export XDG_CONFIG_HOME=/root/.config
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export RUST_LOG="${RUST_LOG:-debug}"
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export XDG_CURRENT_DESKTOP=instantwm
@@ -1049,6 +1188,15 @@ export XDG_SESSION_TYPE=wayland
 export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
 mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
 chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+for _sx in X11-unix ICE-unix font-unix XIM-unix X11-apps; do
+	mkdir -p "/tmp/.$_sx" 2>/dev/null || true
+	chmod 1777 "/tmp/.$_sx" 2>/dev/null || true
+done
+if command -v dbus-daemon >/dev/null 2>&1 && [ ! -S /run/user/0/bus ]; then
+	mkdir -p /run/dbus 2>/dev/null || true
+	dbus-daemon --session --fork --address=unix:path=/run/user/0/bus >/dev/null 2>&1 || true
+fi
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/0/bus}"
 if command -v seatd >/dev/null 2>&1 && [ ! -S "$SEATD_SOCK" ]; then
 	seatd -g root >>"$LOG" 2>&1 &
 	_i=0
@@ -1080,6 +1228,12 @@ ls /dev/dri/card* >>"$LOG" 2>&1 || echo "no /dev/dri/card* (KMS driver or firmwa
 try_drm() {
 	[ -x /usr/bin/instantwm ] || return 1
 	ls /dev/dri/card* >/dev/null 2>&1 || return 1
+	for _s in "$XDG_RUNTIME_DIR"/wayland-*; do
+		[ -e "$_s" ] || continue
+		rm -f "$_s" 2>/dev/null || true
+	done
+	unset WAYLAND_DISPLAY
+	echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" >>"$LOG" 2>&1
 	echo "starting instantwm --backend drm" >>"$LOG" 2>&1
 	/usr/bin/instantwm --backend drm >>/tmp/instantwm.log 2>&1 &
 	echo $! >/tmp/instantwm.pid 2>/dev/null || true
@@ -1108,35 +1262,67 @@ try_x11() {
 	[ -n "$_p" ] && kill -0 "$_p" 2>/dev/null || { echo "instantwm x11 died at startup" >>"$LOG" 2>&1; return 1; }
 	return 0
 }
+compositor_socket() {
+	for _s in "$XDG_RUNTIME_DIR"/wayland-*; do
+		[ -e "$_s" ] || continue
+		case "$_s" in
+			*.lock) continue ;;
+		esac
+		[ -S "$_s" ] || continue
+		basename "$_s" 2>/dev/null
+		return 0
+	done
+	return 1
+}
 wait_socket() {
+	_req="${1:-required}"
 	i=0
 	while [ $i -lt 150 ]; do
-		[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && return 0
 		if [ -f /tmp/instantwm.pid ]; then
 			read -r _pid </tmp/instantwm.pid 2>/dev/null || _pid=""
 			if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then
+				wait "$_pid"
+				_rc=$?
+				echo "instantwm exited with status $_rc" >>"$LOG" 2>&1
 				echo "compositor died while waiting for socket, see /tmp/instantwm.log" >>"$LOG" 2>&1
 				return 1
 			fi
 		fi
+		_name="$(compositor_socket)" || true
+		if [ -n "$_name" ]; then
+			WAYLAND_DISPLAY="$_name"
+			export WAYLAND_DISPLAY
+			echo "compositor socket $_name" >>"$LOG" 2>&1
+			return 0
+		fi
 		i=$((i + 1)); sleep 0.2 2>/dev/null || sleep 1
 	done
+	if [ "$_req" = "optional" ]; then
+		echo "no wayland socket in x11 mode, continuing with DISPLAY=$DISPLAY" >>"$LOG" 2>&1
+		return 0
+	fi
 	echo "Wayland socket never appeared" >>"$LOG" 2>&1
 	return 1
 }
 cleanup() {
 	[ -f /tmp/instantwm.pid ] && read -r _p </tmp/instantwm.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
 	[ -f /tmp/xorg.pid ] && read -r _p </tmp/xorg.pid 2>/dev/null && [ -n "$_p" ] && kill "$_p" 2>/dev/null || true
+	for _s in "$XDG_RUNTIME_DIR"/wayland-*; do
+		[ -e "$_s" ] || continue
+		rm -f "$_s" 2>/dev/null || true
+	done
 }
 _started=""
-if try_drm && wait_socket; then
+if try_drm && wait_socket required; then
 	_started="drm"
 	echo "compositor up (drm)" >>"$LOG" 2>&1
+	/usr/bin/instantwmctl keybinds >>"$LOG" 2>&1 || echo "instantwmctl keybinds failed" >>"$LOG" 2>&1
 else
 	cleanup
-	if try_x11; then
+	if try_x11 && wait_socket optional; then
 		_started="x11"
 		echo "compositor up (x11 fallback)" >>"$LOG" 2>&1
+		/usr/bin/instantwmctl keybinds >>"$LOG" 2>&1 || echo "instantwmctl keybinds failed" >>"$LOG" 2>&1
 	fi
 fi
 if [ -z "$_started" ]; then
@@ -1433,7 +1619,11 @@ terminal_output gfxterm console
 
 menuentry "Silen Linux" {
 	echo "Booting Silen"
-	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
+	if [ "$NVIDIA" = "1" ]; then
+		linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 nvidia-drm.modeset=1
+	else
+		linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
+	fi
 	initrd /boot/$INITRAMFS
 }
 

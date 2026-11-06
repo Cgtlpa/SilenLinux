@@ -34,6 +34,12 @@ struct InstallerApp {
     network_status: String,
     wifi_networks: Vec<String>,
     network_msg: String,
+    wifi_scanning: bool,
+    wifi_scan_receiver: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    wifi_connecting: bool,
+    wifi_connect_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    wifi_error: String,
+    network_optional_warned: bool,
 }
 
 impl Default for InstallerApp {
@@ -57,6 +63,12 @@ impl Default for InstallerApp {
             network_status: backend::network_status(),
             wifi_networks: Vec::new(),
             network_msg: String::new(),
+            wifi_scanning: false,
+            wifi_scan_receiver: None,
+            wifi_connecting: false,
+            wifi_connect_receiver: None,
+            wifi_error: String::new(),
+            network_optional_warned: false,
         }
     }
 }
@@ -193,56 +205,143 @@ impl eframe::App for InstallerApp {
                     ui.monospace(&self.network_status);
                     ui.add_space(8.0);
                     ui.label("Wi-Fi (iwd):");
-                    ui.horizontal(|ui| {
-                        if ui.button("Scan Wi-Fi").clicked() {
-                            self.wifi_networks = backend::wifi_scan();
-                            self.network_msg = if self.wifi_networks.is_empty() {
-                                "no Wi-Fi networks found (or no Wi-Fi device)".into()
-                            } else {
-                                format!("found {} networks", self.wifi_networks.len())
-                            };
+
+                    // Check for async scan results
+                    if let Some(rx) = &self.wifi_scan_receiver {
+                        if let Ok(result) = rx.try_recv() {
+                            self.wifi_scanning = false;
+                            self.wifi_scan_receiver = None;
+                            match result {
+                                Ok(networks) => {
+                                    let count = networks.len();
+                                    self.wifi_networks = networks;
+                                    self.network_msg = if count == 0 {
+                                        "no Wi-Fi networks found (or no Wi-Fi device)".into()
+                                    } else {
+                                        format!("found {} networks", count)
+                                    };
+                                }
+                                Err(e) => {
+                                    self.wifi_scanning = false;
+                                    self.wifi_error = format!("Wi-Fi scan failed: {}", e);
+                                    self.network_msg = self.wifi_error.clone();
+                                }
+                            }
                         }
-                        if ui.button("Refresh status").clicked() {
+                    }
+
+                    // Check for async connect results
+                    if let Some(rx) = &self.wifi_connect_receiver {
+                        if let Ok(result) = rx.try_recv() {
+                            self.wifi_connecting = false;
+                            self.wifi_connect_receiver = None;
+                            match result {
+                                Ok(()) => {
+                                    self.network_msg = "Wi-Fi connected".into();
+                                    self.network_status = backend::network_status();
+                                }
+                                Err(e) => {
+                                    self.wifi_error = format!("Wi-Fi connect failed: {}", e);
+                                    self.network_msg = self.wifi_error.clone();
+                                }
+                            }
+                        }
+                    }
+
+                    ui.horizontal(|ui| {
+                        let scan_disabled = self.wifi_scanning;
+                        if ui.add_enabled(!scan_disabled, egui::Button::new("Scan Wi-Fi")).clicked() {
+                            self.wifi_networks.clear();
+                            self.network_msg = String::new();
+                            self.wifi_error = String::new();
+                            self.wifi_scanning = true;
+                            self.wifi_scan_receiver = Some(backend::wifi_scan_async());
+                            ctx.request_repaint();
+                        }
+                        if self.wifi_scanning {
+                            ui.spinner();
+                            ui.label("scanning…");
+                            if ui.button("Cancel").clicked() {
+                                self.wifi_scanning = false;
+                                self.wifi_scan_receiver = None;
+                                self.network_msg = "scan cancelled".into();
+                            }
+                        }
+                        if ui.add_enabled(!self.wifi_scanning, egui::Button::new("Refresh status")).clicked() {
                             self.network_status = backend::network_status();
                         }
                     });
+
                     for ssid in self.wifi_networks.clone() {
                         let selected = self.settings.wifi_ssid == ssid;
                         if ui.selectable_label(selected, &ssid).clicked() {
                             self.settings.wifi_ssid = ssid;
                         }
                     }
+
                     if !self.settings.wifi_ssid.is_empty() {
                         ui.horizontal(|ui| {
                             ui.label("password:");
-                            ui.add(egui::TextEdit::singleline(&mut self.settings.wifi_pass).password(true));
-                            if ui.button("Connect").clicked() {
-                                match backend::wifi_connect(&self.settings.wifi_ssid, &self.settings.wifi_pass) {
-                                    Ok(()) => {
-                                        self.network_msg = "Wi-Fi connected".into();
-                                        self.network_status = backend::network_status();
-                                    }
-                                    Err(e) => self.network_msg = format!("Wi-Fi failed: {}", e),
-                                }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.settings.wifi_pass)
+                                    .password(true),
+                            );
+                            let connect_disabled = self.wifi_connecting;
+                            if ui.add_enabled(!connect_disabled, egui::Button::new("Connect")).clicked()
+                            {
+                                let ssid = self.settings.wifi_ssid.clone();
+                                let pass = self.settings.wifi_pass.clone();
+                                self.wifi_connecting = true;
+                                self.wifi_error = String::new();
+                                self.network_msg = String::new();
+                                self.wifi_connect_receiver =
+                                    Some(backend::wifi_connect_async(ssid, pass));
+                                ctx.request_repaint();
+                            }
+                            if self.wifi_connecting {
+                                ui.spinner();
+                                ui.label("connecting…");
                             }
                         });
                     }
+
                     if !self.network_msg.is_empty() {
                         ui.label(&self.network_msg);
+                    }
+                    if !self.wifi_error.is_empty() {
+                        ui.colored_label(egui::Color32::RED, &self.wifi_error);
                     }
                     if !self.error.is_empty() {
                         ui.colored_label(egui::Color32::RED, &self.error);
                     }
+
+                    // Show diagnostic info when scan failed or no networks found
+                    if (self.wifi_networks.is_empty() && !self.wifi_error.is_empty())
+                        || (!self.wifi_error.is_empty() && self.wifi_networks.is_empty())
+                    {
+                        ui.add_space(4.0);
+                        ui.collapsing("Wi-Fi diagnosis", |ui| {
+                            ui.label(backend::wifi_diagnostic());
+                        });
+                    }
+
+                    ui.add_space(4.0);
+                    ui.label("Note: Wi-Fi is optional. You can continue with Ethernet or configure Wi-Fi after install.");
                     ui.horizontal(|ui| {
                         if ui.button("Back").clicked() {
                             self.page = Page::Disk;
                         }
                         if ui.button("Next").clicked() {
                             self.network_status = backend::network_status();
-                            if !self.network_status.contains("default") && !self.network_status.contains("nameserver") {
-                                self.error = "no default route or DNS yet; connect Ethernet or Wi-Fi first".into();
+                            let has_network =
+                                self.network_status.contains("default")
+                                    || self.network_status.contains("nameserver");
+                            if !has_network && !self.network_optional_warned {
+                                self.error = "No active network detected. Package download requires internet.\nContinue anyway? (Wi-Fi can be configured after install with iwctl).".into();
+                                self.network_optional_warned = true;
                             } else {
                                 self.error.clear();
+                                self.network_optional_warned = false;
                                 self.page = Page::Settings;
                             }
                         }
