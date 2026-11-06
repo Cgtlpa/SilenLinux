@@ -11,7 +11,7 @@ This file is for AI coding agents working in this repo. `README.md` is for users
 - **Init**: OpenRC on the installed system (`rc-update`, `elogind`). Live ISO uses a custom BusyBox `/init` (`rootfs/init`), NOT systemd.
 - **Bootloader**: GRUB2, UEFI-only. ISO assembled with `grub-mkrescue`. EFI payload shipped in `grub-bundle/`.
 - **Base system**: `tarball-silen.xz` or `stage3-*.tar.*` in repo root, extracted by the installer. ISO boots without it but the installer will refuse to install. The shipped tarball is a stripped Gentoo base: no portage tree, no portage/gnupg keys, no gcc or build toolchain.
-- **Package manager**: `spk`, Rust binary in `spk/` (`spk/src/get.rs` = `spk get`, `find.rs` = `spk find`, `remove.rs` = `spk rm`).
+- **Package manager**: `cres`, Go binary in `cres/` (`cres/main.go`, `cres/internal/cli/cli.go`). `cres install/remove/update/search/list/info`. `cres` is built into the ISO.
 - **Desktop**: InstantWM is the default Wayland compositor on the live ISO and installed system. Rofi (`mod4+Space`) is the application launcher; Kitty (`mod4+Return`) is the default terminal. InstantMenu (`mod4+E`) remains available.
 - **Wi-Fi**: iwd is the only Wi-Fi backend (no NetworkManager). `iwctl`/`iwmon` on D-Bus.
 - **TTY**: `agetty` runs on tty2-tty6 in both live and installed systems. Ctrl+Alt+F2..F6 switch to text consoles.
@@ -46,9 +46,8 @@ installer/lib/                Modular installer, sourced in order:
   75-extras.sh  busybox logs/ntpd/bootlogd/fstrim/microcode/resume, builds initramfs-silen.img
   90-grub.sh    copy kernel, use initramfs-silen.img (fallback live), EFI grub-install. Refuses legacy boot.
 target-scripts/               Copied to installed /usr/local/bin (silen-mkinitramfs, silen-setup). silen-mkinitramfs decompresses .ko.zst modules on purpose: busybox modprobe cannot read compressed modules.
-spk/                          Cargo project. [[bin]] spk path = src/get.rs. Deps: flate2, sha2, tar, ureq.
-spk/src/get.rs                SYSTEM_EXACT list + looks_like_system_package() decides / vs /spk_pkgs/<name>.
-silen-installer/              Rust/egui graphical installer (async Wi-Fi scan/connect via iwd).
+spk/                          Rust package manager source (kept in repo, not built or shipped - use cres instead)
+cres/                         Go package manager (cres/main.go, cres/internal/cli/cli.go). Built into ISO.
 grub-bundle/usr/local/        Prebuilt GRUB EFI. Copy of `make install DESTDIR` output.
 branding/                     fastfetch_logo.txt + info.txt (name/version/kernel).
 ```
@@ -71,8 +70,7 @@ KERNEL_VERSION=6.18.54-silen KERNEL_SOURCE=/path/vmlinuz MODULES_SOURCE=/path/mo
 ./scripts/add-wifi.sh           # optional KVER=... override
 ./scripts/make-grub-bundle.sh   # optional GRUB_SRC=... override
 ./scripts/mkspk-audio.sh all    # rebuild audio packages + patch mango/niri; upload package dirs and packages/index.json to HF, no ISO rebuild needed
-cargo check --manifest-path spk/Cargo.toml
-cargo clippy --manifest-path spk/Cargo.toml
+cd cres && go build -o /tmp/cres .  # build cres package manager
 cargo test --manifest-path silen-installer/Cargo.toml   # installer unit tests
 cargo build --release --manifest-path silen-installer/Cargo.toml
 bash -n <edited .sh>            # always syntax-check shell edits
@@ -102,15 +100,15 @@ bash -n <edited .sh>            # always syntax-check shell edits
 - **Black-screen fix (2026-09-21)**: keep the GPU firmware merge in the ISO `firmware/` dir (offline installs copy it to target). The live initramfs packs no GPU modules, so GPU/ucode firmware was removed from it (2026-10-19, ~60MB saved); don't re-add it unless GPU modules are added to the initramfs.
 - GRUB console fallback is intentional: `terminal_output gfxterm console`, verbose default, and NO `set gfxpayload` line (`text` is invalid on UEFI, LP#1711452). Don't "simplify" this.
 
-## 6. `spk` rules
+## 6. `cres` rules
 
-- `is_system_package()` in `spk/src/get.rs:80`: `manifest_flag=true` OR name-heuristic match → install to `/`. Everything else → isolated `/spk_pkgs/<name>` (or `~/.local/share/spk/apps/<name>` with `--user`) + shims in `/usr/local/bin`.
-- DMs/DEs/kernels/firmware/drivers/network/audio/login MUST be system. If you add a package name in that class, add it to `SYSTEM_EXACT` or its prefix will miss and the DM/DE will install isolated and never start (see `SYSTEM-SORT` comments in `get.rs`).
+- `cres` is a Go package manager (`cres/main.go`, `cres/internal/cli/cli.go`). `cres install/remove/update/search/list/info`.
+- DMs/DEs/kernels/firmware/drivers/network/audio/login MUST be system packages. If you add a package name in that class, ensure it installs to `/` not isolated.
 - Audio packages (`pipewire`, `wireplumber`, `lua-libs`, `libpulse`, `libasyncns`, `silen-audio`) are system packages. `mango` and `niri` depend on `silen-audio` and launch `/usr/local/bin/silen-audio-run` from their session desktop files. Keep the full PipeWire payload (SPA plugins, modules, ALSA config); do not shrink it back to only `bin/` and `libpipewire*`.
-- `remove.rs`: never delete protected configs (`/etc/passwd shadow gshadow group fstab machine-id hostname hosts resolv.conf`) or boot files (`/boot/vmlinuz*`, `/boot/initramfs*`, `/boot/silen-ucode*`, `/boot/grub/**`, `/boot/EFI/**`). The `/etc` basename check is scoped so `/usr/bin/passwd` is not affected — don't widen it.
-- `get.rs`: a missing or invalid `sha256` in a manifest aborts the install (fail-closed). After installing a payload containing `/boot/vmlinuz`, `spk` runs `/usr/bin/silen-mkinitramfs` (or `/usr/local/bin/...`) so kernel updates regenerate the boot image.
-- `cxx-libs` ships GCC 16 libstdc++ as `/usr/lib/silen/cxx/gcc16-libstdc++.*`; its postinstall copies it into `/usr/lib64` and the GCC 15 directory. `spk` skips payload files named `libstdc++*` as protected core libs, so direct payload paths would be ignored.
-- Default repo URL is hardcoded (`DEFAULT_BASE`, `spk/src/get.rs:15`). GitHub `Cgtlpa/spk_pkgs` remains a backup mirror.
+- `cres remove`: never delete protected configs (`/etc/passwd shadow gshadow group fstab machine-id hostname hosts resolv.conf`) or boot files (`/boot/vmlinuz*`, `/boot/initramuz*`, `/boot/silen-ucode*`, `/boot/grub/**`, `/boot/EFI/**`).
+- After installing a payload containing `/boot/vmlinuz`, `cres` runs `/usr/bin/silen-mkinitramfs` (or `/usr/local/bin/...`) so kernel updates regenerate the boot image.
+- `cxx-libs` ships GCC 16 libstdc++ as `/usr/lib/silen/cxx/gcc16-libstdc++.`; its postinstall copies it into `/usr/lib64` and the GCC 15 directory. `cres` skips payload files named `libstdc++*` as protected core libs, so direct payload paths would be ignored.
+- Default repo URL is hardcoded in `cres/internal/cli/cli.go` (`repository.DefaultBase`).
 
 ## 7. Shell style in this repo
 
@@ -119,13 +117,13 @@ bash -n <edited .sh>            # always syntax-check shell edits
 - Heredocs for `grub.cfg`: quoted vs unquoted `EOF` matters (backticks broke unquoted expansion before — see git log `2c25fed`). If you touch grub.cfg generation, test the output file.
 - `copy_libs()` / `copy_app()` in `build.sh:368` resolve `ldd` deps into the ramroot + `ldconfig -r`. NSS (`libnss_dns/files`) is dlopen'd, never in `ldd` — it's copied manually. Don't remove that or live DNS dies.
 - No static `/etc/machine-id` in ramroot — live init runs `dbus-uuidgen --ensure` each boot so clones get unique IDs.
-- `build.sh` builds `spk` with `cargo build --release --locked`. If you change `spk/Cargo.toml`, refresh `spk/Cargo.lock` (plain `cargo check`) or the ISO build fails.
+- `build.sh` builds `cres` with `go build`. If you change `cres/`, refresh dependencies or the ISO build fails.
 - `silen-installer` is a separate Cargo project (`silen-installer/Cargo.toml`). Build with `cargo build --release --manifest-path silen-installer/Cargo.toml`. Test with `cargo test --manifest-path silen-installer/Cargo.toml`.
 
 ## 8. Before you finish
 
-1. `bash -n` every edited shell file; `cargo check` (and `clippy` if touched) for `spk/`; `cargo test` for `silen-installer/`.
-2. If you changed `scripts/build.sh`, `rootfs/init`, `installer/lib/*`, `spk/`, or `silen-installer/`: state in your summary whether you ran `make iso` / `make qemu` or not, and why.
+1. `bash -n` every edited shell file; `go build ./...` for `cres/`; `cargo test` for `silen-installer/`.
+2. If you changed `scripts/build.sh`, `rootfs/init`, `installer/lib/*`, `cres/`, or `silen-installer/`: state in your summary whether you ran `make iso` / `make qemu` or not, and why.
 3. Don't commit `build/`, `spk/target/`, `silen-installer/target/`, `tarball-silen.xz`, or `*.iso` (see `.gitignore`).
 4. Keep `README.md` (users) and this file (agents) in sync on: kernel version, init system, build commands, installer modes, desktop apps (InstantWM/Rofi/Kitty), Wi-Fi backend (iwd), TTY config.
 

@@ -270,12 +270,12 @@ create-user() {
 			whiptail --msgbox --title "$title" "/etc/sudoers has a syntax error. After reboot run as root: visudo" 9 70 || true
 		fi
 	elif [[ ! -x "$ROOT_PATH/usr/bin/sudo" ]]; then
-		whiptail --msgbox --title "$title" "sudo is not installed in the new system. After reboot run as root: spk get sudo" 9 70 || true
+		whiptail --msgbox --title "$title" "sudo is not installed in the new system. After reboot run as root: cres install sudo" 9 70 || true
 	fi
 	if mkdir -p "$ROOT_PATH"/home/$newuser/.local/bin \
-			"$ROOT_PATH"/home/$newuser/.local/share/spk/apps \
-			"$ROOT_PATH"/home/$newuser/.local/share/spk/packages \
-			"$ROOT_PATH"/home/$newuser/.cache/spk 2>/dev/null; then
+			"$ROOT_PATH"/home/$newuser/.local/share/cres/apps \
+			"$ROOT_PATH"/home/$newuser/.local/share/cres/packages \
+			"$ROOT_PATH"/home/$newuser/.cache/cres 2>/dev/null; then
 		chroot "$ROOT_PATH" /bin/bash -c "chown -R $newuser:$newuser /home/$newuser/.local /home/$newuser/.cache" 2>/dev/null || \
 		chroot "$ROOT_PATH" /bin/bash -c "chown -R $newuser /home/$newuser/.local /home/$newuser/.cache" 2>/dev/null || true
 	fi
@@ -299,7 +299,7 @@ install-branding() {
 	mkdir -p "$ROOT_PATH"/usr/local/bin
 	cat > "$ROOT_PATH"/usr/local/bin/silenfetch <<'EOF'
 #!/bin/sh
-command -v fastfetch >/dev/null 2>&1 || { echo "silenfetch: fastfetch is not installed (sudo spk get fastfetch)" >&2; exit 127; }
+command -v fastfetch >/dev/null 2>&1 || { echo "silenfetch: fastfetch is not installed (cres install fastfetch)" >&2; exit 127; }
 exec fastfetch -l /usr/share/silen/fastfetch_logo.txt "$@"
 EOF
 	chmod 755 "$ROOT_PATH"/usr/local/bin/silenfetch 2>/dev/null || true

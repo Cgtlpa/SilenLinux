@@ -834,12 +834,12 @@ echo "[5b/7] Live Wayland desktop (instantwm) + installer"
 
 mkdir -p "$ISO_DIR"
 
-unpack_spk() {
-	_spk="$1"
-	_head="$(dd if="$_spk" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+unpack_pkg() {
+	_pkg="$1"
+	_head="$(dd if="$_pkg" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
 	case "$_head" in
-		1f8b*) tar -xzf "$_spk" -C "$RAMROOT" ;;
-		28b52ffd*) zstd -qdc "$_spk" | tar -xf - -C "$RAMROOT" ;;
+		1f8b*) tar -xzf "$_pkg" -C "$RAMROOT" ;;
+		28b52ffd*) zstd -qdc "$_pkg" | tar -xf - -C "$RAMROOT" ;;
 		*) return 1 ;;
 	esac
 }
@@ -851,26 +851,26 @@ for _lp in \
 	dejavu noto-fonts nerd-symbols cursor-theme libinput \
 	foot kitty rofi yazi bottom swaylock nano firefox seatd dbus iwtui \
 ; do
-	_spk="packages/$_lp/$_lp.spk"
-	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _spk="spk-pkgs/packages/$_lp/$_lp.spk"
-	if [ ! -f "$_spk" ]; then
+	_pkg="packages/$_lp/$_lp.spk"
+	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _pkg="spk-pkgs/packages/$_lp/$_lp.spk"
+	if [ ! -f "$_pkg" ]; then
 		mkdir -p build/dl || true
-		_spk="build/dl/$_lp.spk"
-		if [ ! -f "$_spk" ]; then
+		_pkg="build/dl/$_lp.spk"
+		if [ ! -f "$_pkg" ]; then
 			_url="https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/$_lp/$_lp.spk"
-			if curl -fsSL --retry 3 --max-time 600 -o "$_spk.1" "$_url"; then
-				mv "$_spk.1" "$_spk"
+			if curl -fsSL --retry 3 --max-time 600 -o "$_pkg.1" "$_url"; then
+				mv "$_pkg.1" "$_pkg"
 			else
-				rm -f "$_spk.1" "$_spk"
+				rm -f "$_pkg.1" "$_pkg"
 				continue
 			fi
 		fi
 	fi
-	_spk_size="$(stat -c %s "$_spk" 2>/dev/null)"
-	[ -n "$_spk_size" ] || _spk_size=0
-	echo "    + $_lp ($_spk_size bytes)"
-	if ! unpack_spk "$_spk"; then
-		echo "  ERROR cannot unpack $_lp payload ($_spk unexpected magic)"; exit 1
+	_pkg_size="$(stat -c %s "$_pkg" 2>/dev/null)"
+	[ -n "$_pkg_size" ] || _pkg_size=0
+	echo "    + $_lp ($_pkg_size bytes)"
+	if ! unpack_pkg "$_pkg"; then
+		echo "  ERROR cannot unpack $_lp payload ($_pkg unexpected magic)"; exit 1
 	fi
 done
 for _need in instantwm foot; do
@@ -898,20 +898,7 @@ _maybe_sudo_env() {
 	fi
 }
 
-if command -v cargo >/dev/null 2>&1; then
-	echo "  building spk (kept for compatibility, replaced by cres)"
-	if ! _maybe_sudo_env cargo build --release --locked --manifest-path spk/Cargo.toml; then
-		echo "  ! spk build failed live ISO keeps the previous spk handling"
-	fi
-	if [ -f spk/target/release/spk ]; then
-		cp spk/target/release/spk "$ISO_DIR/spk" || echo "  ! cannot copy spk to ISO installer will fetch it another way"
-		mkdir -p "$RAMROOT/usr/bin"
-		cp spk/target/release/spk "$RAMROOT/usr/bin/spk" || echo "  ! cannot copy spk to initramfs"
-		chmod 0755 "$RAMROOT/usr/bin/spk" 2>/dev/null || true
-		copy_libs "$RAMROOT/usr/bin/spk"
-	fi
-
-	if command -v go >/dev/null 2>&1; then
+if command -v go >/dev/null 2>&1; then
 		echo "  building cres (package manager)"
 		mkdir -p build || true
 		if [ -n "$SUDO_USER" ] && [ -d build ]; then
@@ -979,9 +966,6 @@ if command -v cargo >/dev/null 2>&1; then
 	else
 		echo "  ERROR no silen-installer binary available (live ISO needs it)"; exit 1
 	fi
-else
-	echo "  ERROR cargo not found (needed for spk/iwtui/silen-installer)"; exit 1
-fi
 
 cat > "$ISO_DIR/silen-installer.desktop" << 'EOF'
 [Desktop Entry]
@@ -1472,7 +1456,7 @@ if [ "$NVIDIA" = "1" ]; then
 		_NVIDIA_TMP="$(mktemp -d /tmp/silen-nvidia.XXXXXX 2>/dev/null || echo /tmp/silen-nvidia.$$)"
 		tar -xzf build/nvidia-dl/nvidia-drivers.spk -C "$_NVIDIA_TMP" || { echo "  ERROR cannot unpack spk"; exit 1; }
 		_NVIDIA_RUN_FILE="$(find "$_NVIDIA_TMP" -name 'nvidia-*.run' | head -n1)"
-		[ -n "$_NVIDIA_RUN_FILE" ] || { echo "  ERROR no .run inside spk"; exit 1; }
+		[ -n "$_NVIDIA_RUN_FILE" ] || { echo "  ERROR no .run inside nvidia package"; exit 1; }
 		cp "$_NVIDIA_RUN_FILE" build/nvidia-dl/ || { echo "  ERROR cannot stage .run"; exit 1; }
 		rm -rf "$_NVIDIA_TMP" build/nvidia-dl/nvidia-drivers.spk* 2>/dev/null || true
 		_NVIDIA_RUN="$(ls build/nvidia-dl/nvidia-*.run 2>/dev/null | head -n1)"

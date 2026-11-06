@@ -1,6 +1,6 @@
 # Silen Linux
 
-Silen Linux is an independent, lightweight x86_64 Linux distribution built from the ground up. It is not a reskin of another distro — Silen has its own initramfs (`rootfs/init`), its own offline installer (`installer/`), its own package manager (`spk`), and its own ISO builder (`scripts/build.sh`). No systemd, no NetworkManager, no bloat. Just a minimal, fast base you build on top of.
+Silen Linux is an independent, lightweight x86_64 Linux distribution built from the ground up. It is not a reskin of another distro — Silen has its own initramfs (`rootfs/init`), its own offline installer (`installer/`), its own package manager (`cres`), and its own ISO builder (`scripts/build.sh`). No systemd, no NetworkManager, no bloat. Just a minimal, fast base you build on top of.
 
 ## What Silen is
 
@@ -12,7 +12,7 @@ Silen Linux is an independent, lightweight x86_64 Linux distribution built from 
 | Arch | x86_64, UEFI only (legacy boot refused) |
 | Bootloader | GRUB2 via `grub-mkrescue` |
 | Base system | `tarball-silen.xz` / `stage3-*.tar.*` (Gentoo base without portage tree/compiler) |
-| Package manager | `spk` — Rust tool (`spk/src/get.rs`), built into the ISO |
+| Package manager | `cres` — Go tool (`cres/main.go`), built into the ISO |
 | Wi-Fi backend | iwd + `iwctl`/`iwmon` + D-Bus (no NetworkManager) |
 | Window manager | InstantWM (Wayland, DRM/KMS backend) |
 | App launcher | Rofi (`mod4+Space`) |
@@ -40,17 +40,19 @@ The ISO boots into a RAM root with BusyBox, bash, `whiptail` (TUI installer), `g
 ### Offline installer (whiptail TUI)
 No network required to install. Filesystem choice (ext4/btrfs), hostname, root password, optional user, locale/keymap/timezone, optional swapfile. Disk is wiped and repartitioned with GPT (ESP + root).
 
-### `spk` package manager
+### `cres` package manager
 After the first reboot, install packages with network:
 ```sh
-spk get <pkg...>     # install (e.g. spk get linux-firmware mesa sddm)
-spk find <pattern>   # search installed registry
-spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, /boot kernels, or GRUB files)
+cres install <pkg...>     # install (e.g. cres install linux-firmware mesa sddm)
+cres search <pattern>     # search available packages
+cres remove <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, /boot kernels, or GRUB files)
+cres list                 # list installed packages
+cres info <pkg>           # show package details
 ```
 - System packages (kernels, drivers, firmware, DEs, DMs) install to `/`
-- Leaf apps install isolated to `/spk_pkgs/<name>` with shims in `/usr/local/bin`
-- Audio: `spk get silen-audio` (full PipeWire, WirePlumber, ALSA/Pulse clients)
-- Default source: `https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages`
+- Leaf apps install isolated with shims in `/usr/local/bin`
+- Audio: `cres install silen-audio` (full PipeWire, WirePlumber, ALSA/Pulse clients)
+- Default source: configured in `cres/internal/cli/cli.go`
 
 ### Desktop: InstantWM + Rofi + Kitty
 The live ISO and installed system boot to InstantWM, a lightweight Wayland compositor:
@@ -64,7 +66,7 @@ The live ISO and installed system boot to InstantWM, a lightweight Wayland compo
 `agetty` runs on tty2-tty6. Press `Ctrl+Alt+F2` through `F6` to switch to text consoles, `Ctrl+Alt+F1` to return to the graphical session.
 
 ### Safe kernel updates
-The installer builds `initramfs-silen.img` for the target. `spk` regenerates it automatically when a kernel package is installed, and refuses to delete `/boot` kernels, initramfs images, or GRUB files.
+The installer builds `initramfs-silen.img` for the target. `cres` regenerates it automatically when a kernel package is installed, and refuses to delete `/boot` kernels, initramfs images, or GRUB files.
 
 ### Built-in diagnostics
 `silen-wifi-check` (from `scripts/wifi-check.sh`) dumps `lsmod`, `ip link`, `rfkill`, `lspci/lsusb`, `dmesg`, `iwctl`, `iwd`, and D-Bus status to `/tmp/silen-wifi.log`.
@@ -94,19 +96,19 @@ The live environment starts InstantWM. From there you can:
 The installer will:
 1. Detect and select the target disk (it will be wiped → GPT + ESP fat32 + root ext4/btrfs)
 2. Extract the base system tarball
-3. Unpack the kernel bundle, firmware, network bundle (iwd + dbus), and `spk`
+3. Unpack the kernel bundle, firmware, network bundle (iwd + dbus), and `cres`
 4. Build the target's `initramfs-silen.img`
 5. Install GRUB to the EFI partition
 
 ### 5. First boot
 After reboot:
-- Log in via TTY or wait for SDDM (if installed via `spk`)
+- Log in via TTY or wait for SDDM (if installed via `cres`)
 - Configure Wi-Fi with `iwctl` if needed: `iwctl station <device> scan`, then `station <device> connect <SSID>`
-- Install desktops and apps with `spk` (needs network):
+- Install desktops and apps with `cres` (needs network):
   ```sh
-  spk get sddm              # display manager
-  spk get sway foot         # Wayland compositor + terminal
-  spk get linux-firmware    # additional firmware
+  cres install sddm              # display manager
+  cres install sway foot         # Wayland compositor + terminal
+  cres install linux-firmware    # additional firmware
   ```
 - Run `silenfetch` to see the distro logo
 
@@ -115,7 +117,7 @@ After reboot:
 ## Building the ISO
 
 ### Host requirements
-`grub-mkrescue` (`grub`, `xorriso`, `mtools`, `dosfstools`), `cpio`, `zstd`, `tar`, `modinfo`, `depmod`, `ldconfig`, `strip`, `cargo` (for `spk`), OVMF firmware for QEMU.
+`grub-mkrescue` (`grub`, `xorriso`, `mtools`, `dosfstools`), `cpio`, `zstd`, `tar`, `modinfo`, `depmod`, `ldconfig`, `strip`, `go` (for `cres`), OVMF firmware for QEMU.
 
 ### Commands
 ```sh
@@ -167,7 +169,8 @@ boot/vmlinuz              Linux 6.18 kernel image
 rootfs/                   initramfs source: init, busybox, modules, firmware
 installer/                whiptail TUI installer (main.sh + lib/)
 silen-installer/          Rust/egui graphical installer
-spk/                      Rust package manager (get/find/remove)
+spk/                      Rust package manager source (kept in repo, not built or shipped - use cres instead)
+cres/                     Go package manager (cres/main.go, cres/internal/cli/cli.go). Built into ISO.
 grub-bundle/              prebuilt GRUB EFI payload
 branding/                 fastfetch logo + distro info
 LICENSE                   AGPLv3

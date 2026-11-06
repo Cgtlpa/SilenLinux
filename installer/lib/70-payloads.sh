@@ -69,62 +69,58 @@ EOF
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev sysinit" >/dev/null 2>&1 || true
 }
 
-install-spk() {
-	spk_src=""
-	for f in /mnt/spk.tar.*; do
-		[[ -f "$f" ]] && spk_src="$f" && break
+install-cres() {
+	cres_src=""
+	for f in /mnt/cres.tar.*; do
+		[[ -f "$f" ]] && cres_src="$f" && break
 	done || true
-	if [[ -n "$spk_src" ]]; then
-		_spk_tmp="$(mktemp -d /tmp/spk-install.XXXXXX 2>/dev/null || echo /tmp/spk-install.$$)"
-		mkdir -p "$_spk_tmp" 2>/dev/null || true
-		if tar -xpf "$spk_src" -C "$_spk_tmp" --no-same-owner --numeric-owner 2>/dev/null; then
-			if [[ -x "$_spk_tmp/usr/bin/spk" ]]; then
+
+	# Try cres.tar.* from medium
+	if [[ -n "$cres_src" ]]; then
+		_cres_tmp="$(mktemp -d /tmp/cres-install.XXXXXX 2>/dev/null || echo /tmp/cres-install.$$)"
+		mkdir -p "$_cres_tmp" 2>/dev/null || true
+		if tar -xpf "$cres_src" -C "$_cres_tmp" --no-same-owner --numeric-owner 2>/dev/null; then
+			if [[ -x "$_cres_tmp/usr/bin/cres" ]]; then
 				mkdir -p "$ROOT_PATH/usr/bin" 2>/dev/null || true
-				cp "$_spk_tmp/usr/bin/spk" "$ROOT_PATH/usr/bin/spk" 2>/dev/null || true
-				if [[ -d "$_spk_tmp/usr" ]]; then
-					cp -a "$_spk_tmp/usr/." "$ROOT_PATH/usr/" 2>/dev/null || true
+				cp "$_cres_tmp/usr/bin/cres" "$ROOT_PATH/usr/bin/cres" 2>/dev/null || true
+				if [[ -d "$_cres_tmp/usr" ]]; then
+					cp -a "$_cres_tmp/usr/." "$ROOT_PATH/usr/" 2>/dev/null || true
 				fi
-				chmod 0755 "$ROOT_PATH/usr/bin/spk" 2>/dev/null || true
-				rm -rf "$_spk_tmp" 2>/dev/null || true
-				[[ -x "$ROOT_PATH/usr/bin/spk" ]] && return
-			else
-				_found_spk="$(find "$_spk_tmp" -maxdepth 3 -name spk -type f -perm -u+x 2>/dev/null | head -n1)"
-				[[ -z "$_found_spk" ]] && _found_spk="$(find "$_spk_tmp" -maxdepth 3 -name spk -type f 2>/dev/null | head -n1)"
-				if [[ -n "$_found_spk" ]] && [[ -f "$_found_spk" ]]; then
-					mkdir -p "$ROOT_PATH/usr/bin" 2>/dev/null || true
-					if cp "$_found_spk" "$ROOT_PATH/usr/bin/spk" 2>/dev/null; then
-						chmod 0755 "$ROOT_PATH/usr/bin/spk" 2>/dev/null || true
-						rm -rf "$_spk_tmp" 2>/dev/null || true
-						return
-					fi
-				fi
-				rm -rf "$_spk_tmp" 2>/dev/null || true
+				chmod 0755 "$ROOT_PATH/usr/bin/cres" 2>/dev/null || true
+				rm -rf "$_cres_tmp" 2>/dev/null || true
+				[[ -x "$ROOT_PATH/usr/bin/cres" ]] && return 0
 			fi
-		else
-			rm -rf "$_spk_tmp" 2>/dev/null || true
+			# Not at expected path, search deeper
+			_found_cres="$(find "$_cres_tmp" -maxdepth 3 -name cres -type f -perm -u+x 2>/dev/null | head -n1)"
+			[[ -z "$_found_cres" ]] && _found_cres="$(find "$_cres_tmp" -maxdepth 3 -name cres -type f 2>/dev/null | head -n1)"
+			if [[ -n "$_found_cres" ]] && [[ -f "$_found_cres" ]]; then
+				mkdir -p "$ROOT_PATH/usr/bin" 2>/dev/null || true
+				if cp "$_found_cres" "$ROOT_PATH/usr/bin/cres" 2>/dev/null; then
+					chmod 0755 "$ROOT_PATH/usr/bin/cres" 2>/dev/null || true
+						rm -rf "$_cres_tmp" 2>/dev/null || true
+					return 0
+				fi
+				fi
+				rm -rf "$_cres_tmp" 2>/dev/null || true
 		fi
-		whiptail --msgbox --title "$title" "couldn't unpack $spk_src, trying other spk sources" 8 60 || true
-		spk_src=""
+		whiptail --msgbox --title "$title" "couldn't unpack $cres_src, trying other cres sources" 8 60 || true
 	fi
-	if [[ -f /usr/bin/spk ]]; then
-		if cp /usr/bin/spk "$ROOT_PATH"/usr/bin/spk 2>/dev/null; then
-			return
+
+	# Try /usr/bin/cres from live system
+	if [[ -f /usr/bin/cres ]]; then
+		if cp /usr/bin/cres "$ROOT_PATH"/usr/bin/cres 2>/dev/null; then
+			return 0
 		fi
-		whiptail --msgbox --title "$title" "couldn't install live spk, trying other sources" 8 60 || true
+		whiptail --msgbox --title "$title" "couldn't install live cres, trying other sources" 8 60 || true
 	fi
-	if [[ -f /mnt/spk ]]; then
-		if cp /mnt/spk "$ROOT_PATH"/usr/bin/spk 2>/dev/null; then
-			return
+
+	# Try /mnt/cres from medium
+	if [[ -f /mnt/cres ]]; then
+		if cp /mnt/cres "$ROOT_PATH/usr/bin/cres" 2>/dev/null; then
+			return 0
 		fi
-		whiptail --msgbox --title "$title" "couldn't install spk from medium, trying other sources" 8 60 || true
+		whiptail --msgbox --title "$title" "couldn't install cres from medium, trying other sources" 8 60 || true
 	fi
-	if [[ -d /mnt/spk ]]; then
-		if [[ -f /mnt/spk/spk ]]; then
-			cp /mnt/spk/spk "$ROOT_PATH"/usr/bin/spk 2>/dev/null && return
-		fi
-		whiptail --msgbox --title "$title" "/mnt/spk is a directory, skipping it" 8 50 || true
-	fi
-	return
 }
 
 install-network() {

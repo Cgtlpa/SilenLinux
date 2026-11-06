@@ -110,7 +110,7 @@ EOF
 	whiptail --infobox "Installing the system this might take a while...\n(copying kernel and drivers)" 8 60 2>/dev/null || true
 	install-modules
 	whiptail --infobox "Installing the system this might take a while...\n(installing packages and network)" 8 60 2>/dev/null || true
-	install-spk
+	install-cres
 	install-network
 	install-nvidia-auto
 	whiptail --infobox "Installing the system this might take a while...\n(creating users and finishing setup)" 8 60 2>/dev/null || true
@@ -118,23 +118,20 @@ EOF
 	install-branding
 	install-target-scripts
 	install-extras
-	mkdir -p "$ROOT_PATH"/usr/share/silen 2>/dev/null || true
-	cat > "$ROOT_PATH"/usr/share/silen/spk-help.txt <<'EOF'
-spk - Silen package manager (spark)
+mkdir -p "$ROOT_PATH"/usr/share/silen 2>/dev/null || true
+	cat > "$ROOT_PATH"/usr/share/silen/cres-help.txt <<'EOF'
+cres - Silen package manager
 
-  sudo spk get <package> [package...]   install one or more packages
-  sudo spk rm <package> [package...]    remove packages and their files
-  sudo spk update                       update every installed package
-  sudo spk update <package> [...]       update (or install) specific packages
-  spk find <pattern>                   search installed packages
-  spk search [pattern]                 search the remote package index
-  spk list                              list installed packages with versions
+  sudo cres install <package> [package...]   install one or more packages
+  sudo cres remove <package> [package...]    remove packages and their files
+  sudo cres update                           update every installed package
+  cres search <pattern>                      search the remote package index
+  cres list                                  list installed packages with versions
+  cres info <package>                        show package details
 
 System packages (desktops, drivers, firmware, dbus, iwd) install into /.
 Leaf apps install isolated with shims in /usr/local/bin.
-Per-user installs: spk get <package> --user (shims in ~/.local/bin).
-Custom repo: SPK_BASE_URL=https://... spk get <package>
-Full docs: spk --help
+
 Wi-Fi: iwctl, diagnostics: silen-wifi-check
 DNS: /etc/resolv.conf (nameserver 1.1.1.1 fallback, iwd updates it)
 Wi-Fi diagnostics: silen-wifi-check | GPU/NVIDIA diagnostics: silen-nvidia-check
@@ -142,9 +139,6 @@ Network out of the box: wired uses dhcpcd, Wi-Fi uses iwd (iwctl). No network
 at all until you plug in or connect, then DNS just works.
 NVIDIA: display works out of the box via nouveau (in-tree + firmware).
 For proprietary (nvidia-smi, CUDA) use the NVIDIA ISO variant, which ships
-prebuilt driver modules. The normal ISO has no compiler, so building the
-driver on the target is not supported.
-Diagnose any time with: silen-nvidia-check
 EOF
 	chmod 644 "$ROOT_PATH"/usr/share/silen/spk-help.txt 2>/dev/null || true
 	setup-root-shell
