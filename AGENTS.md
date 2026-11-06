@@ -12,6 +12,9 @@ This file is for AI coding agents working in this repo. `README.md` is for users
 - **Bootloader**: GRUB2, UEFI-only. ISO assembled with `grub-mkrescue`. EFI payload shipped in `grub-bundle/`.
 - **Base system**: `tarball-silen.xz` or `stage3-*.tar.*` in repo root, extracted by the installer. ISO boots without it but the installer will refuse to install. The shipped tarball is a stripped Gentoo base: no portage tree, no portage/gnupg keys, no gcc or build toolchain.
 - **Package manager**: `spk`, Rust binary in `spk/` (`spk/src/get.rs` = `spk get`, `find.rs` = `spk find`, `remove.rs` = `spk rm`).
+- **Desktop**: InstantWM is the default Wayland compositor on the live ISO and installed system. Rofi (`mod4+Space`) is the application launcher; Kitty (`mod4+Return`) is the default terminal. InstantMenu (`mod4+E`) remains available.
+- **Wi-Fi**: iwd is the only Wi-Fi backend (no NetworkManager). `iwctl`/`iwmon` on D-Bus.
+- **TTY**: `agetty` runs on tty2-tty6 in both live and installed systems. Ctrl+Alt+F2..F6 switch to text consoles.
 - **License**: AGPLv3 (`LICENSE`).
 
 ## 2. Repo map — read this before editing
@@ -24,8 +27,9 @@ scripts/make-grub-bundle.sh  Packages compiled GRUB (GRUB_SRC=~/grub) into grub-
 scripts/wifi-check.sh         Live diagnostics → installed as /usr/bin/silen-wifi-check.
 scripts/mkspk-*.sh            Build spk package payloads from Gentoo gpkg / Arch binaries (xorg, wayland, sddm).
 scripts/mkspk-audio.sh        Builds full pipewire/wireplumber/lua-libs/libasyncns/libpulse + silen-audio packages and patches mango/niri session launchers.
+scripts/build-nvidia-kmods.sh Build NVIDIA driver kernel modules for nvidia-iso variant.
 boot/vmlinuz                  Kernel image shipped on ISO.
-rootfs/init                   Live init (sh). Mounts medium, starts NM/dbus, launches installer, falls back to shell.
+rootfs/init                   Live init (sh). Mounts medium, starts dbus/iwd/seatd, launches InstantWM desktop, falls back to shell. Starts agetty on tty2-tty6.
 rootfs/bin/busybox            Static busybox + applet symlinks created at build time.
 rootfs/lib/modules/<ver>/     Kernel modules source for initramfs + kernel bundle.
 rootfs/lib/firmware/          Firmware source (mostly wifi; GPU merged from host into the ISO firmware/ dir at build time).
@@ -38,12 +42,13 @@ installer/lib/                Modular installer, sourced in order:
   40-base.sh    mount target, extract tarball
   50-settings.sh hostname/root/user/fstype/locale/keymap/timezone/swapfile
   60-system.sh  permissions, elogind, quiet OpenRC, motd, silenfetch alias
-  70-payloads.sh kernel+firmware+network bundles, spk binary, OpenRC services (dbus/iwd)
+  70-payloads.sh kernel+firmware+network bundles, spk binary, OpenRC services (dbus/iwd/agetty on tty2-tty6)
   75-extras.sh  busybox logs/ntpd/bootlogd/fstrim/microcode/resume, builds initramfs-silen.img
   90-grub.sh    copy kernel, use initramfs-silen.img (fallback live), EFI grub-install. Refuses legacy boot.
 target-scripts/               Copied to installed /usr/local/bin (silen-mkinitramfs, silen-setup). silen-mkinitramfs decompresses .ko.zst modules on purpose: busybox modprobe cannot read compressed modules.
 spk/                          Cargo project. [[bin]] spk path = src/get.rs. Deps: flate2, sha2, tar, ureq.
 spk/src/get.rs                SYSTEM_EXACT list + looks_like_system_package() decides / vs /spk_pkgs/<name>.
+silen-installer/              Rust/egui graphical installer (async Wi-Fi scan/connect via iwd).
 grub-bundle/usr/local/        Prebuilt GRUB EFI. Copy of `make install DESTDIR` output.
 branding/                     fastfetch_logo.txt + info.txt (name/version/kernel).
 ```
@@ -68,6 +73,8 @@ KERNEL_VERSION=6.18.54-silen KERNEL_SOURCE=/path/vmlinuz MODULES_SOURCE=/path/mo
 ./scripts/mkspk-audio.sh all    # rebuild audio packages + patch mango/niri; upload package dirs and packages/index.json to HF, no ISO rebuild needed
 cargo check --manifest-path spk/Cargo.toml
 cargo clippy --manifest-path spk/Cargo.toml
+cargo test --manifest-path silen-installer/Cargo.toml   # installer unit tests
+cargo build --release --manifest-path silen-installer/Cargo.toml
 bash -n <edited .sh>            # always syntax-check shell edits
 ```
 
@@ -76,19 +83,20 @@ bash -n <edited .sh>            # always syntax-check shell edits
 
 ## 4. Boot + install flow (don't break this chain)
 
-1. GRUB (`build/iso/boot/grub/grub.cfg` generated at `scripts/build.sh:1118`): two entries — `Silen Linux` (`loglevel=4 console=ttyS0 console=tty0`) and fallback (`nomodeset`). Keep both.
+1. GRUB (`build/iso/boot/grub/grub.cfg` generated at `scripts/build.sh:1118`): entries — `Silen Linux` (`loglevel=4 console=ttyS0 console=tty0` + `nvidia-drm.modeset=1` on NVIDIA ISO), fallback (`nomodeset`), text installer (`silen.text`). Keep all.
 2. Kernel 6.18 + `initramfs.zst` → `rootfs/init`:
    - mounts proc/sys/dev, loads `/etc/modules` via modprobe,
-   - honors `root=` cmdline for switch_root, else live mode,
-   - starts `dbus-daemon --system`, `iwd`, unblocks rfkill,
+   - starts `dbus-daemon --system`, `iwd` (with `rfkill unblock all`), seatd,
    - scans block devices for tarball, loop-mounts `*silen*.iso` for Ventoy,
-   - execs `/installer/main.sh`, else drops to `sh` loop.
+   - starts `agetty` on tty2-tty6,
+   - execs `/installer/main.sh` (or InstantWM desktop), else drops to `sh` loop.
 3. Installer writes GPT (ESP + root: ext4/btrfs) → extracts tarball → unpacks `kernel-*.tar.zst` + `/mnt/firmware` + `network.tar.zst` + `spk` → builds `initramfs-silen.img` with `silen-mkinitramfs` → GRUB EFI.
 
 ## 5. Hardware / firmware policy (common breakage area)
 
 - Initramfs module allow-lists: `ALLOW` (storage/net/fs, `scripts/build.sh:37`) + `ALLOW_WIFI` (`scripts/build.sh:50`). Deps resolved via `modinfo -F depends`. `FULL=1` bypasses the list.
-- `BLACKLIST` (`scripts/build.sh:93`): `nvidia*`, `zfs*`, `splat`, `icp` — never pack these into the initramfs.
+- `BLACKLIST` (`scripts/build.sh:93`): `nvidia*`, `zfs*`, `splat`, `icp` — never pack these into the initramfs **except** when `NVIDIA=1`, where `nvidia` modules are intentionally un-blacklisted so they can load after driver installation.
+- `nouveau` is added to `ALLOW` when `NVIDIA=1` so the live environment has an open-source NVIDIA driver with KMS (`nvidia-drm.modeset=1` on GRUB cmdline).
 - Firmware: per-module `modinfo -F firmware` + explicit per-driver globs (`scripts/build.sh:675`), then full `rootfs/lib/firmware` copy into the live initramfs. GPU firmware (`amdgpu amd-ucode intel-ucode i915 xe nouveau radeon`) is merged into the ISO `firmware/` dir only (`scripts/build.sh`); the installer copies that dir to target `/lib/firmware`.
 - **Do NOT add `nvidia` firmware blobs.** ~200M, proprietary-driver-only, pushes ISO over 1.5GB. Use `make nvidia-iso` (prebuilt kmods) — the normal base has no compiler, so on-target `spk get nvidia-drivers` builds are unsupported.
 - **Black-screen fix (2026-09-21)**: keep the GPU firmware merge in the ISO `firmware/` dir (offline installs copy it to target). The live initramfs packs no GPU modules, so GPU/ucode firmware was removed from it (2026-10-19, ~60MB saved); don't re-add it unless GPU modules are added to the initramfs.
@@ -112,13 +120,14 @@ bash -n <edited .sh>            # always syntax-check shell edits
 - `copy_libs()` / `copy_app()` in `build.sh:368` resolve `ldd` deps into the ramroot + `ldconfig -r`. NSS (`libnss_dns/files`) is dlopen'd, never in `ldd` — it's copied manually. Don't remove that or live DNS dies.
 - No static `/etc/machine-id` in ramroot — live init runs `dbus-uuidgen --ensure` each boot so clones get unique IDs.
 - `build.sh` builds `spk` with `cargo build --release --locked`. If you change `spk/Cargo.toml`, refresh `spk/Cargo.lock` (plain `cargo check`) or the ISO build fails.
+- `silen-installer` is a separate Cargo project (`silen-installer/Cargo.toml`). Build with `cargo build --release --manifest-path silen-installer/Cargo.toml`. Test with `cargo test --manifest-path silen-installer/Cargo.toml`.
 
 ## 8. Before you finish
 
-1. `bash -n` every edited shell file; `cargo check` (and `clippy` if touched) for `spk/`.
-2. If you changed `scripts/build.sh`, `rootfs/init`, `installer/lib/*`, or `spk/`: state in your summary whether you ran `make iso` / `make qemu` or not, and why.
-3. Don't commit `build/`, `spk/target/`, `tarball-silen.xz`, or `*.iso` (see `.gitignore`).
-4. Keep `README.md` (users) and this file (agents) in sync on: kernel version, init system, build commands, installer modes.
+1. `bash -n` every edited shell file; `cargo check` (and `clippy` if touched) for `spk/`; `cargo test` for `silen-installer/`.
+2. If you changed `scripts/build.sh`, `rootfs/init`, `installer/lib/*`, `spk/`, or `silen-installer/`: state in your summary whether you ran `make iso` / `make qemu` or not, and why.
+3. Don't commit `build/`, `spk/target/`, `silen-installer/target/`, `tarball-silen.xz`, or `*.iso` (see `.gitignore`).
+4. Keep `README.md` (users) and this file (agents) in sync on: kernel version, init system, build commands, installer modes, desktop apps (InstantWM/Rofi/Kitty), Wi-Fi backend (iwd), TTY config.
 
 ## 9. Agent working rules (binding)
 

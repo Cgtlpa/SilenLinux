@@ -1,184 +1,185 @@
 # Silen Linux
 
-> Reliable by default. Powerful when you want it.
+Silen Linux is an independent, lightweight x86_64 Linux distribution built from the ground up. It is not a reskin of another distro — Silen has its own initramfs (`rootfs/init`), its own offline installer (`installer/`), its own package manager (`spk`), and its own ISO builder (`scripts/build.sh`). No systemd, no NetworkManager, no bloat. Just a minimal, fast base you build on top of.
 
-Silen Linux is an independent, lightweight Linux distribution focused on simplicity, stability, and performance. It boots as a minimal live environment and installs a clean base system you build on top of — no bloat, no forced desktop, full control.
-
----
-
-## At a glance
+## What Silen is
 
 | Component | What Silen uses |
 |---|---|
 | Kernel | Linux 6.18 (`boot/vmlinuz` + `rootfs/lib/modules/`) |
-| Init (installed system) | OpenRC (`rc-update`, `installer/lib/70-payloads.sh:404`) |
-| Live init | Custom BusyBox-based initramfs, `/init` from `rootfs/init` |
-| Arch | x86_64, UEFI only (installer refuses legacy boot, `installer/lib/90-grub.sh`) |
-| Bootloader | GRUB2 via `grub-mkrescue`, EFI bundle from `grub-bundle/` |
-| Base system | `tarball-silen.xz` / `stage3-*.tar.*` (Gentoo base without portage tree/compiler) unpacked onto target |
-| Package manager | `spk` — Rust tool in `spk/src/get.rs`, built into the ISO |
-| Live networking | iwd + `iwctl`/`iwmon` + D-Bus |
-| Filesystems (live + install) | ext4, btrfs, xfs, vfat, exfat, ntfs3, squashfs, isofs, fuse |
+| Init (installed system) | OpenRC (`rc-update`, `elogind`) |
+| Live init | Custom BusyBox-based initramfs (`rootfs/init`) |
+| Arch | x86_64, UEFI only (legacy boot refused) |
+| Bootloader | GRUB2 via `grub-mkrescue` |
+| Base system | `tarball-silen.xz` / `stage3-*.tar.*` (Gentoo base without portage tree/compiler) |
+| Package manager | `spk` — Rust tool (`spk/src/get.rs`), built into the ISO |
+| Wi-Fi backend | iwd + `iwctl`/`iwmon` + D-Bus (no NetworkManager) |
+| Window manager | InstantWM (Wayland, DRM/KMS backend) |
+| App launcher | Rofi (`mod4+Space`) |
+| Terminal | Kitty (`mod4+Return`) |
 | License | AGPLv3 (`LICENSE`) |
 
----
+## Key features
 
-## Features
+### Independent, not derivative
+Silen builds its own live ISO, its own installer, and its own package manager. There is no dependency on Arch, Gentoo, Debian, or any other distro's infrastructure.
 
-- **Independent distro** — own ISO builder (`scripts/build.sh`), init (`rootfs/init:1`), installer (`installer/`), and package manager (`spk/`).
-- **Linux 6.18 kernel** — ships as `boot/vmlinuz` on the ISO plus a `kernel-$KVER.tar.zst` bundle that gets unpacked into the installed system (`scripts/build.sh:861`).
-- **Minimal live RAM root** — BusyBox + bash, `whiptail`, `git`, `curl`, `zstd`, `tar`, `sfdisk`, `blkid`, `mkfs.ext4/vfat`, iwd stack, CA certs, terminfo — assembled in `scripts/build.sh:304`.
-- **Broad hardware support out of the box:**
-  - Storage: AHCI, NVMe, virtio-blk/scsi, MMC/SDHCI, USB-storage/UAS (`scripts/build.sh:37`).
-  - Wired + USB tethering: `e1000/e1000e`, `r8169`, `igb`, `ixgbe`, `r8152`, `alx`, `cdc_ether`, `rndis_host` (`scripts/build.sh:42`).
-  - Wi-Fi: Intel `iwlwifi`, Atheros `ath9k/ath10k/ath11k/ath12k`, MediaTek `mt76/mt79xx`, Realtek `rtw88/rtw89/rtlwifi/rtl8xxxu`, Broadcom `brcmfmac/b43`, Marvell, Ralink, TI, etc. (`scripts/build.sh:50`, `scripts/add-wifi.sh:40`).
-  - GPU firmware for installed systems: `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon` are merged into the ISO `firmware/` bundle and copied to target `/lib/firmware` (`scripts/build.sh`). The live initramfs no longer carries them (no GPU modules are packed there). NVIDIA blobs are intentionally excluded (~200M): use the opt-in `make nvidia-iso` variant, which prebuilds the driver kmods via `scripts/build-nvidia-kmods.sh` with no on-target compile. The normal base ships no compiler.
-- **Offline installer** — whiptail TUI (`installer/lib/20-ui.sh:1`): base system only, no network needed. Filesystem choice (ext4/btrfs), 15 timezones, 15 keymaps, hostname defaults to `silen`.
-- **`spk` package manager** — `spk get / find / rm` (`spk/src/get.rs:1`, `spk/src/find.rs:1`, `spk/src/remove.rs:1`). System packages (kernels, drivers, DEs, DMs) install to `/`; leaf apps go isolated to `/spk_pkgs/<name>` with shims in `/usr/local/bin`.
-- **Post-install via `spk`** (after reboot, with network): `spk get linux-firmware mesa xorg-server sddm ly dwm dmenu st` — the repo currently ships display managers, X11/Wayland building blocks, and apps rather than desktop meta-packages. For a lightweight X11 desktop: `spk get icewm` (pulls Imlib2, ALSA, libsndfile, librsvg, Xorg and fonts automatically). For a Wayland desktop: `spk get xorg-libs gtk-libs cxx-libs sddm waybar mango swaybg awww` (`swww` is a compatibility alias for `awww`). Full desktop stacks can be layered on top.
-- **Audio** — `spk get silen-audio` installs the full PipeWire server (SPA plugins, ALSA integration, PulseAudio compatibility), WirePlumber, PipeWire-Pulse, and PulseAudio client tools. `mango` and `niri` depend on it and start it from their session desktop files. `spk get pipewire` alone also installs the complete server payload.
-- **Safe kernel updates** — the installer builds a small boot initramfs from the target's modules (`target-scripts/silen-mkinitramfs`); `spk` regenerates it automatically when a kernel package is installed, and `spk rm` refuses to delete `/boot` kernels, initramfs images, or GRUB files.
-- **Diagnostics built in** — `silen-wifi-check` (from `scripts/wifi-check.sh`) dumps `lsmod`, `ip link`, `rfkill`, `lspci/lsusb`, `dmesg`, `iwctl`, `iwd`, D-Bus helper status to `/tmp/silen-wifi.log`.
+### Linux 6.18 kernel
+Shipped as `boot/vmlinuz` on the ISO, with a `kernel-6.18.54-silen.tar.zst` bundle unpacked into the installed system.
 
----
+### Minimal live environment
+The ISO boots into a RAM root with BusyBox, bash, `whiptail` (TUI installer), `git`, `curl`, `zstd`, `tar`, `sfdisk`, `blkid`, filesystem tools, iwd Wi-Fi stack, and CA certificates.
 
-## Live ISO layout
+### Broad hardware support
+- **Storage**: AHCI, NVMe, virtio-blk/scsi, MMC/SDHCI, USB-storage/UAS
+- **Wired**: `e1000/e1000e`, `r8169`, `igb`, `ixgbe`, `r8152`, `alx`, `cdc_ether`, `rndis_host`
+- **Wi-Fi**: Intel `iwlwifi`, Atheros `ath9k/ath10k/ath11k`, MediaTek `mt76/mt79xx`, Realtek `rtw88/rtw89/rtlwifi`, Broadcom `brcmfmac/b43`, and more
+- **GPU firmware** (installed system): `amdgpu`, `amd-ucode`, `intel-ucode`, `i915`, `xe`, `nouveau`, `radeon`
+- **NVIDIA**: Opt-in `make nvidia-iso` variant prebuilds the proprietary driver kernel modules; the normal base ships no compiler and no NVIDIA blobs (~200MB saved)
 
-Built by `scripts/build.sh` into `build/silen-linux.iso` via `grub-mkrescue`:
+### Offline installer (whiptail TUI)
+No network required to install. Filesystem choice (ext4/btrfs), hostname, root password, optional user, locale/keymap/timezone, optional swapfile. Disk is wiped and repartitioned with GPT (ESP + root).
 
-```text
-/boot/vmlinuz              kernel (Linux 6.18)
-/boot/initramfs.zst        compressed cpio ramdisk (zstd default, gzip/xz optional)
-/boot/grub/grub.cfg        "Silen Linux" + "Silen Linux (fallback, nomodeset)"
-/kernel-*.tar.zst          kernel + full module tree for the installed system
-/network.tar.zst           iwd/iwctl/iwmon/dbus bundle
-/firmware/                 Wi-Fi + GPU firmware copied to target on offline installs
-/spk                       prebuilt spk binary (also re-packed into the initramfs at scripts/build.sh:1031)
-/target-scripts/           helper scripts copied into the installed system (silen-mkinitramfs, silen-setup)
-/grub/usr/local/           GRUB EFI bundle (see scripts/make-grub-bundle.sh:1)
-/branding/                 fastfetch logo + info (branding/fastfetch_logo.txt:1)
-stage3-*.tar.* / tarball-silen.xz   base rootfs the installer extracts
-```
-
-The NVIDIA variant additionally ships `headers-*.tar.zst` and `nvidia-kmods-*.tar.zst`; the normal ISO has no compiler, so headers are not included.
-
-GRUB menu is verbose by default (`loglevel=4 console=ttyS0 console=tty0`, `terminal_output gfxterm console`) so boot failures are visible instead of a black screen (`scripts/build.sh:1118`).
-
----
-
-## Installer
-
-Entry: `/installer/main.sh` in the live env (started by `rootfs/init:414`). Modular libs in `installer/lib/`:
-
-- `10-medium.sh` — finds the install medium / tarball, handles Ventoy ISO-file boot + loop-mount.
-- `20-ui.sh` — offline menu (Install/Shell/Reboot).
-- `30-partition.sh` — disk pick, wipe confirm, GPT layout: 1MiB–1GiB ESP (`fat32`, `esp on`) + root to 100%. Handles `nvme/mmcblk` `p1/p2` naming.
-- `40-base.sh` — mounts target, extracts tarball (strips single top-level dir).
-- `50-settings.sh` — hostname, root password, optional user, locale/keymap/timezone, swapfile.
-- `60-system.sh` — suid/permissions fix, `elogind`, quiet OpenRC, motd, `silenfetch` (`/usr/local/bin/silenfetch` → `fastfetch -l /usr/share/silen/fastfetch_logo.txt`; plain `fastfetch` also shows it via `/etc/fastfetch/config.jsonc`).
-- `70-payloads.sh` — installs kernel bundle, firmware, network bundle, `spk` binary, writes OpenRC services for `dbus`/`iwd`.
-- `75-extras.sh` — busybox log services, ntpd, bootlogd, fstrim, early microcode, resume params, and `silen-mkinitramfs` (builds the installed system's boot initramfs).
-- Extra drivers, firmware, and desktops are installed after reboot via `spk` (needs network).
-- `90-grub.sh` — copies the kernel, uses the target-generated `initramfs-silen.img` (falls back to the live initramfs), requires UEFI (`/sys/firmware/efi`), installs GRUB from `/mnt/grub`.
-
-Root filesystems offered: BTRFS, ext4 (whiptail menu).
-
----
-
-## `spk` package manager
-
-Source: `spk/` (`spk/Cargo.toml:1`, `spk/Makefile:1`).
-
+### `spk` package manager
+After the first reboot, install packages with network:
 ```sh
-spk get <pkg...>     # install (e.g. spk get linux-firmware, spk get swaybg awww)
+spk get <pkg...>     # install (e.g. spk get linux-firmware mesa sddm)
 spk find <pattern>   # search installed registry
-spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, /boot kernels or GRUB files)
+spk rm <pkg...>      # remove (never deletes /etc/passwd, shadow, fstab, /boot kernels, or GRUB files)
 ```
+- System packages (kernels, drivers, firmware, DEs, DMs) install to `/`
+- Leaf apps install isolated to `/spk_pkgs/<name>` with shims in `/usr/local/bin`
+- Audio: `spk get silen-audio` (full PipeWire, WirePlumber, ALSA/Pulse clients)
+- Default source: `https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages`
 
-- System packages land in `/` (drivers, firmware, DEs, DMs — see `SYSTEM_EXACT` in `spk/src/get.rs:28`).
-- Leaf apps land isolated with shims, per-user with `--user`.
-- Audio: `spk get silen-audio` (PipeWire, WirePlumber, PipeWire-Pulse, ALSA/Pulse clients); `mango` and `niri` pull it in automatically.
-- Wallpaper managers: `swaybg -i <image>` on wlroots compositors, or `awww-daemon &` plus `awww img <image>` (`swww` is a compatibility alias). Mango users can add `exec-once=awww-daemon` to `~/.config/mango/config.conf`.
-- Default package source: `https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages` (`spk/src/get.rs:15`). Override per-call with `SPK_BASE_URL=...`.
+### Desktop: InstantWM + Rofi + Kitty
+The live ISO and installed system boot to InstantWM, a lightweight Wayland compositor:
+- `mod4+Space` → Rofi application launcher (`rofi -show drun`)
+- `mod4+Return` → Kitty terminal
+- `mod4+E` → InstantMenu
+- `mod4+Shift+Q` → kill focused window
+- `mod4+Arrows` → move focus; `mod4+C/M/R` → floating/maximized/reset layout
+
+### TTY access
+`agetty` runs on tty2-tty6. Press `Ctrl+Alt+F2` through `F6` to switch to text consoles, `Ctrl+Alt+F1` to return to the graphical session.
+
+### Safe kernel updates
+The installer builds `initramfs-silen.img` for the target. `spk` regenerates it automatically when a kernel package is installed, and refuses to delete `/boot` kernels, initramfs images, or GRUB files.
+
+### Built-in diagnostics
+`silen-wifi-check` (from `scripts/wifi-check.sh`) dumps `lsmod`, `ip link`, `rfkill`, `lspci/lsusb`, `dmesg`, `iwctl`, `iwd`, and D-Bus status to `/tmp/silen-wifi.log`.
 
 ---
 
-## Building
+## Installation
 
-### Requirements (host)
+### 1. Get the ISO
+Download the latest `silen-linux.iso` from Releases, or build it yourself (see below).
 
-`grub-mkrescue` (`grub`, `xorriso`, `mtools`, `dosfstools`), `cpio`, `zstd`/`gzip`/`xz`, `tar`, `modinfo`, `depmod`, `ldconfig`, `strip`, `cargo` (for `spk`), OVMF firmware for QEMU. The script tells you exactly what's missing (`scripts/build.sh:149`, `scripts/build.sh:406`).
+### 2. Write to USB
+```sh
+# Replace /dev/sdX with your USB device — WARNING: this wipes the device
+sudo dd if=silen-linux.iso of=/dev/sdX bs=4M status=progress
+```
+Ventoy ISO-file boot is also supported (the installer scans for `*silen*.iso` loop mounts).
+
+### 3. Boot in UEFI mode
+Silen is UEFI-only. Legacy/BIOS boot is refused by the installer.
+
+### 4. Install
+The live environment starts InstantWM. From there you can:
+- Launch the graphical installer (`silen-installer` — Rust/egui GUI) for a guided install with optional Wi-Fi setup
+- Or boot with `silen.text` on the GRUB cmdline for the whiptail TUI installer
+
+The installer will:
+1. Detect and select the target disk (it will be wiped → GPT + ESP fat32 + root ext4/btrfs)
+2. Extract the base system tarball
+3. Unpack the kernel bundle, firmware, network bundle (iwd + dbus), and `spk`
+4. Build the target's `initramfs-silen.img`
+5. Install GRUB to the EFI partition
+
+### 5. First boot
+After reboot:
+- Log in via TTY or wait for SDDM (if installed via `spk`)
+- Configure Wi-Fi with `iwctl` if needed: `iwctl station <device> scan`, then `station <device> connect <SSID>`
+- Install desktops and apps with `spk` (needs network):
+  ```sh
+  spk get sddm              # display manager
+  spk get sway foot         # Wayland compositor + terminal
+  spk get linux-firmware    # additional firmware
+  ```
+- Run `silenfetch` to see the distro logo
+
+---
+
+## Building the ISO
+
+### Host requirements
+`grub-mkrescue` (`grub`, `xorriso`, `mtools`, `dosfstools`), `cpio`, `zstd`, `tar`, `modinfo`, `depmod`, `ldconfig`, `strip`, `cargo` (for `spk`), OVMF firmware for QEMU.
 
 ### Commands
-
 ```sh
-make iso         # sudo nice -n 10 ionice -c 3 ./scripts/build.sh  (Makefile:9)
-make nvidia-iso  # NVIDIA variant: auto-installs the proprietary driver on NVIDIA GPUs
-make qemu        # boot build/silen-linux.iso in UEFI QEMU (4G RAM, q35, 8G disk.img)
-make clean       # rm -rf build
+# Clone
+git clone https://github.com/Cgtlpa/SilenLinux.git
+cd SilenLinux
+
+# Build the standard ISO
+make iso          # builds build/silen-linux.iso (~3.3G)
+
+# Build the NVIDIA variant (prebuilt proprietary driver kmods)
+make nvidia-iso   # needs headers-<kver>.tar.zst
+
+# Boot in QEMU (UEFI, 4G RAM, 8G disposable disk)
+make qemu
+
+# Clean build artifacts
+make clean
 ```
 
-Place your kernel at `boot/vmlinuz`, modules at `rootfs/lib/modules/<ver>/`, firmware at `rootfs/lib/firmware/`, and `tarball-silen.xz` (or `stage3-*.tar.*`) in the repo root before building — otherwise the ISO boots but the installer refuses to install (`scripts/build.sh:960`).
+### Before building
+Place these in the repo root (or the build will complain):
+- `boot/vmlinuz` — kernel image
+- `rootfs/lib/modules/6.18.54-silen/` — module tree
+- `rootfs/lib/firmware/` — firmware files
+- `tarball-silen.xz` or `stage3-*.tar.*` — Gentoo base rootfs (the installer refuses to install without it)
 
-### Useful env overrides (`scripts/build.sh:13`)
-
+### Useful environment overrides
 | Var | Default | Meaning |
 |---|---|---|
-| `KERNEL_VERSION` | auto from `rootfs/lib/modules/*` | module dir / depmod version |
+| `KERNEL_VERSION` | auto-detected | module dir / depmod version |
 | `KERNEL_SOURCE` | `boot/vmlinuz` | kernel image to ship |
-| `MODULES_SOURCE` | `rootfs/lib/modules/$KERNEL_VERSION` | falls back to host `/usr/lib/modules/$(uname -r)` |
-| `FIRMWARE_SOURCE` | `rootfs/lib/firmware` | merged with host `/lib/firmware` |
-| `COMPRESS` | `zstd` | `zstd` / `gzip` / `xz` initramfs compression |
+| `MODULES_SOURCE` | `rootfs/lib/modules/$KERNEL_VERSION` | module tree path |
+| `COMPRESS` | `zstd` | initramfs compression (`zstd`/`gzip`/`xz`) |
 | `FULL` | `0` | `1` = pack entire module tree instead of allow-list |
-| `AUTO_HOST` | `0` | `1` = also include currently loaded host modules |
 | `FORCE` | `0` | `1` = build even with <2G RAM |
-| `MIN_RAM_MB` / `MIN_DISK_MB` | `2048` | safety checks |
-
-### Helper scripts
-
-- `scripts/add-wifi.sh` — sync Wi-Fi modules + firmware from the host into `rootfs/` (run before `make iso` when adding new drivers).
-- `scripts/make-grub-bundle.sh` — build `grub-bundle/` from a compiled GRUB tree (`GRUB_SRC=~/grub`), required for the installer to set up EFI boot.
-- `scripts/make-headers-bundle.sh` — build `headers-<kver>.tar.zst` from the exact prepared kernel source (`KERNEL_SRC=...`); used by `make nvidia-iso` and shipped only on that variant.
-- `scripts/wifi-check.sh` — live Wi-Fi diagnostics, installed as `/usr/bin/silen-wifi-check`.
-- `scripts/nvidia-check.sh` — GPU/driver diagnostics, installed as `/usr/local/bin/silen-nvidia-check`.
 
 ---
 
 ## Project layout
 
-```text
-Makefile                  make iso / qemu / clean
-scripts/build.sh          7-stage ISO builder (modules -> ramdisk -> initramfs -> ISO)
-scripts/add-wifi.sh       vendor Wi-Fi modules/firmware into rootfs/
-scripts/make-grub-bundle.sh  package GRUB EFI bits into grub-bundle/
-scripts/wifi-check.sh     live diagnostics
-boot/vmlinuz              Linux 6.18 kernel image
-rootfs/                   initramfs source: init, bin/busybox, lib/modules, lib/firmware
-installer/                whiptail installer (main.sh + lib/00-common..90-grub)
-spk/                      Rust package manager (get/find/remove)
-grub-bundle/              prebuilt GRUB EFI payload shipped on the ISO
-branding/                 fastfetch logo + distro info
 ```
-
----
-
-## Installation (user flow)
-
-1. Download the latest ISO from Releases.
-2. Write it to USB (`dd` is most reliable; Ventoy ISO-file boot is also scanned for).
-3. Boot the USB in **UEFI mode**.
-4. Install (base only, offline).
-5. Select disk (it will be wiped → GPT + ESP + root), hostname, root password, user.
-6. Pick the filesystem (ext4/btrfs) and an optional swapfile; GPU drivers and desktops are installed after the first reboot with `spk` (see below).
-7. Reboot into Silen. Run `iwctl` if Wi-Fi needs configuring, `silenfetch` for the logo.
-
-QEMU smoke test: `make qemu` (needs `qemu-system-x86_64` + OVMF, creates `build/disk.img` on first run).
+Makefile                  make iso / qemu / clean
+scripts/build.sh          7-stage ISO builder
+scripts/add-wifi.sh       vendor Wi-Fi modules/firmware into rootfs/
+scripts/make-grub-bundle.sh  package GRUB EFI into grub-bundle/
+scripts/wifi-check.sh     live Wi-Fi diagnostics (/usr/bin/silen-wifi-check)
+boot/vmlinuz              Linux 6.18 kernel image
+rootfs/                   initramfs source: init, busybox, modules, firmware
+installer/                whiptail TUI installer (main.sh + lib/)
+silen-installer/          Rust/egui graphical installer
+spk/                      Rust package manager (get/find/remove)
+grub-bundle/              prebuilt GRUB EFI payload
+branding/                 fastfetch logo + distro info
+LICENSE                   AGPLv3
+```
 
 ---
 
 ## Contributing
 
-Bug reports and contributions: https://discord.gg/WxbRRURcZ
+Bug reports, fixes, and package contributions are welcome. See `AGENTS.md` for the agent/contributor guide (build commands, repo layout, shell style, binding rules).
+
+Project: https://github.com/Cgtlpa/SilenLinux
 
 ---
 
