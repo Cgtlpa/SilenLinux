@@ -215,7 +215,15 @@ if command -v iwd >/dev/null 2>&1; then
 		rfkill unblock all 2>/dev/null || true
 	fi
 	iwd >/dev/null 2>&1 &
-	sleep 3
+	# Wait for iwd to register on D-Bus before allowing scans
+	_i=0
+	while [ $i -lt 30 ]; do
+		if iwctl device list >/dev/null 2>&1; then
+			break
+		fi
+		i=$((i + 1))
+		sleep 0.5
+	done
 else
 	for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
 		if [ -x "$_iwd" ]; then
@@ -224,7 +232,14 @@ else
 				rfkill unblock all 2>/dev/null || true
 			fi
 			"$_iwd" >/dev/null 2>&1 &
-			sleep 3
+			_i=0
+			while [ $i -lt 30 ]; do
+				if iwctl device list >/dev/null 2>&1; then
+					break
+				fi
+				i=$((i + 1))
+				sleep 0.5
+			done
 			break
 		fi
 	done
@@ -576,6 +591,21 @@ elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /us
 	echo "  the graphical installer opens inside the desktop"
 	echo "  add silen.text to the boot command line for the text installer"
 	echo
+
+	# Ensure /dev/tty* devices exist for getty
+	for _tty in tty1 tty2 tty3 tty4 tty5 tty6; do
+		[ -c "/dev/$_tty" ] || mknod "/dev/$_tty" c 4 "$((_tty))" 2>/dev/null || true
+	done
+
+	# Start getty on virtual terminals BEFORE the desktop starts,
+	// so text consoles are available even if the graphics session grabs the DRM device
+	if [ -x /usr/sbin/agetty ] || [ -x /bin/agetty ]; then
+		for _tty in tty2 tty3 tty4 tty5 tty6; do
+			setsid /usr/sbin/agetty /dev/$_tty linux 2>/dev/null &
+		done
+		sleep 1
+	fi
+
 	# Ensure InstantWM config is available for root (XDG_CONFIG_HOME=/root/.config)
 	mkdir -p /root/.config/instantwm 2>/dev/null || true
 	cp -a /etc/skel/.config/instantwm/config.toml /root/.config/instantwm/config.toml 2>/dev/null || true
@@ -595,13 +625,6 @@ elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /us
 	else echo "instantwm: no pid file"; fi
 echo "=== END VERIFICATION ==="
 echo
-
-# Start getty on virtual terminals for text login
-if [ -x /usr/sbin/agetty ] || [ -x /bin/agetty ]; then
-	for _tty in tty2 tty3 tty4 tty5 tty6; do
-		setsid /usr/sbin/agetty /dev/$_tty linux 2>/dev/null &
-	done
-fi
 
 wait "$_lwp"
 _rc=$?

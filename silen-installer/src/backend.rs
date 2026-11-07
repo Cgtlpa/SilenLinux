@@ -856,6 +856,54 @@ pub fn wifi_devices() -> Vec<String> {
     devs
 }
 
+/// Check if iwd is responding on D-Bus by testing iwctl device list.
+pub fn iwd_available() -> bool {
+    let out = run_capture("iwctl", &["device", "list"]);
+    !out.contains("Failed") && !out.contains("Error") && !out.trim().is_empty()
+}
+
+/// Check rfkill status for wireless devices.
+pub fn rfkill_unblock_all() {
+    let _ = run("rfkill", &["unblock", "all"]);
+}
+
+/// Check if any wireless interfaces exist in the system.
+pub fn wifi_interfaces() -> Vec<String> {
+    let mut ifaces = Vec::new();
+    if let Ok(entries) = fs::read_dir("/sys/class/net") {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let wireless_path = format!("/sys/class/net/{}/wireless", name);
+            if Path::new(&wireless_path).exists() {
+                ifaces.push(name);
+            }
+        }
+    }
+    ifaces
+}
+
+/// Wi-Fi diagnostic summary distinguishing failure modes.
+pub fn wifi_diagnostic() -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    let ifaces = wifi_interfaces();
+    if ifaces.is_empty() {
+        lines.push("No wireless network interfaces detected in the system.".into());
+        lines.push("If you have a Wi-Fi adapter, check that it is properly connected and that the kernel driver is loaded.".into());
+        return lines.join("\n");
+    }
+    lines.push(format!("Wireless interface(s): {}", ifaces.join(", ")));
+
+    if !iwd_available() {
+        lines.push("iwd is not running on D-Bus. Wi-Fi scanning requires iwd to be active.".into());
+        lines.push("Start iwd with: iwd (as root) or ensure the iwd OpenRC service is enabled.".into());
+        return lines.join("\n");
+    }
+    lines.push("iwd is running on D-Bus.".into());
+
+    lines.join("\n")
+}
+
 pub fn wifi_scan() -> Vec<String> {
     let devs = wifi_devices();
     let mut networks = Vec::new();
@@ -882,16 +930,19 @@ pub fn wifi_scan_async() -> std::sync::mpsc::Receiver<Result<Vec<String>, String
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let result = (|| -> Result<Vec<String>, String> {
+            // Ensure rfkill is not blocking
+            let _ = run("rfkill", &["unblock", "all"]);
+
             let devs = wifi_devices();
             if devs.is_empty() {
                 return Err("no Wi-Fi device found".into());
             }
             let mut networks = Vec::new();
             for dev in devs {
-                // Start scan (fire and forget; iwctl returns immediately)
+                // Start scan
                 let _ = run("iwctl", &["station", &dev, "scan"]);
-                // Wait for scan results to populate
-                thread::sleep(std::time::Duration::from_secs(3));
+                // Wait longer for scan results to populate (iwd needs time)
+                thread::sleep(std::time::Duration::from_secs(5));
                 let out = run_capture("iwctl", &["station", &dev, "get-networks"]);
                 for line in out.lines().skip(2) {
                     let clean = line.replace(['>', '*'], " ");
@@ -1000,73 +1051,4 @@ mod tests_disk_safety {
     fn disk_in_use_fails_closed_on_empty() {
         assert!(disk_in_use("/dev/sda", ""));
     }
-}
-
-/// Check if iwd is running on D-Bus by testing if iwctl can communicate with it.
-pub fn iwd_running() -> bool {
-    let out = run_capture("iwctl", &["device", "list"]);
-    // iwctl returns an error message if iwd is not running
-    !out.contains("Failed") && !out.contains("Error") && !out.trim().is_empty()
-}
-
-/// Check rfkill status for wireless devices.
-pub fn rfkill_status() -> String {
-    let out = run_capture("rfkill", &["list"]);
-    if out.is_empty() {
-        "rfkill unavailable".into()
-    } else {
-        out
-    }
-}
-
-/// Check if any wireless interfaces exist in the system (regardless of iwd state).
-pub fn wifi_interfaces() -> Vec<String> {
-    // Check /sys/class/net for wireless interfaces
-    let mut ifaces = Vec::new();
-    if let Ok(entries) = fs::read_dir("/sys/class/net") {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let wireless_path = format!("/sys/class/net/{}/wireless", name);
-            if Path::new(&wireless_path).exists() {
-                ifaces.push(name);
-            }
-        }
-    }
-    ifaces
-}
-
-/// Wi-Fi diagnostic summary: distinguishes between different failure modes.
-pub fn wifi_diagnostic() -> String {
-    let mut lines: Vec<String> = Vec::new();
-
-    // Check for wireless interfaces
-    let ifaces = wifi_interfaces();
-    if ifaces.is_empty() {
-        lines.push("No wireless network interfaces detected in the system.".to_string());;
-        lines.push("If you have a Wi-Fi adapter, check that it is properly connected and that the kernel driver is loaded.".to_string());;
-        return lines.join("\n");
-    }
-    lines.push(format!("Wireless interface(s): {}", ifaces.join(", ")));
-
-    // Check rfkill status
-    let rfkill = rfkill_status();
-    for line in rfkill.lines() {
-        if line.contains("Wireless") || line.contains("WLAN") || line.contains("wifi") || line.contains("Wi-Fi") {
-            if line.contains("blocked") {
-                lines.push(format!("rfkill: {} (blocked - unblock with: rfkill unblock all)", line.trim()));
-            } else {
-                lines.push(format!("rfkill: {}", line.trim()));
-            }
-        }
-    }
-
-    // Check if iwd is running
-    if !iwd_running() {
-        lines.push("iwd is not running on D-Bus. Wi-Fi scanning requires iwd to be active.".to_string());;
-        lines.push("Start iwd with: iwd (as root) or ensure the iwd OpenRC service is enabled.".to_string());;
-        return lines.join("\n");
-    }
-    lines.push("iwd is running.".to_string());;
-
-    lines.join("\n")
 }
