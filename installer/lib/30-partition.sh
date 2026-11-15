@@ -116,7 +116,11 @@ partitioning() {
 		main_screen
 		return
 	fi
-	disk=$(whiptail --title "$title" --menu "Select the disk to install on" 20 70 6 "${disks[@]}" 3>&1 1>&2 2>&3 || true)
+	if [[ "${SILEN_AUTO:-}" = "1" ]]; then
+		disk="${disks[0]}"
+	else
+		disk=$(whiptail --title "$title" --menu "Select the disk to install on" 20 70 6 "${disks[@]}" 3>&1 1>&2 2>&3 || true)
+	fi
 	if [[ -z "$disk" ]]; then
 		main_screen
 		return
@@ -133,7 +137,9 @@ partitioning() {
 		partitioning
 		return
 	fi
-	if ! whiptail --title "$title" --yesno "Wipe $_lbl?\n\nThis erases everything on the disk." 10 70; then
+	if [[ "${SILEN_AUTO:-}" = "1" ]] || whiptail --title "$title" --yesno "Wipe $_lbl?\n\nThis erases everything on the disk." 10 70; then
+		:
+	else
 		partitioning
 		return
 	fi

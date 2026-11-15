@@ -585,6 +585,10 @@ cmdline_flag_present() {
 
 if cmdline_flag_present silen.text; then
 	echo "silen.text on the command line running the text installer"
+	if cmdline_flag_present silen.auto; then
+		echo "unattended install mode (silen.auto)"
+		export SILEN_AUTO=1
+	fi
 	run_text_installer
 elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /usr/bin/silen-installer ]; then
 	note "Starting the live InstantWM desktop"

@@ -1,10 +1,15 @@
 main_screen() {
-	men1=$(whiptail --title "$title" --menu "Choose an option" 15 53 4 \
-		"1" "Install Silen" \
-		"2" "Shell" \
-		"3" "Reboot" \
-		"4" "Power off" \
-		3>&1 1>&2 2>&3 || true)
+	# Unattended mode: skip the menu and go straight to install.
+	if [[ "${SILEN_AUTO:-}" = "1" ]]; then
+		men1="1"
+	else
+		men1=$(whiptail --title "$title" --menu "Choose an option" 15 53 4 \
+			"1" "Install Silen" \
+			"2" "Shell" \
+			"3" "Reboot" \
+			"4" "Power off" \
+			3>&1 1>&2 2>&3 || true)
+	fi
 
 	if [[ "$men1" = "1" ]]; then
 		partitioning

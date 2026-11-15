@@ -60,6 +60,8 @@ trap on_int_term INT TERM
 	exit 1
 }
 
-whiptail --msgbox "Welcome to the Silen Linux installer" 8 60 2>/dev/null || true
+	if [[ "${SILEN_AUTO:-}" != "1" ]]; then
+		whiptail --msgbox "Welcome to the Silen Linux installer" 8 60 2>/dev/null || true
+	fi
 
-main_screen
+	main_screen

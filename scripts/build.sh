@@ -513,7 +513,16 @@ fi
 copy_app dbus-daemon  /usr/bin/dbus-daemon
 copy_app dbus-launch  /usr/bin/dbus-launch
 copy_app dbus-run-session /usr/bin/dbus-run-session
-copy_app udevd /usr/bin/udevadm
+# Stage udevd + udevadm. On systemd hosts these are the same binary; udevadm
+# behaves as udevd when invoked as udevd. rootfs/init starts udev only when
+# /usr/bin/udevd is executable, so both names must be present.
+if [ -e /usr/bin/udevd ]; then
+	copy_app udevd /usr/bin/udevd
+elif [ -e /usr/bin/udevadm ]; then
+	mkdir -p "$RAMROOT/usr/bin"
+	cp --dereference /usr/bin/udevadm "$RAMROOT/usr/bin/udevd" || { echo "  ERROR cannot copy udevd"; exit 1; }
+	copy_libs /usr/bin/udevadm
+fi
 copy_app udevadm /usr/bin/udevadm 2>/dev/null || true
 if [ -x /usr/sbin/agetty ]; then copy_app agetty /usr/sbin/agetty; elif [ -x /usr/bin/agetty ]; then copy_app agetty /usr/bin/agetty; elif [ -x /sbin/agetty ]; then copy_app agetty /sbin/agetty; fi
 ln -sf /usr/sbin/agetty "$RAMROOT/bin/agetty" 2>/dev/null || true
@@ -877,6 +886,21 @@ for _need in instantwm foot; do
 	[ -e "$RAMROOT/usr/bin/$_need" ] && continue
 	echo "  ! desktop payload incomplete: $_need missing (live session may not start)"
 done
+
+# Kitty is a Python 3.14 application; bundle the matching host Python so it can
+# actually launch in the live session and be copied into installed targets.
+if [[ -x /usr/bin/python3.14 ]] && [[ -e /usr/lib/libpython3.14.so.1.0 ]]; then
+	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/lib"
+	cp --dereference /usr/bin/python3.14 "$RAMROOT/usr/bin/python3.14" 2>/dev/null && chmod 755 "$RAMROOT/usr/bin/python3.14" 2>/dev/null || true
+	ln -sf python3.14 "$RAMROOT/usr/bin/python3" 2>/dev/null || true
+	cp --dereference /usr/lib/libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
+	ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so" 2>/dev/null || true
+	ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
+	if [[ -d /usr/lib/python3.14 ]]; then
+		mkdir -p "$RAMROOT/usr/lib"
+		cp -a /usr/lib/python3.14/. "$RAMROOT/usr/lib/python3.14/" 2>/dev/null || true
+	fi
+fi
 
 SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/silen/SilenLinux/silen-installer}"
 _CARGO_ENV=()

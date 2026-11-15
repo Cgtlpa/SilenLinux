@@ -140,11 +140,11 @@ at all until you plug in or connect, then DNS just works.
 NVIDIA: display works out of the box via nouveau (in-tree + firmware).
 For proprietary (nvidia-smi, CUDA) use the NVIDIA ISO variant, which ships
 EOF
-	chmod 644 "$ROOT_PATH"/usr/share/silen/spk-help.txt 2>/dev/null || true
+	chmod 644 "$ROOT_PATH"/usr/share/silen/cres-help.txt 2>/dev/null || true
 	setup-root-shell
 	fix-user-session
 	if [[ -n "${_elogind_hint:-}" ]]; then
-		whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  spk get elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
+		whiptail --msgbox --title "$title" "Note: elogind is not in this image. If you later see 'user.<name> failed to start' or session errors, just run as root after reboot:\n\n  cres install elogind\n  rc-update add elogind boot\n  reboot\n\nLogin still works without it." 13 65 || true
 	fi
 	setup-quiet-boot
 	cleanup-rootfs
@@ -172,13 +172,19 @@ EOF
 		return
 	fi
 
-	whiptail --msgbox --title "$title" "Wi-Fi: use iwctl in the installed Silen Linux (help: silen-wifi-check).\n\nspk usage (as root, use sudo):\n  sudo spk update              update all packages\n  sudo spk update <package>    update one package\n  sudo spk get <package>       install\n  sudo spk rm <package>        remove\n  spk find / spk search / spk list   search / list\n\nGuide saved to /usr/share/silen/spk-help.txt" 14 70 || true
+	if [[ "${SILEN_AUTO:-}" != "1" ]]; then
+		whiptail --msgbox --title "$title" "Wi-Fi: use iwctl in the installed Silen Linux (help: silen-wifi-check).\n\ncres usage (as root, use sudo):\n  sudo cres update              update all packages\n  sudo cres update <package>    update one package\n  sudo cres install <package>   install\n  sudo cres remove <package>    remove\n  cres search / cres list / cres info   search / list / info\n\nGuide saved to /usr/share/silen/cres-help.txt" 14 70 || true
+	fi
 	_nv_note=""
 	if find "$ROOT_PATH"/lib/modules -iname 'nvidia.ko*' 2>/dev/null | grep -q .; then
 		_nv_note="\nNVIDIA driver installed - verify after reboot with nvidia-smi.\n"
 	fi
 	sync 2>/dev/null || true
 	cleanup
-	whiptail --msgbox --title "$title" "Silen is installed. Reboot to use it.\n\nAfter reboot (as root):\n  sudo spk update               update all\n  sudo spk update <package>    update one\n  sudo spk get <package>       install (try: sudo spk get fastfetch)\n  sudo spk rm <package>        remove\n  spk find / spk search / spk list   search / list\n\nFull guide: /usr/share/silen/spk-help.txt\nWi-Fi: iwctl, DNS: /etc/resolv.conf$_nv_note" 16 70 || true
+	if [[ "${SILEN_AUTO:-}" = "1" ]]; then
+		poweroff -f 2>/dev/null || true
+		exit 0
+	fi
+	whiptail --msgbox --title "$title" "Silen is installed. Reboot to use it.\n\nAfter reboot (as root):\n  sudo cres update               update all\n  sudo cres update <package>    update one\n  sudo cres install <package>   install (try: sudo cres install fastfetch)\n  sudo cres remove <package>    remove\n  cres search / cres list / cres info   search / list / info\n\nFull guide: /usr/share/silen/cres-help.txt\nWi-Fi: iwctl, DNS: /etc/resolv.conf$_nv_note" 16 70 || true
 	main_screen
 }

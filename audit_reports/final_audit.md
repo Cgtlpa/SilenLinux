@@ -86,6 +86,10 @@ Two independent audits (Kilo and Clint) were performed against the Silen Linux r
 - `cres/` (integration or removal decision).
 - `target-scripts/` (silen-wifi-check, silen-nvidia-check).
 
+## Update note (working tree)
+
+The working tree contains uncommitted changes that partially address the udev finding: `rootfs/init` now attempts to start `/usr/bin/udevd`, and `scripts/build.sh` now stages udevd. However, the staging still copies udevd to `/usr/bin/udevadm` rather than `/usr/bin/udevd`, so the startup gate `[ -x /usr/bin/udevd ]` remains false and udev still does not start. The fix is incomplete.
+
 ## Recommended implementation plan (do not implement)
 
 Address issues in the priority order above. Start with the udev fix and disk-list fix as standalone commits, then tackle installer unification, then package-manager consolidation, then desktop/seat-manager integration. Each step should be validated with the corresponding runtime test from section 7 before proceeding. No destructive or disk-modifying commands should be run outside of isolated QEMU test environments. InstantWM must remain the default WM, OpenRC and iwd must remain (no systemd/NetworkManager), and SPK must not be removed before cres (or vice versa) is verified as a replacement.

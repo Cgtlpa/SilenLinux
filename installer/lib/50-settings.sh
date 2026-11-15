@@ -1,4 +1,19 @@
 ask-install-settings() {
+	# Unattended mode: prefill every answer so the installer can run headless
+	# (e.g. under QEMU serial). Set SILEN_AUTO=1 to use it.
+	if [[ "${SILEN_AUTO:-}" = "1" ]]; then
+		hostnm="silen"
+		rootpass="2010"
+		newuser="vgz"
+		userpass="2010"
+		zone="UTC"
+		keymap="us"
+		locale="en_US.UTF-8"
+		fstype="ext4"
+		want_swap=""
+		return 0
+	fi
+
 	hostnm="silen"
 	hostnm=$(whiptail --title "$title" --inputbox "Set the hostname" 8 40 "$hostnm" 3>&1 1>&2 2>&3 || true)
 	[[ -z "$hostnm" ]] && hostnm="silen"

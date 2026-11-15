@@ -49,7 +49,49 @@ install-desktop() {
 	copy_from_live /usr/bin/yazi /usr/bin/yazi
 	copy_from_live /usr/bin/swaylock /usr/bin/swaylock
 
-	# seatd OpenRC service
+	# Kitty (default terminal), rofi (application launcher) and sddm (display
+	# manager) must be present in the target for the advertised session to work.
+	for _app in kitty rofi sddm; do
+		case "$_app" in
+			sddm)
+				for _src in /usr/bin/sddm /usr/sbin/sddm; do
+					[[ -x "$_src" ]] || continue
+					copy_from_live "$_src" "/usr/bin/sddm"
+					break
+				done
+				;;
+			*)
+				[[ -x "/usr/bin/$_app" ]] && copy_from_live "/usr/bin/$_app" "/usr/bin/$_app"
+				;;
+		esac
+	done || true
+
+	# Resolve runtime libraries for the graphical apps so they actually start.
+	if command -v ldd >/dev/null 2>&1; then
+		for _app in "$ROOT_PATH"/usr/bin/kitty "$ROOT_PATH"/usr/bin/rofi "$ROOT_PATH"/usr/bin/sddm; do
+			[[ -f "$_app" ]] || continue
+			for _lib in $(ldd "$_app" 2>/dev/null | grep -o '/[^ ()]*' | sort -u || true); do
+				[[ -e "$_lib" ]] || continue
+				_bn="$(basename "$_lib")"
+				[[ -e "$ROOT_PATH/usr/lib64/$_bn" || -e "$ROOT_PATH/usr/lib/$_bn" ]] && continue
+				mkdir -p "$ROOT_PATH/usr/lib64" 2>/dev/null || true
+				cp -a "$_lib" "$ROOT_PATH/usr/lib64/$_bn" 2>/dev/null || true
+			done || true
+		done || true
+	fi
+
+	# Python is required by kitty; bundle it if present in the live image.
+	if [[ -x /usr/bin/python3.14 ]]; then
+		copy_from_live /usr/bin/python3.14 /usr/bin/python3.14
+		[[ -e /usr/lib/libpython3.14.so.1.0 ]] && copy_from_live /usr/lib/libpython3.14.so.1.0 /usr/lib/libpython3.14.so.1.0
+		[[ -d /usr/lib/python3.14 ]] && copy_from_live /usr/lib/python3.14 /usr/lib/python3.14
+		ln -sf python3.14 "$ROOT_PATH/usr/bin/python3" 2>/dev/null || true
+		ln -sf libpython3.14.so.1.0 "$ROOT_PATH/usr/lib/libpython3.14.so" 2>/dev/null || true
+		ln -sf libpython3.14.so.1.0 "$ROOT_PATH/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
+	fi || true
+
+	# Seat manager (seatd) + libinput for input device handling
+	copy_from_live /usr/bin/seatd /usr/bin/seatd
 	if [[ ! -f "$ROOT_PATH/etc/init.d/seatd" ]]; then
 		cat > "$ROOT_PATH/etc/init.d/seatd" <<'EOF'
 #!/sbin/openrc-run
@@ -76,6 +118,45 @@ EOF
 	# Seatd depends on udev; ensure udev is enabled
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev sysinit" >/dev/null 2>&1 || true
 	chroot "$ROOT_PATH" /bin/bash -c "rc-update add udev-trigger sysinit" >/dev/null 2>&1 || true
+
+	# InstantWM keybindings: Super+Space -> rofi drun, Super+Return -> kitty.
+	# Seed the config for root and every user home so the advertised session
+	# works out of the box (postinstall only seeds when a config is absent).
+	mkdir -p "$ROOT_PATH/etc/skel/.config/instantwm" "$ROOT_PATH/root/.config/instantwm" 2>/dev/null || true
+	cat > "$ROOT_PATH/etc/skel/.config/instantwm/config.toml" <<'TOML_EOF'
+theme = "catppuccin-mocha"
+keybinds = [
+    { mod = ["mod4"], key = "Return", action = "spawn", args = ["kitty"] },
+    { mod = ["mod4"], key = "Space", action = "spawn", args = ["rofi", "-show", "drun"] },
+    { mod = ["mod4", "Shift"], key = "Q", action = "kill" },
+    { mod = ["mod4"], key = "E", action = "spawn", args = ["instantmenu"] },
+    { mod = ["mod4"], key = "C", action = "toggle_floating" },
+    { mod = ["mod4"], key = "M", action = "toggle_tiling_maximized" },
+    { mod = ["mod4"], key = "Left", action = "focus_left" },
+    { mod = ["mod4"], key = "Right", action = "focus_right" },
+    { mod = ["mod4"], key = "Up", action = "focus_up" },
+    { mod = ["mod4"], key = "Down", action = "focus_down" },
+    { mod = ["mod4"], key = "R", action = "reset_layout" },
+]
+desktop_keybinds = []
+raise_floating_on_click = false
+rules = []
+exec_once = []
+exec = []
+hooks = []
+
+[fonts]
+text_family = "Inter"
+text_size = 12.0
+icon_family = "Symbols Nerd Font"
+icon_size = 16.0
+TOML_EOF
+	cp -a "$ROOT_PATH/etc/skel/.config/instantwm/config.toml" "$ROOT_PATH/root/.config/instantwm/config.toml" 2>/dev/null || true
+	if [[ -n "${newuser:-}" ]] && [[ -d "$ROOT_PATH/home/$newuser" ]]; then
+		mkdir -p "$ROOT_PATH/home/$newuser/.config/instantwm" 2>/dev/null || true
+		cp -a "$ROOT_PATH/etc/skel/.config/instantwm/config.toml" "$ROOT_PATH/home/$newuser/.config/instantwm/config.toml" 2>/dev/null || true
+		chroot "$ROOT_PATH" /bin/bash -c "chown -R $newuser:$newuser /home/$newuser/.config" >/dev/null 2>&1 || true
+	fi
 }
 
 install-display-manager() {
