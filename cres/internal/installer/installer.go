@@ -105,6 +105,29 @@ func (i *Installer) Install(ctx context.Context, names []string, explicit bool) 
 		i.Opt.Logger.Printf("nothing to do: all requested packages are installed")
 		return nil
 	}
+
+	// Show conflict warnings before installation
+	installed, err := i.DB.Installed()
+	if err != nil {
+		return err
+	}
+	for _, pkg := range plan.Install {
+		for _, conflict := range pkg.Conflicts {
+			if inst, ok := installed[conflict]; ok {
+				fmt.Fprintf(os.Stderr, "CONFLICT: %s %s conflicts with installed %s %s\n",
+					pkg.Name, pkg.Version, conflict, inst.Version)
+			}
+		}
+		for _, conflict := range pkg.Conflicts {
+			for _, other := range plan.Install {
+				if conflict == other.Name {
+					fmt.Fprintf(os.Stderr, "CONFLICT: %s %s conflicts with %s %s in install plan\n",
+						pkg.Name, pkg.Version, other.Name, other.Version)
+				}
+			}
+		}
+	}
+
 	i.printPlan(plan)
 	if !i.Opt.Yes && !confirm("Proceed with the installation?") {
 		return fmt.Errorf("installation cancelled")

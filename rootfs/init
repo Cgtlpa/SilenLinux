@@ -7,8 +7,13 @@ mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
-exec >/dev/ttyS0 2>&1 < /dev/ttyS0
-[ -c /dev/ttyS0 ] && echo "TTYS0_OK" >/dev/ttyS0 2>&1 || echo "NO_TTYS0" >/dev/ttyS0 2>&1
+# Only redirect to serial console if it exists (for QEMU debugging)
+if [ -c /dev/ttyS0 ]; then
+	exec >/dev/ttyS0 2>&1 < /dev/ttyS0
+	echo "TTYS0_OK"
+else
+	echo "Welcome to Silen Linux"
+fi
 # Start udevd so libinput/seatd can enumerate input devices
 if [ -x /usr/bin/udevd ]; then
 	/usr/bin/udevd --daemon 2>/dev/null || true

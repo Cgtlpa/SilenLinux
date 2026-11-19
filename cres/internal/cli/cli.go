@@ -391,7 +391,15 @@ func cmdInfo(g globals, args []string) int {
 		fmt.Printf("checkdepends: %s\n", strings.Join(pkg.Checkdepends, " "))
 	}
 	fmt.Printf("provides:    %s\n", strings.Join(pkg.Provides, " "))
-	fmt.Printf("conflicts:   %s\n", strings.Join(pkg.Conflicts, " "))
+	if len(pkg.Conflicts) > 0 {
+		fmt.Printf("conflicts:   %s\n", strings.Join(pkg.Conflicts, " "))
+		// Show what each conflict is about
+		for _, c := range pkg.Conflicts {
+			fmt.Printf("             ^ conflicts with: %s\n", c)
+		}
+	} else {
+		fmt.Printf("conflicts:   (none)\n")
+	}
 	fmt.Printf("replaces:    %s\n", strings.Join(pkg.Replaces, " "))
 	if len(pkg.Backup) > 0 {
 		fmt.Printf("backup:      %s\n", strings.Join(pkg.Backup, " "))
