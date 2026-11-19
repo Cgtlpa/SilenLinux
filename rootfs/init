@@ -7,6 +7,7 @@ mkdir -p /dev /dev/pts /dev/shm /proc /sys /tmp /run /mnt /newroot
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
+exec >/dev/ttyS0 2>&1 < /dev/ttyS0
 [ -c /dev/ttyS0 ] && echo "TTYS0_OK" >/dev/ttyS0 2>&1 || echo "NO_TTYS0" >/dev/ttyS0 2>&1
 # Start udevd so libinput/seatd can enumerate input devices
 if [ -x /usr/bin/udevd ]; then
@@ -32,7 +33,7 @@ for _q in $(cat /proc/cmdline 2>/dev/null); do
 done
 qecho() { [ -n "$QUIET" ] || echo "$@"; }
 note() {
-	echo "$@" >/dev/ttyS0 2>&1 || true
+	echo "$@"
 }
 
 for _m in ahci libahci ata_piix sd_mod sr_mod cdrom usb-storage uas \
@@ -216,14 +217,8 @@ if command -v iwd >/dev/null 2>&1; then
 	fi
 	iwd >/dev/null 2>&1 &
 	# Wait for iwd to register on D-Bus before allowing scans
-	_i=0
-	while [ $i -lt 30 ]; do
-		if iwctl device list >/dev/null 2>&1; then
-			break
-		fi
-		i=$((i + 1))
-		sleep 0.5
-	done
+	iwd >/dev/null 2>&1 &
+	sleep 2
 else
 	for _iwd in /usr/libexec/iwd /usr/sbin/iwd /usr/bin/iwd; do
 		if [ -x "$_iwd" ]; then
@@ -232,14 +227,7 @@ else
 				rfkill unblock all 2>/dev/null || true
 			fi
 			"$_iwd" >/dev/null 2>&1 &
-			_i=0
-			while [ $i -lt 30 ]; do
-				if iwctl device list >/dev/null 2>&1; then
-					break
-				fi
-				i=$((i + 1))
-				sleep 0.5
-			done
+			sleep 2
 			break
 		fi
 	done
@@ -574,8 +562,10 @@ cmdline_flag_present() {
 note "Starting the Silen installer"
 echo "  it also lets you open a shell reboot or power off"
 echo
+echo "  launching installer..."
 /bin/bash /installer/simple-installer.sh
-echo
+_installer_rc=$?
+echo "  installer exited with code $_installer_rc"
 echo "Installer exited dropping to a shell"
 
 mkdir -p /etc 2>/dev/null || true

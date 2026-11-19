@@ -381,6 +381,27 @@ for applet in $_applets; do
 done
 [ -x "$RAMROOT/bin/sh" ] && [ -x "$RAMROOT/bin/mount" ] || { echo "  ERROR busybox applets missing sh/mount"; exit 1; }
 
+# Extract full lib64 from stage3 tarball for baseline x86-64 compatibility
+# This prevents AVX instruction crashes in QEMU without KVM
+_stage3_tarball=""
+for _st in stage3-*.tar.* tarball-*.xz tarball-*.tar.*; do
+	[ -f "$_st" ] && _stage3_tarball="$_st" && break
+done
+if [ -n "${_stage3_tarball:-}" ]; then
+	_tmp_lib="$(mktemp -d /tmp/silen-libs.XXXXXX)"
+	tar -xpf "$_stage3_tarball" -C "$_tmp_lib" usr/lib64 2>/dev/null || \
+	tar -xpf "$_stage3_tarball" -C "$_tmp_lib" --strip-components=1 usr/lib64 2>/dev/null || \
+	tar -xpf "$_stage3_tarball" -C "$_tmp_lib" stage3-tarball-silen/usr/lib64 2>/dev/null || true
+	if [ -d "$_tmp_lib/usr/lib64" ]; then
+		cp -a "$_tmp_lib/usr/lib64/." "$RAMROOT/usr/lib64/" 2>/dev/null || true
+		echo "  + full lib64 from tarball (baseline compatible)"
+	elif [ -d "$_tmp_lib/stage3-tarball-silen/usr/lib64" ]; then
+		cp -a "$_tmp_lib/stage3-tarball-silen/usr/lib64/." "$RAMROOT/usr/lib64/" 2>/dev/null || true
+		echo "  + full lib64 from tarball (baseline compatible, prefixed)"
+	fi
+	rm -rf "$_tmp_lib"
+fi
+
 libs_seen=" "
 copy_libs() {
 	local bin="$1" lib

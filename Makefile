@@ -25,7 +25,7 @@ qemu:
 	fi; \
 	diskfmt=qcow2; \
 	if command -v qemu-img >/dev/null 2>&1; then diskfmt=qcow2; else diskfmt=raw; fi; \
-	cpu="qemu64"; [ -e /dev/kvm ] && cpu="host"; \
+	cpu="max"; [ -e /dev/kvm ] && cpu="host"; \
 	kvm=""; [ -e /dev/kvm ] && kvm="-enable-kvm"; \
 	firmware=""; code=""; vars=""; \
 	for f in /usr/share/edk2/x64/OVMF.4m.fd \
