@@ -20,15 +20,7 @@
 - **Bootloader**: GRUB2 (UEFI-only)
 - **Kernel**: Linux 6.18 LTS
 
-## Quick Start
 
-```bash
-# Build ISO
-make iso
-
-# Test in QEMU (requires KVM)
-make qemu
-```
 
 ## Links
 
