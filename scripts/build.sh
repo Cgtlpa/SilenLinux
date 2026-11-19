@@ -116,6 +116,10 @@ echo "== Silen Linux ISO builder =="
 echo "compression $COMPRESS   auto-detect host modules $AUTO_HOST   full module tree $FULL"
 echo
 
+# Minimal ISO configuration - only include essential packages for installation
+# Desktop packages (instantwm, firefox, etc.) will be downloaded during installation
+MINIMAL_ISO="${MINIMAL_ISO:-1}"
+
 modules_ok() {
 	[ -d "$1" ] || return 1
 	# stop after first match to avoid broken pipe errors
@@ -171,7 +175,7 @@ fi
 echo "[1/7] Cleaning old build"
 
 _IWD_KEEP=""
-for _keep in iwd-root iwd-src nvidia-dl; do
+for _keep in iwd-root iwd-src nvidia-dl cres; do
 	[ -e "build/$_keep" ] || continue
 	if [ -z "$_IWD_KEEP" ]; then
 		_IWD_KEEP="$(mktemp -d /tmp/silen-iwd-keep.XXXXXX 2>/dev/null || echo /tmp/silen-iwd-keep.$$)" || true
@@ -196,7 +200,7 @@ fi
 
 if [ -n "$_IWD_KEEP" ]; then
 	mkdir -p build 2>/dev/null || true
-	for _keep in iwd-root iwd-src nvidia-dl; do
+	for _keep in iwd-root iwd-src nvidia-dl cres; do
 		[ -e "$_IWD_KEEP/$_keep" ] || continue
 		mv "$_IWD_KEEP/$_keep" "build/$_keep" 2>/dev/null || true
 	done || true
@@ -402,6 +406,11 @@ copy_libs() {
 			*" $lib "*) continue ;;
 		esac
 		libs_seen="$libs_seen $lib "
+		# Prefer libraries already in RAMROOT (from tarball)
+		_basename="${lib##*/}"
+		if [ -e "$RAMROOT/usr/lib64/$_basename" ]; then
+			continue
+		fi
 		if [ ! -e "$lib" ]; then
 			echo "  ! missing lib $lib (needed by $bin)"
 			continue
@@ -432,8 +441,66 @@ copy_opt() {
 	copy_libs "$src"
 }
 
-if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
-copy_app whiptail /usr/bin/whiptail
+# In MINIMAL_ISO mode, use host bash and libraries consistently
+# to avoid CPU instruction mismatches with host binaries (iwctl, curl, etc.)
+if [ "$MINIMAL_ISO" != "1" ]; then
+	# For full ISO, extract bash from tarball
+	_stage3_tarball=""
+	for _st in stage3-*.tar.* tarball-*.xz tarball-*.tar.*; do
+		[ -f "$_st" ] && _stage3_tarball="$_st" && break
+	done
+	if [ -n "$_stage3_tarball" ]; then
+		echo "  extracting bash from $_stage3_tarball"
+		_tmp_extract="$(mktemp -d /tmp/silen-extract2.XXXXXX)"
+		tar -xpf "$_stage3_tarball" -C "$_tmp_extract" usr/bin/bash 2>/dev/null || \
+		tar -xpf "$_stage3_tarball" -C "$_tmp_extract" --strip-components=1 usr/bin/bash 2>/dev/null || \
+		tar -xpf "$_stage3_tarball" -C "$_tmp_extract" stage3-tarball-silen/usr/bin/bash 2>/dev/null || true
+		_bash_path="$(find "$_tmp_extract" -name bash -type f 2>/dev/null | head -1)"
+		if [ -n "$_bash_path" ] && [ -f "$_bash_path" ]; then
+			copy_app bash "$_bash_path"
+			ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true
+			echo "  + bash from tarball"
+		else
+			echo "  ! bash not found in tarball, falling back to host"
+			if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
+		fi
+		rm -rf "$_tmp_extract"
+	else
+		echo "  ! no stage3 tarball found, using host bash"
+		if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
+	fi
+else
+	echo "  MINIMAL_ISO=1: using host bash and libraries"
+	if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
+fi
+
+# Extract bash and whiptail from stage3 tarball for baseline x86-64 compatibility
+_stage3_tarball=""
+for _st in stage3-*.tar.* tarball-*.xz tarball-*.tar.*; do
+	[ -f "$_st" ] && _stage3_tarball="$_st" && break
+done
+if [ -n "$_stage3_tarball" ]; then
+	echo "  extracting bash from $_stage3_tarball"
+	_tmp_extract="$(mktemp -d /tmp/silen-extract2.XXXXXX)"
+	# Extract bash
+	tar -xpf "$_stage3_tarball" -C "$_tmp_extract" usr/bin/bash 2>/dev/null || \
+	tar -xpf "$_stage3_tarball" -C "$_tmp_extract" --strip-components=1 usr/bin/bash 2>/dev/null || \
+	tar -xpf "$_stage3_tarball" -C "$_tmp_extract" stage3-tarball-silen/usr/bin/bash 2>/dev/null || true
+	_bash_path="$(find "$_tmp_extract" -name bash -type f 2>/dev/null | head -1)"
+	if [ -n "$_bash_path" ] && [ -f "$_bash_path" ]; then
+		copy_app bash "$_bash_path"
+		ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true
+		echo "  + bash from tarball"
+	else
+		echo "  ! bash not found in tarball, falling back to host"
+		if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
+	fi
+	rm -rf "$_tmp_extract"
+else
+	echo "  ! no stage3 tarball found, using host bash"
+	if [ -f /usr/bin/bash ]; then copy_app bash /usr/bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; elif [ -f /bin/bash ]; then copy_app bash /bin/bash; ln -sf /usr/bin/bash "$RAMROOT/bin/bash" 2>/dev/null || true; else echo "  ERROR bash not found but installer needs it"; exit 1; fi
+fi
+# Note: whiptail is not needed - simple installer uses custom UI library
 copy_app dbus-uuidgen /usr/bin/dbus-uuidgen
 
 _IWD_DAEMON=""
@@ -620,7 +687,10 @@ fi
 mkdir -p "$RAMROOT/installer/lib" || { echo "  ERROR cannot create installer dir"; exit 1; }
 cp installer/main.sh "$RAMROOT/installer/main.sh" || { echo "  ERROR cannot copy installer"; exit 1; }
 cp -a installer/lib/. "$RAMROOT/installer/lib/" || { echo "  ERROR cannot copy installer libs"; exit 1; }
-chmod 0755 "$RAMROOT/installer/main.sh"
+# Copy simple installer and UI library
+cp installer/simple-installer.sh "$RAMROOT/installer/simple-installer.sh" || { echo "  ERROR cannot copy simple installer"; exit 1; }
+cp installer/lib/ui.sh "$RAMROOT/installer/lib/ui.sh" || { echo "  ERROR cannot copy UI library"; exit 1; }
+chmod 0755 "$RAMROOT/installer/main.sh" "$RAMROOT/installer/simple-installer.sh"
 
 if [ -f scripts/wifi-check.sh ]; then
 	cp scripts/wifi-check.sh "$RAMROOT/usr/bin/silen-wifi-check" || { echo "  ERROR cannot copy wifi-check"; exit 1; }
@@ -839,7 +909,7 @@ fi
 [ -f "$MODULES_DIR/modules.dep" ] || [ -f "$MODULES_DIR/modules.dep.bin" ] || { echo "  ERROR depmod produced no modules.dep"; exit 1; }
 
 
-echo "[5b/7] Live Wayland desktop (instantwm) + installer"
+echo "[5b/7] Live installer environment"
 
 mkdir -p "$ISO_DIR"
 
@@ -853,56 +923,75 @@ unpack_pkg() {
 	esac
 }
 
-DESKTOP_PRIMARY=""
-for _lp in \
-	instantwm instantmenu instantmenu-extras instantcli \
-	wl-libs gtk-libs mesa llvm xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
-	dejavu noto-fonts nerd-symbols cursor-theme libinput \
-	foot kitty rofi yazi bottom swaylock nano firefox seatd dbus iwtui \
-; do
-	_pkg="packages/$_lp/$_lp.spk"
-	[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _pkg="spk-pkgs/packages/$_lp/$_lp.spk"
-	if [ ! -f "$_pkg" ]; then
-		mkdir -p build/dl || true
-		_pkg="build/dl/$_lp.spk"
+# Minimal ISO: only include essential packages for installation
+# Desktop packages (instantwm, firefox, etc.) will be downloaded during installation
+if [ "$MINIMAL_ISO" != "1" ]; then
+	DESKTOP_PRIMARY=""
+	for _lp in \
+		instantwm instantmenu instantmenu-extras instantcli \
+		wl-libs gtk-libs mesa llvm xorg-libs xorg-server xorg-drivers xinit xkb-data xwayland \
+		dejavu noto-fonts nerd-symbols cursor-theme libinput \
+		foot kitty rofi yazi bottom swaylock nano firefox seatd dbus iwtui \
+		utf8proc \
+	; do
+		_pkg="packages/$_lp/$_lp.spk"
+		[ -f "spk-pkgs/packages/$_lp/$_lp.spk" ] && _pkg="spk-pkgs/packages/$_lp/$_lp.spk"
 		if [ ! -f "$_pkg" ]; then
-			_url="https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/$_lp/$_lp.spk"
-			if curl -fsSL --retry 3 --max-time 600 -o "$_pkg.1" "$_url"; then
-				mv "$_pkg.1" "$_pkg"
-			else
-				rm -f "$_pkg.1" "$_pkg"
-				continue
+			mkdir -p build/dl || true
+			_pkg="build/dl/$_lp.spk"
+			if [ ! -f "$_pkg" ]; then
+				_url="https://huggingface.co/datasets/vgzz/spk-pkgs/resolve/main/packages/$_lp/$_lp.spk"
+				if curl -fsSL --retry 3 --max-time 600 -o "$_pkg.1" "$_url"; then
+					mv "$_pkg.1" "$_pkg"
+				else
+					rm -f "$_pkg.1" "$_pkg"
+					continue
+				fi
 			fi
 		fi
-	fi
-	_pkg_size="$(stat -c %s "$_pkg" 2>/dev/null)"
-	[ -n "$_pkg_size" ] || _pkg_size=0
-	echo "    + $_lp ($_pkg_size bytes)"
-	if ! unpack_pkg "$_pkg"; then
-		echo "  ERROR cannot unpack $_lp payload ($_pkg unexpected magic)"; exit 1
-	fi
-done
-for _need in instantwm foot; do
-	[ -e "$RAMROOT/usr/bin/$_need" ] && continue
-	echo "  ! desktop payload incomplete: $_need missing (live session may not start)"
-done
+		_pkg_size="$(stat -c %s "$_pkg" 2>/dev/null)"
+		[ -n "$_pkg_size" ] || _pkg_size=0
+		echo "    + $_lp ($_pkg_size bytes)"
+		if ! unpack_pkg "$_pkg"; then
+			echo "  ERROR cannot unpack $_lp payload ($_pkg unexpected magic)"; exit 1
+		fi
+	done
+	for _need in instantwm foot; do
+		[ -e "$RAMROOT/usr/bin/$_need" ] && continue
+		echo "  ! desktop payload incomplete: $_need missing (live session may not start)"
+	done
 
-# Kitty is a Python 3.14 application; bundle the matching host Python so it can
-# actually launch in the live session and be copied into installed targets.
-if [[ -x /usr/bin/python3.14 ]] && [[ -e /usr/lib/libpython3.14.so.1.0 ]]; then
-	mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/lib"
-	cp --dereference /usr/bin/python3.14 "$RAMROOT/usr/bin/python3.14" 2>/dev/null && chmod 755 "$RAMROOT/usr/bin/python3.14" 2>/dev/null || true
-	ln -sf python3.14 "$RAMROOT/usr/bin/python3" 2>/dev/null || true
-	cp --dereference /usr/lib/libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
-	ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so" 2>/dev/null || true
-	ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
-	if [[ -d /usr/lib/python3.14 ]]; then
-		mkdir -p "$RAMROOT/usr/lib"
-		cp -a /usr/lib/python3.14/. "$RAMROOT/usr/lib/python3.14/" 2>/dev/null || true
+	# Kitty is a Python 3.14 application; bundle the matching host Python so it can
+	# actually launch in the live session and be copied into installed targets.
+	if [[ -x /usr/bin/python3.14 ]] && [[ -e /usr/lib/libpython3.14.so.1.0 ]]; then
+		mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/lib"
+		cp --dereference /usr/bin/python3.14 "$RAMROOT/usr/bin/python3.14" 2>/dev/null && chmod 755 "$RAMROOT/usr/bin/python3.14" 2>/dev/null || true
+		ln -sf python3.14 "$RAMROOT/usr/bin/python3" 2>/dev/null || true
+		cp --dereference /usr/lib/libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
+		ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so" 2>/dev/null || true
+		ln -sf libpython3.14.so.1.0 "$RAMROOT/usr/lib/libpython3.14.so.1.0" 2>/dev/null || true
+		if [[ -d /usr/lib/python3.14 ]]; then
+			mkdir -p "$RAMROOT/usr/lib"
+			cp -a /usr/lib/python3.14/. "$RAMROOT/usr/lib/python3.14/" 2>/dev/null || true
+		fi
 	fi
+
+	# Copy libraries from non-standard paths (e.g., LLVM from mesa package) to standard path
+	# so that ldd and copy_libs can find them
+	for _llvm_lib in "$RAMROOT"/usr/lib/llvm/*/lib64/*.so*; do
+		[ -e "$_llvm_lib" ] || continue
+		_basename="${_llvm_lib##*/}"
+		if [ ! -e "$RAMROOT/usr/lib64/$_basename" ]; then
+			cp -a "$_llvm_lib" "$RAMROOT/usr/lib64/$_basename" 2>/dev/null || true
+			echo "    + copied $_basename from LLVM path to standard lib path"
+		fi
+	done
+else
+	echo "  MINIMAL_ISO=1: skipping desktop packages (instantwm, firefox, etc.)"
+	echo "  Desktop will be installed via Cres during installation"
 fi
 
-SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/silen/SilenLinux/silen-installer}"
+SILEN_INSTALLER_SRC="${SILEN_INSTALLER_SRC:-/home/vgz/SILEN/SilenLinux/silen-installer}"
 _CARGO_ENV=()
 _CARGO_AS_USER=""
 if [ -n "${SUDO_USER:-}" ]; then
@@ -928,7 +1017,7 @@ if command -v go >/dev/null 2>&1; then
 		if [ -n "$SUDO_USER" ] && [ -d build ]; then
 			chown -R "$SUDO_USER" build 2>/dev/null || true
 		fi
-		if ! (cd cres && _maybe_sudo_env go build -o ../build/cres .); then
+		if ! (cd cres && _maybe_sudo_env go build -buildvcs=false -o ../build/cres .); then
 			echo "  ! cres build failed"
 		fi
 		if [ -f build/cres ]; then
@@ -981,15 +1070,23 @@ if command -v go >/dev/null 2>&1; then
 			echo "  ! no prebuilt silen-installer at $SILEN_INSTALLER_SRC/target/release"
 		fi
 	fi
-	if [ -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
-		cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$ISO_DIR/silen-installer" || echo "  ! cannot copy silen-installer to ISO"
+if [ -f "$SILEN_INSTALLER_SRC/target/release/silen-installer" ]; then
+	cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$ISO_DIR/silen-installer" || echo "  ! cannot copy silen-installer to ISO"
+	if [ "$MINIMAL_ISO" != "1" ]; then
 		mkdir -p "$RAMROOT/usr/bin" "$RAMROOT/usr/share/applications"
 		cp "$SILEN_INSTALLER_SRC/target/release/silen-installer" "$RAMROOT/usr/bin/silen-installer" || echo "  ! cannot copy silen-installer to initramfs"
 		chmod 0755 "$RAMROOT/usr/bin/silen-installer" "$ISO_DIR/silen-installer" 2>/dev/null || true
 		copy_libs "$RAMROOT/usr/bin/silen-installer"
 	else
-		echo "  ERROR no silen-installer binary available (live ISO needs it)"; exit 1
+		echo "  MINIMAL_ISO=1: skipping silen-installer binary in initramfs (using shell installer)"
 	fi
+else
+	if [ "$MINIMAL_ISO" != "1" ]; then
+		echo "  ERROR no silen-installer binary available (live ISO needs it)"; exit 1
+	else
+		echo "  MINIMAL_ISO=1: no silen-installer binary (using shell installer)"
+	fi
+fi
 
 cat > "$ISO_DIR/silen-installer.desktop" << 'EOF'
 [Desktop Entry]
@@ -1003,6 +1100,7 @@ Categories=System;
 EOF
 
 echo "  resolving live-binary deps via ldd (instantwm, installer, foot, Xorg...)"
+command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$RAMROOT" >/dev/null 2>&1 || true
 for _lb in "$RAMROOT"/usr/bin/* "$RAMROOT"/usr/sbin/* "$RAMROOT"/usr/libexec/*; do
 	[ -f "$_lb" ] || continue
 	case "$_lb" in
@@ -1036,7 +1134,7 @@ _missing_libs() {
 }
 _hsweep="$(_missing_libs)"
 if [ -n "$_hsweep" ]; then
-	echo "  harvesting missing libs from tarball-silen.xz:$_hsweep"
+	echo "  harvesting missing libs from tarball-silen.xz and host:$_hsweep"
 	_tb=""
 	[ -f tarball-silen.xz ] && _tb="tarball-silen.xz"
 	_harv=/tmp/opencode/xorg-harvest
@@ -1044,30 +1142,34 @@ if [ -n "$_hsweep" ]; then
 		rm -rf "$_harv" 2>/dev/null || true
 		mkdir -p "$_harv"
 		xz -dc "$_tb" 2>/dev/null | tar -C "$_harv" -x stage3-tarball-silen/usr/lib64 2>/dev/null || true
-		_go="$_hsweep"
-		_r=0
-		while [ "$_r" -lt 6 ]; do
-			_r=$((_r + 1))
-			_next=""
-			for _lib in $_go; do
-				[ -n "$_lib" ] || continue
-				_src="$(find "$_harv" -name "$_lib" 2>/dev/null | head -n 1)"
-				[ -n "$_src" ] || { _next="$_next $_lib"; continue; }
-				cp -a "$_src" "$RAMROOT/usr/lib64/$_lib" 2>/dev/null || { _next="$_next $_lib"; continue; }
-				echo "    + $_lib"
-				_dep="$(ldd "$RAMROOT/usr/lib64/$_lib" 2>/dev/null | awk '/not found/{print $1}' || true)"
-				for _d in $_dep; do
-					case " $_next $_go " in
-						*" $_d "*) ;;
-						*) _next="$_next $_d" ;;
-					esac
-				done
-			done
-			_go="$(printf '%s\n' $_next | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//')"
-			[ -n "$_go" ] || break
-		done
-		rm -rf "$_harv" 2>/dev/null || true
 	fi
+	_go="$_hsweep"
+	_r=0
+	while [ "$_r" -lt 6 ]; do
+		_r=$((_r + 1))
+		_next=""
+		for _lib in $_go; do
+			[ -n "$_lib" ] || continue
+			_src="$(find "$_harv" -name "$_lib" 2>/dev/null | head -n 1)"
+			if [ -z "$_src" ]; then
+				# Try host system
+				_src="$(ldconfig -p 2>/dev/null | awk -v lib="$_lib" '$1 == lib {print $4; exit}')"
+			fi
+			[ -n "$_src" ] || { _next="$_next $_lib"; continue; }
+			cp -a "$_src" "$RAMROOT/usr/lib64/$_lib" 2>/dev/null || { _next="$_next $_lib"; continue; }
+			echo "    + $_lib"
+			_dep="$(ldd "$RAMROOT/usr/lib64/$_lib" 2>/dev/null | awk '/not found/{print $1}' || true)"
+			for _d in $_dep; do
+				case " $_next $_go " in
+					*" $_d "*) ;;
+					*) _next="$_next $_d" ;;
+				esac
+			done
+		done
+		_go="$(printf '%s\n' $_next | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//')"
+		[ -n "$_go" ] || break
+	done
+	rm -rf "$_harv" 2>/dev/null || true
 	command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$RAMROOT" >/dev/null 2>&1 || true
 	_left=""
 	for _lib in $_hsweep; do
@@ -1076,6 +1178,28 @@ if [ -n "$_hsweep" ]; then
 	_left="$(printf '%s\n' $_left | tr -s '[:space:]' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//')"
 	[ -z "$_left" ] || echo "  ! still missing after harvest: $_left"
 fi
+
+# Create compatibility symlinks for common version mismatches
+for _link in \
+	"libicuuc.so.77 libicuuc.so.78" \
+	"libicui18n.so.77 libicui18n.so.78" \
+	"libicuio.so.77 libicuio.so.78" \
+	"libicutest.so.77 libicutest.so.78" \
+	"libicutu.so.77 libicutu.so.78" \
+	"libicudata.so.77 libicudata.so.78" \
+	"libjpeg.so.62 libjpeg.so.62.4.0" \
+	"libjpeg.so.62 libjpeg.so.8" \
+; do
+	set -- $_link
+	_target="$1"
+	_source="$2"
+	if [ -e "$RAMROOT/usr/lib64/$_source" ] && [ ! -e "$RAMROOT/usr/lib64/$_target" ]; then
+		ln -sf "$_source" "$RAMROOT/usr/lib64/$_target"
+		echo "    + compat symlink $_target -> $_source"
+	fi
+done
+
+command -v ldconfig >/dev/null 2>&1 && ldconfig -r "$RAMROOT" >/dev/null 2>&1 || true
 
 for _crit in instantwm foot; do
 	[ -e "$RAMROOT/usr/bin/$_crit" ] || echo "  ! desktop payload incomplete: $_crit missing (live session may not start)"
@@ -1095,6 +1219,7 @@ for _tool in fc-cache setxkbmap; do
 	fi
 done
 
+if [ "$MINIMAL_ISO" != "1" ]; then
 mkdir -p "$RAMROOT/usr/share/wayland-sessions" "$RAMROOT/usr/share/applications" || true
 if [ ! -f "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" ]; then
 	cat > "$RAMROOT/usr/share/wayland-sessions/instantwm.desktop" << 'EOF'
@@ -1171,11 +1296,13 @@ text_size = 12.0
 icon_family = "Symbols Nerd Font"
 icon_size = 16.0
 TOML_EOF
-	fi
-	chmod 755 "$_h"/.config/instantos/default/* 2>/dev/null || true
+ 	fi
+ 	chmod 755 "$_h"/.config/instantos/default/* 2>/dev/null || true
 done
+fi
 
 mkdir -p "$RAMROOT/usr/bin" || true
+if [ "$MINIMAL_ISO" != "1" ]; then
 cat > "$RAMROOT/usr/bin/silen-live-wayland" << 'EOF'
 #!/bin/sh
 LOG=/tmp/live-gui.log
@@ -1358,12 +1485,17 @@ echo "compositor gone, session over" >>"$LOG" 2>&1
 exit 0
 EOF
 chmod 0755 "$RAMROOT/usr/bin/silen-live-wayland" 2>/dev/null || true
+fi
 
 if ! ldconfig -r "$RAMROOT" 2>/dev/null; then
 	echo "  ERROR ldconfig failed after live desktop merge"; exit 1
 fi
-echo "  live desktop ready: $(du -sh "$RAMROOT" 2>/dev/null | cut -f1) ramroot"
-echo "  $(du -sh "$RAMROOT/usr/bin/instantwm" 2>/dev/null | cut -f1) instantwm usr bin"
+if [ "$MINIMAL_ISO" != "1" ]; then
+	echo "  live desktop ready: $(du -sh "$RAMROOT" 2>/dev/null | cut -f1) ramroot"
+	echo "  $(du -sh "$RAMROOT/usr/bin/instantwm" 2>/dev/null | cut -f1) instantwm usr bin"
+else
+	echo "  minimal live environment ready: $(du -sh "$RAMROOT" 2>/dev/null | cut -f1) ramroot"
+fi
 
 
 echo "[6/7] Packing initramfs ($COMPRESS)"
@@ -1604,7 +1736,7 @@ cp "build/$INITRAMFS" "$ISO_DIR/boot/$INITRAMFS" || { echo "  ERROR cannot copy 
 
 cat > "$ISO_DIR/boot/grub/grub.cfg" <<EOF
 set default=0
-set timeout=10
+set timeout=5
 
 insmod part_gpt
 insmod part_msdos
@@ -1625,8 +1757,8 @@ fi
 # specification', blind mode, LP#1711452); the GRUB default is correct.
 terminal_output gfxterm console
 
-menuentry "Silen Linux" {
-	echo "Booting Silen"
+menuentry "Silen Installer" {
+	echo "Booting Silen Installer"
 	if [ "$NVIDIA" = "1" ]; then
 		linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 nvidia-drm.modeset=1
 	else
@@ -1635,15 +1767,9 @@ menuentry "Silen Linux" {
 	initrd /boot/$INITRAMFS
 }
 
-menuentry "Silen Linux (fallback, nomodeset)" {
-	echo "Booting Silen (no KMS)"
+menuentry "Silen Installer (fallback, nomodeset)" {
+	echo "Booting Silen Installer (no KMS)"
 	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
-	initrd /boot/$INITRAMFS
-}
-
-menuentry "Silen Linux (text installer)" {
-	echo "Booting Silen (text installer)"
-	linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 silen.text
 	initrd /boot/$INITRAMFS
 }
 EOF

@@ -20,3 +20,4 @@ website/
 silen-installer/target/
 linux-6.18.*/
 packages/
+audit_reports/

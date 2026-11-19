@@ -567,79 +567,17 @@ cmdline_flag_present() {
 	return 1
 }
 
- run_text_installer() {
-	if [ -x /installer/main.sh ]; then
-		note "Starting the Silen installer"
-		echo "  it also lets you open a shell reboot or power off"
-		echo
-		/bin/bash /installer/main.sh
-		echo
-		echo "Installer exited dropping to a shell"
-	else
-		echo "  installer not found dropping to a shell"
-	fi
-}
-
 # Start a verification shell on ttyS1 for runtime diagnostics
 [ -c /dev/ttyS1 ] && setsid sh -c 'exec sh </dev/ttyS1 >/dev/ttyS1 2>&1' &
 
-if cmdline_flag_present silen.text; then
-	echo "silen.text on the command line running the text installer"
-	if cmdline_flag_present silen.auto; then
-		echo "unattended install mode (silen.auto)"
-		export SILEN_AUTO=1
-	fi
-	run_text_installer
-elif [ -x /usr/bin/instantwm ] && [ -x /usr/bin/silen-live-wayland ] && [ -x /usr/bin/silen-installer ]; then
-	note "Starting the live InstantWM desktop"
-	echo "  the graphical installer opens inside the desktop"
-	echo "  add silen.text to the boot command line for the text installer"
-	echo
-
-	# Ensure /dev/tty* devices exist for getty
-	for _tty in tty1 tty2 tty3 tty4 tty5 tty6; do
-		[ -c "/dev/$_tty" ] || mknod "/dev/$_tty" c 4 "$((_tty))" 2>/dev/null || true
-	done
-
-	# Start getty on virtual terminals BEFORE the desktop starts,
-	// so text consoles are available even if the graphics session grabs the DRM device
-	if [ -x /usr/sbin/agetty ] || [ -x /bin/agetty ]; then
-		for _tty in tty2 tty3 tty4 tty5 tty6; do
-			setsid /usr/sbin/agetty /dev/$_tty linux 2>/dev/null &
-		done
-		sleep 1
-	fi
-
-	# Ensure InstantWM config is available for root (XDG_CONFIG_HOME=/root/.config)
-	mkdir -p /root/.config/instantwm 2>/dev/null || true
-	cp -a /etc/skel/.config/instantwm/config.toml /root/.config/instantwm/config.toml 2>/dev/null || true
-	/usr/bin/silen-live-wayland &
-	_lwp=$!
-	sleep 3
-	echo "=== LIVE INPUT VERIFICATION ==="
-	if [ -S /run/udev/control ]; then echo "udevd: control socket OK"; else echo "udevd: control socket MISSING"; fi
-	udevadm trigger --action=add 2>/dev/null || true
-	sleep 1
-	if [ -c /dev/input/event0 ]; then echo "input: /dev/input/event0 present"; else echo "input: /dev/input/event0 MISSING"; fi
-	libinput list-devices 2>/dev/null | head -30 || echo "libinput: not available or failed"
-	if [ -S /run/seatd.sock ]; then echo "seatd: socket OK"; else echo "seatd: socket MISSING"; fi
-	if [ -f /tmp/instantwm.pid ]; then
-		read -r _iwpid </tmp/instantwm.pid 2>/dev/null || true
-		if [ -n "$_iwpid" ] && kill -0 "$_iwpid" 2>/dev/null; then echo "instantwm: running (pid $_iwpid)"; else echo "instantwm: NOT running"; fi
-	else echo "instantwm: no pid file"; fi
-echo "=== END VERIFICATION ==="
+# Always boot directly into the simple text installer
+note "Starting the Silen installer"
+echo "  it also lets you open a shell reboot or power off"
 echo
+/bin/bash /installer/simple-installer.sh
+echo
+echo "Installer exited dropping to a shell"
 
-wait "$_lwp"
-_rc=$?
-echo "desktop exited with $_rc"
-echo "Desktop session ended dropping to a shell"
-elif [ -x /usr/bin/silen-installer ]; then
-	echo "  desktop payload incomplete (instantwm missing) running the text installer"
-	run_text_installer
-else
-	run_text_installer
-fi
 mkdir -p /etc 2>/dev/null || true
 if touch /etc/silen-shrc 2>/dev/null; then
 cat > /etc/silen-shrc <<'EOF'
