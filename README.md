@@ -1,15 +1,12 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/assets/logo.png" alt="Silen Linux" width="100"/>
+  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/assets/mascot.png" alt="Silen Mascot" width="150"/>
 </p>
 
 <h1 align="center">Silen Linux</h1>
 
 <p align="center">
   <b>Independent, lightweight x86_64 Linux distribution</b>
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/assets/mascot.png" alt="Silen Mascot" width="150"/>
 </p>
 
 ---
