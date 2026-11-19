@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/Silensite/assets/logo.png" alt="Silen Linux" width="200"/>
+  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/Silensite/assets/logo.svg" alt="Silen Linux" width="200"/>
 </p>
 
 <h1 align="center">Silen Linux</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/Silensite/assets/mascot.png" alt="Silen Mascot" width="150"/>
+  <img src="https://raw.githubusercontent.com/Cgtlpa/SilenLinux/main/Silensite/assets/mascot.svg" alt="Silen Mascot" width="150"/>
 </p>
 
 ---
