@@ -1781,16 +1781,16 @@ terminal_output gfxterm console
 menuentry "Silen Installer" {
 	echo "Booting Silen Installer"
 	if [ "$NVIDIA" = "1" ]; then
-		linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0 nvidia-drm.modeset=1
+		linux /boot/vmlinuz loglevel=4 console=tty0 nvidia-drm.modeset=1
 	else
-		linux /boot/vmlinuz loglevel=4 console=ttyS0 console=tty0
+		linux /boot/vmlinuz loglevel=4 console=tty0
 	fi
 	initrd /boot/$INITRAMFS
 }
 
 menuentry "Silen Installer (fallback, nomodeset)" {
 	echo "Booting Silen Installer (no KMS)"
-	linux /boot/vmlinuz nomodeset loglevel=4 console=ttyS0 console=tty0
+	linux /boot/vmlinuz nomodeset loglevel=4 console=tty0
 	initrd /boot/$INITRAMFS
 }
 EOF
