@@ -6,7 +6,7 @@
 <h1 align="center">Silen Linux</h1>
 
 <p align="center">
-  <b>Independent, lightweight x86_64 Linux distribution</b>
+  <b>Independent, x86_64 Linux distribution</b>
 </p>
 
 ---
