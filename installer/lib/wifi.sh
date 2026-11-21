@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Wi-Fi connection interface for the Silen installer
-# This is called when the user selects Install and no internet connection is detected
+# Uses the new ui.sh library (no whiptail dependency)
+
+# Source UI library
+. /installer/lib/ui.sh
 
 check_internet() {
     local timeout=5
@@ -36,41 +39,95 @@ scan_wifi_networks() {
     local iface="$1"
     local networks=()
     
-    # Trigger scan
-    iwctl station "$iface" scan >/dev/null 2>&1
-    sleep 2
+    # Ensure interface is up
+    ip link set "$iface" up 2>/dev/null
+    rfkill unblock wifi 2>/dev/null
+    rfkill unblock all 2>/dev/null
     
-    # Get scan results
-    local scan_output
-    scan_output=$(iwctl station "$iface" get-networks 2>/dev/null | tail -n +4 | head -n -1)
-    
-    if [[ -z "$scan_output" ]]; then
-        return 1
+    # Try iwctl first (iwd backend)
+    if command -v iwctl >/dev/null 2>&1; then
+        # Trigger scan
+        iwctl station "$iface" scan >/dev/null 2>&1
+        sleep 2
+        
+        # Get scan results
+        local scan_output
+        scan_output=$(iwctl station "$iface" get-networks 2>/dev/null)
+        
+        if [[ -n "$scan_output" ]]; then
+            # iwctl output format:
+            # *   Network name         Security   Signal
+            #     MyNetwork            psk        ▂▄▆_
+            local in_networks=0
+            while IFS= read -r line; do
+                # Skip header lines and empty lines
+                [[ -z "$line" ]] && continue
+                [[ "$line" == *"Network name"* ]] && continue
+                [[ "$line" == *"---"* ]] && continue
+                [[ "$line" == *"No networks"* ]] && continue
+                
+                # Parse: * SSID security signal
+                # Remove leading * or space
+                line="${line#* }"
+                line="${line#* }"
+                [[ -z "$line" ]] && continue
+                
+                local ssid=""
+                local security=""
+                local signal=""
+                
+                # Extract SSID (first field)
+                ssid=$(echo "$line" | awk '{print $1}')
+                
+                # Extract security (second field)  
+                security=$(echo "$line" | awk '{print $2}')
+                
+                # Extract signal (last field)
+                signal=$(echo "$line" | awk '{print $NF}')
+                
+                if [[ -n "$ssid" && "$ssid" != "*" && "$ssid" != ">" ]]; then
+                    networks+=("$ssid|$security|$signal")
+                    in_networks=1
+                fi
+            done <<< "$scan_output"
+            
+            if [[ $in_networks -eq 1 ]]; then
+                printf '%s\n' "${networks[@]}"
+                return 0
+            fi
+        fi
     fi
     
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        # Parse: network name, security, signal
-        local ssid=$(echo "$line" | awk '{for(i=1;i<=NF-2;i++) printf "%s ", $i; print ""}' | sed 's/ *$//')
-        local security=$(echo "$line" | awk '{print $(NF-1)}')
-        local signal=$(echo "$line" | awk '{print $NF}')
-        
-        if [[ -n "$ssid" && "$ssid" != ">" ]]; then
-            networks+=("$ssid|$security|$signal")
+    # Fallback: try iw dev scan (works without iwd)
+    if command -v iw >/dev/null 2>&1; then
+        local scan_output
+        scan_output=$(iw dev "$iface" scan 2>/dev/null)
+        if [[ -n "$scan_output" ]]; then
+            local ssid=""
+            while IFS= read -r line; do
+                if [[ "$line" == *"SSID:"* ]]; then
+                    ssid="${line#*SSID: }"
+                    ssid="${ssid// /}"
+                    if [[ -n "$ssid" && "$ssid" != ">" ]]; then
+                        networks+=("$ssid|psk|▂▄▆_")
+                    fi
+                fi
+            done <<< "$scan_output"
+            
+            if [[ ${#networks[@]} -gt 0 ]]; then
+                printf '%s\n' "${networks[@]}"
+                return 0
+            fi
         fi
-    done <<< "$scan_output"
+    fi
     
-    printf '%s\n' "${networks[@]}"
+    return 1
 }
 
 connect_wifi() {
     local iface="$1"
     local ssid="$2"
     local passphrase="$3"
-    
-    # Create a temporary network config
-    local config_dir="/var/lib/iwd"
-    mkdir -p "$config_dir"
     
     # Use iwctl to connect
     if [[ -n "$passphrase" ]]; then
@@ -81,7 +138,7 @@ connect_wifi() {
     
     local ret=$?
     if [[ $ret -eq 0 ]]; then
-        # Wait for connection
+        # Wait for connection (up to 30 seconds)
         local i=0
         while [[ $i -lt 30 ]]; do
             if iwctl station "$iface" show 2>/dev/null | grep -q "Connected network"; then
@@ -98,13 +155,13 @@ connect_wifi() {
 wifi_connection_screen() {
     local title="Silen Linux - Wi-Fi Setup"
     
-    whiptail --title "$title" --msgbox "No internet connection detected.\n\nTo install Silen, an internet connection is required to download packages.\n\nPlease select a Wi-Fi network to continue." 12 60
+    ui_msg "$title" "No internet connection detected.\n\nTo install Silen, an internet connection is required to download packages.\n\nPlease select a Wi-Fi network to continue." "warn"
     
     local interfaces=()
     mapfile -t interfaces < <(get_wireless_interfaces)
     
     if [[ ${#interfaces[@]} -eq 0 ]]; then
-        whiptail --title "$title" --msgbox "No wireless interfaces found.\n\nPlease connect via Ethernet cable and try again." 10 60
+        ui_msg "$title" "No wireless interfaces found.\n\nPlease connect via Ethernet cable and try again." "error"
         return 1
     fi
     
@@ -116,8 +173,8 @@ wifi_connection_screen() {
             menu_items+=("$((i+1))" "${interfaces[i]}")
         done
         local choice
-        choice=$(whiptail --title "$title" --menu "Select wireless interface:" 15 60 6 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-        [[ -z "$choice" ]] && return 1
+        choice=$(ui_menu "$title" "Select wireless interface:" "${menu_items[@]}")
+        [[ $choice -eq 0 ]] && return 1
         iface="${interfaces[choice-1]}"
     fi
     
@@ -127,18 +184,18 @@ wifi_connection_screen() {
     rfkill unblock all 2>/dev/null
     
     while true; do
-        whiptail --title "$title" --infobox "Scanning for networks on $iface..." 8 60
+        ui_info "$title" "Scanning for networks on $iface...\n\nPlease wait while we scan for available Wi-Fi networks."
         
         local networks=()
         mapfile -t networks < <(scan_wifi_networks "$iface")
         
         if [[ ${#networks[@]} -eq 0 ]]; then
             local retry
-            retry=$(whiptail --title "$title" --menu "No networks found. What would you like to do?" 15 60 4 \
-                "1" "Rescan" \
-                "2" "Try different interface" \
-                "3" "Enter SSID manually" \
-                "4" "Back to main menu" 3>&1 1>&2 2>&3)
+            retry=$(ui_menu "$title" "No Wi-Fi networks found. What would you like to do?" \
+                "Rescan" "Scan for networks again" \
+                "Try different interface" "Select another wireless interface" \
+                "Enter SSID manually" "Connect to hidden network" \
+                "Back to main menu" "Return to main menu")
             case "$retry" in
                 1) continue ;;
                 2) 
@@ -149,28 +206,28 @@ wifi_connection_screen() {
                             menu_items+=("$((i+1))" "${interfaces[i]}")
                         done
                         local choice
-                        choice=$(whiptail --title "$title" --menu "Select wireless interface:" 15 60 6 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-                        [[ -z "$choice" ]] && return 1
+                        choice=$(ui_menu "$title" "Select wireless interface:" "${menu_items[@]}")
+                        [[ $choice -eq 0 ]] && return 1
                         iface="${interfaces[choice-1]}"
                         ip link set "$iface" up 2>/dev/null
                         continue
                     else
-                        whiptail --title "$title" --msgbox "No other wireless interfaces available." 8 60
+                        ui_msg "$title" "No other wireless interfaces available." "warn"
                         continue
                     fi
                     ;;
                 3)
                     local ssid
-                    ssid=$(whiptail --title "$title" --inputbox "Enter SSID (network name):" 8 60 3>&1 1>&2 2>&3)
+                    ssid=$(ui_input "$title" "Enter SSID (network name):")
                     [[ -z "$ssid" ]] && continue
                     local passphrase
-                    passphrase=$(whiptail --title "$title" --passwordbox "Enter password for $ssid (leave empty for open network):" 8 60 3>&1 1>&2 2>&3)
-                    whiptail --title "$title" --infobox "Connecting to $ssid..." 8 60
+                    passphrase=$(ui_password "$title" "Enter password for $ssid (leave empty for open network):")
+                    ui_info "$title" "Connecting to $ssid..."
                     if connect_wifi "$iface" "$ssid" "$passphrase"; then
-                        whiptail --title "$title" --msgbox "Connected to $ssid successfully!" 8 60
+                        ui_msg "$title" "Connected to $ssid successfully!" "info"
                         return 0
                     else
-                        whiptail --title "$title" --msgbox "Failed to connect to $ssid. Please check password and try again." 10 60
+                        ui_msg "$title" "Failed to connect to $ssid. Please check password and try again." "error"
                         continue
                     fi
                     ;;
@@ -195,8 +252,8 @@ wifi_connection_screen() {
         menu_items+=("$((i+3))" "Back to main menu")
         
         local choice
-        choice=$(whiptail --title "$title" --menu "Available networks on $iface:" 20 70 12 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-        [[ -z "$choice" ]] && return 1
+        choice=$(ui_menu "$title" "Available networks on $iface:" "${menu_items[@]}")
+        [[ $choice -eq 0 ]] && return 1
         
         if [[ $choice -eq $((i+1)) ]]; then
             # Rescan
@@ -204,16 +261,16 @@ wifi_connection_screen() {
         elif [[ $choice -eq $((i+2)) ]]; then
             # Enter SSID manually
             local ssid
-            ssid=$(whiptail --title "$title" --inputbox "Enter SSID (network name):" 8 60 3>&1 1>&2 2>&3)
+            ssid=$(ui_input "$title" "Enter SSID (network name):")
             [[ -z "$ssid" ]] && continue
             local passphrase
-            passphrase=$(whiptail --title "$title" --passwordbox "Enter password for $ssid (leave empty for open network):" 8 60 3>&1 1>&2 2>&3)
-            whiptail --title "$title" --infobox "Connecting to $ssid..." 8 60
+            passphrase=$(ui_password "$title" "Enter password for $ssid (leave empty for open network):")
+            ui_info "$title" "Connecting to $ssid..."
             if connect_wifi "$iface" "$ssid" "$passphrase"; then
-                whiptail --title "$title" --msgbox "Connected to $ssid successfully!" 8 60
+                ui_msg "$title" "Connected to $ssid successfully!" "info"
                 return 0
             else
-                whiptail --title "$title" --msgbox "Failed to connect to $ssid. Please check password and try again." 10 60
+                ui_msg "$title" "Failed to connect to $ssid. Please check password and try again." "error"
                 continue
             fi
         elif [[ $choice -eq $((i+3)) ]]; then
@@ -226,16 +283,16 @@ wifi_connection_screen() {
         
         local passphrase=""
         if [[ "$security" == "psk" || "$security" == "802.1x" ]]; then
-            passphrase=$(whiptail --title "$title" --passwordbox "Enter password for $ssid:" 8 60 3>&1 1>&2 2>&3)
+            passphrase=$(ui_password "$title" "Enter password for $ssid:")
             [[ -z "$passphrase" ]] && continue
         fi
         
-        whiptail --title "$title" --infobox "Connecting to $ssid..." 8 60
+        ui_info "$title" "Connecting to $ssid..."
         if connect_wifi "$iface" "$ssid" "$passphrase"; then
-            whiptail --title "$title" --msgbox "Connected to $ssid successfully!" 8 60
+            ui_msg "$title" "Connected to $ssid successfully!" "info"
             return 0
         else
-            whiptail --title "$title" --msgbox "Failed to connect to $ssid. Please check password and try again." 10 60
+            ui_msg "$title" "Failed to connect to $ssid. Please check password and try again." "error"
         fi
     done
 }
@@ -250,7 +307,7 @@ ensure_internet() {
             if check_internet; then
                 return 0
             else
-                whiptail --title "Silen Linux" --msgbox "Connected to Wi-Fi but no internet access.\nPlease try a different network or check your connection." 10 60
+                ui_msg "$title" "Connected to Wi-Fi but no internet access.\nPlease try a different network or check your connection." "error"
             fi
         else
             # User chose to go back to main menu

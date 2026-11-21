@@ -27,39 +27,48 @@ RESET='\033[0m'
 # Clear screen
 clear_screen() { 
     update_term_size
-    echo -ne '\033[2J\033[H'; 
+    printf '\033[2J\033[H'
 }
 
 # Move cursor
-move_cursor() { echo -ne "\033[$1;${2}H"; }
+move_cursor() { printf '\033[%d;%dH' "$1" "$2"; }
 
 # Hide/show cursor
-hide_cursor() { echo -ne '\033[?25l'; }
-show_cursor() { echo -ne '\033[?25h'; }
+hide_cursor() { printf '\033[?25l'; }
+show_cursor() { printf '\033[?25h'; }
 
-# Draw a box
+# Draw a box with double-line borders for a more polished look
 draw_box() {
     local x=$1 y=$2 w=$3 h=$4 title="$5"
-    move_cursor $y $x
-    echo -ne "${CYAN}┌${RESET}"
-    printf '%*s' $((w-2)) | tr ' ' '─'
-    echo -ne "${CYAN}┐${RESET}"
     
+    # Top border
+    move_cursor $y $x
+    printf "${CYAN}╔${RESET}"
+    local i
+    for ((i=0; i<w-2; i++)); do printf "${CYAN}═${RESET}"; done
+    printf "${CYAN}╗${RESET}"
+    
+    # Sides
     for ((i=1; i<h-1; i++)); do
         move_cursor $((y+i)) $x
-        echo -ne "${CYAN}│${RESET}"
+        printf "${CYAN}║${RESET}"
         move_cursor $((y+i)) $((x+w-1))
-        echo -ne "${CYAN}│${RESET}"
+        printf "${CYAN}║${RESET}"
     done
     
+    # Bottom border
     move_cursor $((y+h-1)) $x
-    echo -ne "${CYAN}└${RESET}"
-    printf '%*s' $((w-2)) | tr ' ' '─'
-    echo -ne "${CYAN}┘${RESET}"
+    printf "${CYAN}╚${RESET}"
+    for ((i=0; i<w-2; i++)); do printf "${CYAN}═${RESET}"; done
+    printf "${CYAN}╝${RESET}"
     
+    # Title centered at top
     if [ -n "$title" ]; then
-        move_cursor $y $((x+2))
-        echo -ne " ${BOLD}${title}${RESET} "
+        local tlen=${#title}
+        local tx=$((x + (w - tlen) / 2 - 1))
+        [ $tx -lt $((x + 2)) ] && tx=$((x + 2))
+        move_cursor $y $tx
+        printf " ${BOLD}${title}${RESET} "
     fi
 }
 
@@ -67,7 +76,26 @@ draw_box() {
 print_at() {
     local y=$1 x=$2 text="$3"
     move_cursor $y $x
-    echo -ne "$text"
+    printf "%s" "$text"
+}
+
+# Wrap and print text within box bounds
+print_wrapped() {
+    local y=$1 x=$2 text="$3" max_w=$4
+    local line=""
+    local word
+    for word in $text; do
+        if [ ${#line} -eq 0 ]; then
+            line="$word"
+        elif [ $((${#line} + 1 + ${#word})) -le $max_w ]; then
+            line="$line $word"
+        else
+            print_at $y $x "$line"
+            y=$((y+1))
+            line="$word"
+        fi
+    done
+    [ -n "$line" ] && print_at $y $x "$line"
 }
 
 # Menu function
@@ -84,52 +112,61 @@ ui_menu() {
     hide_cursor
     clear_screen
     
-    local box_w=60
-    local box_h=$((num_opts + 6))
+    local box_w=62
+    local box_h=$((num_opts + 7))
     [ $box_w -gt $COLS ] && box_w=$((COLS - 4))
     [ $box_h -gt $LINES ] && box_h=$((LINES - 2))
     local box_x=$(( (COLS - box_w) / 2 ))
+    [ $box_x -lt 2 ] && box_x=2
     local box_y=$(( (LINES - box_h) / 2 ))
+    [ $box_y -lt 2 ] && box_y=2
     
     while true; do
         draw_box $box_x $box_y $box_w $box_h "$title"
         
-        # Print prompt (wrapped)
-        local prompt_x=$((box_x + 2))
+        # Print prompt (wrapped, centered area)
         local prompt_y=$((box_y + 2))
-        local max_w=$((box_w - 4))
+        print_wrapped $prompt_y $((box_x + 3)) "$prompt" $((box_w - 6))
+        # Count prompt lines for spacing
+        local p_lines=1
+        local max_w=$((box_w - 6))
         local line=""
+        local word
         for word in $prompt; do
             if [ ${#line} -eq 0 ]; then
                 line="$word"
             elif [ $((${#line} + 1 + ${#word})) -le $max_w ]; then
                 line="$line $word"
             else
-                print_at $prompt_y $prompt_x "$line"
-                prompt_y=$((prompt_y+1))
+                p_lines=$((p_lines+1))
                 line="$word"
             fi
         done
-        [ -n "$line" ] && print_at $prompt_y $prompt_x "$line"
-        prompt_y=$((prompt_y+1))
+        prompt_y=$((prompt_y + p_lines + 1))
         
         # Print options
         local i
         for ((i=0; i<num_opts; i++)); do
             local opt_idx=$((i*2))
             local desc_idx=$((i*2+1))
-            local y=$((prompt_y + 1 + i))
+            local y=$((prompt_y + i))
             [ $y -ge $((box_y + box_h - 2)) ] && break
             local prefix="  "
-            [ $((i+1)) -eq $selected ] && prefix="${GREEN}→ ${RESET}" || prefix="  "
-            print_at $y $((box_x + 3)) "${prefix}${options[opt_idx]}"
-            if [ -n "${options[desc_idx]}" ] && [ ${#options[opt_idx]} -lt 18 ]; then
-                print_at $y $((box_x + 22)) "${CYAN}${options[desc_idx]}${RESET}"
+            if [ $((i+1)) -eq $selected ]; then
+                prefix="${GREEN}► ${RESET}"
+            fi
+            print_at $y $((box_x + 3)) "${prefix}${BOLD}${options[opt_idx]}${RESET}"
+            if [ -n "${options[desc_idx]}" ] && [ ${#options[opt_idx]} -lt 20 ]; then
+                print_at $y $((box_x + 24)) "${CYAN}${options[desc_idx]}${RESET}"
             fi
         done
         
-        # Instructions
-        print_at $((box_y + box_h - 2)) $((box_x + 2)) "${YELLOW}↑/↓ or k/j to navigate, Enter to select, q/Esc to cancel${RESET}"
+        # Instructions centered at bottom
+        local instr="↑/↓ or k/j to navigate • Enter to select • q/Esc to cancel"
+        local ilen=${#instr}
+        local ix=$((box_x + (box_w - ilen) / 2))
+        [ $ix -lt $((box_x + 2)) ] && ix=$((box_x + 2))
+        print_at $((box_y + box_h - 2)) $ix "${YELLOW}${instr}${RESET}"
         
         # Read key
         IFS= read -rsn1 key
@@ -162,19 +199,32 @@ ui_input() {
     hide_cursor
     clear_screen
     
-    local box_w=60
+    local box_w=62
     [ $box_w -gt $COLS ] && box_w=$((COLS - 4))
-    local box_h=8
+    local box_h=9
     local box_x=$(( (COLS - box_w) / 2 ))
+    [ $box_x -lt 2 ] && box_x=2
     local box_y=$(( (LINES - box_h) / 2 ))
+    [ $box_y -lt 2 ] && box_y=2
     
     while true; do
         draw_box $box_x $box_y $box_w $box_h "$title"
-        print_at $((box_y + 2)) $((box_x + 2)) "$prompt"
-        print_at $((box_y + 4)) $((box_x + 3)) " "
+        print_at $((box_y + 2)) $((box_x + 3)) "$prompt"
+        print_at $((box_y + 4)) $((box_x + 3)) "┌"
+        local fill_w=$((box_w - 6))
+        local i
+        for ((i=0; i<fill_w; i++)); do printf "─"; done
+        printf "┐"
         print_at $((box_y + 4)) $((box_x + 4)) "$input"
+        print_at $((box_y + 5)) $((box_x + 3)) "└"
+        for ((i=0; i<fill_w; i++)); do printf "─"; done
+        printf "┘"
         move_cursor $((box_y + 4)) $((box_x + 4 + pos))
-        print_at $((box_y + 6)) $((box_x + 2)) "${YELLOW}Enter to confirm, Esc to cancel${RESET}"
+        local hint="Enter to confirm • Esc to cancel"
+        local hlen=${#hint}
+        local hx=$((box_x + (box_w - hlen) / 2))
+        [ $hx -lt $((box_x + 2)) ] && hx=$((box_x + 2))
+        print_at $((box_y + 7)) $hx "${YELLOW}${hint}${RESET}"
         
         IFS= read -rsn1 key
         case "$key" in
@@ -213,21 +263,33 @@ ui_password() {
     hide_cursor
     clear_screen
     
-    local box_w=60
+    local box_w=62
     [ $box_w -gt $COLS ] && box_w=$((COLS - 4))
-    local box_h=8
+    local box_h=9
     local box_x=$(( (COLS - box_w) / 2 ))
+    [ $box_x -lt 2 ] && box_x=2
     local box_y=$(( (LINES - box_h) / 2 ))
+    [ $box_y -lt 2 ] && box_y=2
     
     while true; do
         draw_box $box_x $box_y $box_w $box_h "$title"
-        print_at $((box_y + 2)) $((box_x + 2)) "$prompt"
-        print_at $((box_y + 4)) $((box_x + 3)) " "
-        # Show asterisks
+        print_at $((box_y + 2)) $((box_x + 3)) "$prompt"
+        print_at $((box_y + 4)) $((box_x + 3)) "┌"
+        local fill_w=$((box_w - 6))
+        local i
+        for ((i=0; i<fill_w; i++)); do printf "─"; done
+        printf "┐"
         local stars=$(printf '%*s' ${#input} | tr ' ' '*')
         print_at $((box_y + 4)) $((box_x + 4)) "$stars"
+        print_at $((box_y + 5)) $((box_x + 3)) "└"
+        for ((i=0; i<fill_w; i++)); do printf "─"; done
+        printf "┘"
         move_cursor $((box_y + 4)) $((box_x + 4 + pos))
-        print_at $((box_y + 6)) $((box_x + 2)) "${YELLOW}Enter to confirm, Esc to cancel${RESET}"
+        local hint="Enter to confirm • Esc to cancel"
+        local hlen=${#hint}
+        local hx=$((box_x + (box_w - hlen) / 2))
+        [ $hx -lt $((box_x + 2)) ] && hx=$((box_x + 2))
+        print_at $((box_y + 7)) $hx "${YELLOW}${hint}${RESET}"
         
         IFS= read -rsn1 key
         case "$key" in
@@ -265,33 +327,24 @@ ui_msg() {
     hide_cursor
     clear_screen
     
-    local box_w=60
+    local box_w=62
     [ $box_w -gt $COLS ] && box_w=$((COLS - 4))
     local box_h=8
     local box_x=$(( (COLS - box_w) / 2 ))
+    [ $box_x -lt 2 ] && box_x=2
     local box_y=$(( (LINES - box_h) / 2 ))
+    [ $box_y -lt 2 ] && box_y=2
     
     draw_box $box_x $box_y $box_w $box_h "$title"
     
     # Wrap message
-    local prompt_x=$((box_x + 2))
-    local prompt_y=$((box_y + 2))
-    local max_w=$((box_w - 4))
-    local line=""
-    for word in $msg; do
-        if [ ${#line} -eq 0 ]; then
-            line="$word"
-        elif [ $((${#line} + 1 + ${#word})) -le $max_w ]; then
-            line="$line $word"
-        else
-            print_at $prompt_y $prompt_x "$line"
-            prompt_y=$((prompt_y+1))
-            line="$word"
-        fi
-    done
-    [ -n "$line" ] && print_at $prompt_y $prompt_x "$line"
+    print_wrapped $((box_y + 2)) $((box_x + 3)) "$msg" $((box_w - 6))
     
-    print_at $((box_y + box_h - 2)) $((box_x + 2)) "${YELLOW}Press any key to continue...${RESET}"
+    local hint="Press any key to continue..."
+    local hlen=${#hint}
+    local hx=$((box_x + (box_w - hlen) / 2))
+    [ $hx -lt $((box_x + 2)) ] && hx=$((box_x + 2))
+    print_at $((box_y + box_h - 2)) $hx "${YELLOW}${hint}${RESET}"
     
     IFS= read -rsn1 key
     show_cursor
@@ -301,11 +354,13 @@ ui_msg() {
 ui_info() {
     local title="$1" msg="$2"
     clear_screen
-    local box_w=60
+    local box_w=62
     [ $box_w -gt $COLS ] && box_w=$((COLS - 4))
     local box_h=6
     local box_x=$(( (COLS - box_w) / 2 ))
+    [ $box_x -lt 2 ] && box_x=2
     local box_y=$(( (LINES - box_h) / 2 ))
+    [ $box_y -lt 2 ] && box_y=2
     draw_box $box_x $box_y $box_w $box_h "$title"
     print_at $((box_y + 2)) $((box_x + 3)) "$msg"
 }
